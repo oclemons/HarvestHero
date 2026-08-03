@@ -3,6 +3,7 @@ OpenAI.env
 OpenAI.env.bak
 *.env
 .env
+VercelToken
 
 # Python
 __pycache__/
@@ -15,6 +16,8 @@ dist/
 *.spec
 assets/*.ico
 assets/*.icns
+.vercel/cache
+.vercel/output
 
 # User data / local config
 data/inventory.db

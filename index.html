@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Harvest Hero — Pantry Intelligence Platform</title>
+  <style>
+    :root {
+      --bg: #0B1510;
+      --surface: #162A1D;
+      --text: #F0FFF4;
+      --muted: #A7C4B0;
+      --accent: #10B981;
+      --gold: #F59E0B;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid #2A4233;
+      border-radius: 20px;
+      padding: 48px;
+      max-width: 520px;
+      text-align: center;
+    }
+    h1 {
+      margin: 0 0 12px 0;
+      font-size: 2.2rem;
+    }
+    h1 span { color: var(--gold); }
+    p { color: var(--muted); line-height: 1.6; }
+    a {
+      display: inline-block;
+      margin-top: 24px;
+      padding: 14px 28px;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #0B1510;
+      text-decoration: none;
+      font-weight: bold;
+    }
+    .small { font-size: 0.85rem; margin-top: 24px; color: #5A7A64; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Harvest <span>Hero</span></h1>
+    <p>Pantry Intelligence Platform for food banks, campus pantries, and nonprofit distribution centers.</p>
+    <p>Built with Python, CustomTkinter, SQLite, and a Flask REST API.</p>
+    <a href="https://github.com/oclemons/HarvestHero" target="_blank" rel="noopener">View on GitHub</a>
+    <p class="small">Desktop installers for macOS and Windows are available in the repository releases.</p>
+  </div>
+</body>
+</html>
