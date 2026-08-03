@@ -1,0 +1,2 @@
+barcode,item_name,brand,category,current_quantity,minimum_stock,storage_location,expiration_date,notes
+012345678901,Canned Tomatoes,Hunt's,Canned Goods,24,6,Shelf A-3,2025-12-31,Example row — delete before importing

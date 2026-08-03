@@ -1,0 +1,64 @@
+Section 4
+Shelf 1: tomatoes
+Shelf 1: chili
+Shelf 1: meals in can
+Shelf 2: soup
+Shelf 2: cranberry sauce
+Shelf 2: FRUIT
+Shelf 3: Ravioli / Spaghetti
+Shelf 3: spaghetti sauce
+Shelf 3: cooking oil
+Shelf 4: (empty)
+
+Section 5
+Shelf 1: Can Fish
+Shelf 1: can meat
+Shelf 2: salt
+Shelf 2: pepper
+Shelf 2: seasonings
+Shelf 3: sugar substitute
+Shelf 3: Flour
+Shelf 3: Sugar
+Shelf 4: (empty)
+
+Section 6
+Shelf 1: Baking soda
+Shelf 1: Baking powder
+Shelf 1: cornstarch
+Shelf 2: peanut butter
+Shelf 2: crunchy peanut butter
+Shelf 2: peanut butter / jelly mix
+Shelf 2: jelly
+Shelf 3: condiments
+Shelf 4: (empty)
+
+Section 7
+Shelf 1: BOX mac & cheese
+Shelf 1: hamburger helper
+Shelf 2: chicken helper
+Shelf 2: Tuna helper
+Shelf 2: MISC. Box meals
+Shelf 3: chicken ramen noodles
+Shelf 3: Beef ramen noodles
+Shelf 4: (empty)
+
+Section 8
+Shelf 1: MISC ramen noodles
+Shelf 1: stuffing
+Shelf 2: RICE
+Shelf 2: mash potatoes
+Shelf 3: (empty)
+Shelf 4: (empty)
+
+Section 9
+Shelf 1: Asian Food
+Shelf 1: Mexican Food
+Shelf 2: northern beans (dry)
+Shelf 2: Lentils (dry)
+Shelf 2: split pea (dry)
+Shelf 2: pinto beans (dry)
+Shelf 3: Red Kidney beans (dry)
+Shelf 3: Black eyed peas (dry)
+Shelf 3: Garbanzo / chickpeas (dry)
+Shelf 3: black beans (dry)
+Shelf 4: (empty)

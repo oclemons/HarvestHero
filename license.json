@@ -1,0 +1,9 @@
+{
+  "org_name": "Inventory Control Center",
+  "environment_id": "56E9215F",
+  "host_machine_id": "6c1f8f00fbbd6d2b74e06d1dd8cc053b",
+  "created_at": "2026-06-25T16:23:21.923896",
+  "expiry": "",
+  "allowed_clients": [],
+  "signature": "1fb6bd19a35df07a5ebc168aec80d54992ccfe28d587c666a06060bc62403c32"
+}

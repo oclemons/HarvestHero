@@ -1,0 +1,25 @@
+Section 10
+Shelf 1: crackers
+Shelf 2: pasta
+Shelf 3: misc. FOOD
+Shelf 4: (empty)
+
+Section 11
+Shelf 1: Desserts
+Shelf 2: snack
+Shelf 3: snack bars / chips
+Shelf 4: (empty)
+
+Section 12
+Shelf 1: box cereal
+Shelf 2: bag cereal
+Shelf 3: Grits
+Shelf 3: Oatmeal
+Shelf 4: (empty)
+
+Section 13
+Shelf 1: Breakfast drinks
+Shelf 1: waffle / pancake mix
+Shelf 2: Sweet baked Goods
+Shelf 3: Baked goods
+Shelf 4: (empty)

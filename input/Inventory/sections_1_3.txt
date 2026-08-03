@@ -1,0 +1,23 @@
+Section 1
+Shelf 1: sweet corn
+Shelf 2: whole corn
+Shelf 3: cream corn
+Shelf 4: (empty)
+
+Section 2
+Shelf 1: French green beans
+Shelf 2: cut green beans
+Shelf 3: peas
+Shelf 4: (empty)
+
+Section 3
+Shelf 1: carrots
+Shelf 1: mixed vegetables
+Shelf 2: Hominy
+Shelf 2: chickpeas
+Shelf 2: Lima beans
+Shelf 3: Beans
+Shelf 3: Black beans
+Shelf 3: Potatoes
+Shelf 3: yams
+Shelf 4: (empty)

@@ -1,0 +1,24 @@
+# Environment / secrets
+OpenAI.env
+OpenAI.env.bak
+*.env
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Build artifacts
+build/
+dist/
+*.spec
+assets/*.ico
+assets/*.icns
+
+# User data / local config
+data/inventory.db
+output/
+config.json
+.DS_Store
+*.docx

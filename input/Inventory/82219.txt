@@ -1,0 +1,10 @@
+Section 19
+Shelf 1: Hams
+Shelf 1: Misc vegetables
+Shelf 1: Misc Vegetables
+Shelf 2: beans canned
+Shelf 2: Black beans canned
+Shelf 2: can fish (crossed out - skip)
+Shelf 3: Fruits
+Shelf 4: Tomatoes
+Shelf 4: Can Fish

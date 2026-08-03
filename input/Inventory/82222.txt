@@ -1,0 +1,17 @@
+Section 22 (overflow)
+Shelf 1: Ravioli / Spaghetti
+Shelf 1: Peanut butter
+Shelf 1: Breakfast drinks
+Shelf 1: Mac & cheese
+Shelf 1: Pinto beans dry
+
+Section 22
+Shelf 2: Pasta
+Shelf 2: Potatoes
+Shelf 2: Mixed box meals
+Shelf 3: Northern beans dry
+Shelf 3: Black beans dry
+Shelf 3: Red kidney beans dry
+Shelf 3: Chickpeas dry
+Shelf 3: Lentils dry
+Shelf 4: (empty)

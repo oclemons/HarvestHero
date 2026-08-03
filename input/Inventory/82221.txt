@@ -1,0 +1,17 @@
+Section 21
+Shelf 1: Stuffing / Mashed potatoes
+Shelf 1: Oatmeal
+Shelf 1: Carrots
+Shelf 2: Rice
+Shelf 2: Refried beans can
+Shelf 3: Diapers
+Shelf 4: Misc. Hygiene
+
+Section 23
+Shelf 1: Misc. Products
+Shelf 2: Snacks
+
+Section 24
+Shelf 1: Chicken ramen
+Shelf 2: Beef ramen
+Shelf 2: Misc. Ramen

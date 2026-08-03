@@ -1,0 +1,34 @@
+╔══════════════════════════════════════════════════════╗
+║             Welcome to Harvest Hero                  ║
+║          Nourishing Communities  🌿                  ║
+╚══════════════════════════════════════════════════════╝
+
+─── STARTING THE APP ────────────────────────────────────
+
+  Double-click  HarvestHero  to open the application.
+
+  Default login:
+    Username : admin
+    Password : admin123
+
+  ⚠ Change the password immediately after your first login
+    (Settings → Manage Users → Reset Password).
+
+─── CONNECTING TO A SHARED SERVER (LAN) ────────────────
+
+  If your organisation has a shared Harvest Hero server
+  on the same Wi-Fi network, run the setup wizard ONCE
+  before opening the app:
+
+    Mac / Linux : python setup_client.py
+    Windows     : py setup_client.py
+
+  The wizard will ask for the server IP address and
+  configure everything automatically.
+
+─── NEED HELP? ──────────────────────────────────────────
+
+  Contact your Harvest Hero administrator or refer to
+  README.md for full documentation.
+
+  The Clemons Collective

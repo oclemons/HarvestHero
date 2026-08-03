@@ -1,0 +1,11 @@
+Section 20
+Shelf 1: Whole corn
+Shelf 1: Sweet corn
+Shelf 2: Peas
+Shelf 2: Cream corn
+Shelf 2: Soup
+Shelf 2: Chili
+Shelf 3: Cut green beans
+Shelf 3: French green beans (crossed out - skip)
+Shelf 4: Can meat
+Shelf 4: French green beans
