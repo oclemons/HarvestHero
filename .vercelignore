@@ -1,0 +1,6 @@
+# Don't upload large desktop-only assets to Vercel
+input/Inventory/*.jpg
+assets/HarvestHeroIcon.png
+*.pyc
+__pycache__/
+.venv/
