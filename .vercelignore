@@ -1,10 +1,10 @@
-# Keep the Vercel deployment small
-.git/
-.venv/
-node_modules/
-__pycache__/
+# Keep deployments small
+/.git/
+/.venv/
+/node_modules/
+/__pycache__/
 *.pyc
 
 # Don’t upload large desktop-only assets to the web host
-input/Inventory/*.jpg
-assets/HarvestHeroIcon.png
+/input/Inventory/*.jpg
+/assets/HarvestHeroIcon.png
