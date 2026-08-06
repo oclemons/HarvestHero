@@ -75,6 +75,7 @@ class App(ctk.CTk):
         self.db, is_local = _load_db()
         if is_local:
             self._ensure_default_admin()
+        self._migrate_secrets()
         self._purge_old_activity_log()
 
         self.current_user = None
@@ -116,6 +117,15 @@ class App(ctk.CTk):
                 f"Password: {random_pwd}\n\n"
                 f"Please log in and reset this password immediately.",
             )
+
+    def _migrate_secrets(self) -> None:
+        """Encrypt any plaintext secrets left over in config.json from
+        older versions of the app."""
+        try:
+            from ldap_auth import migrate_plaintext_password
+            migrate_plaintext_password()
+        except Exception:
+            pass
 
     def _purge_old_activity_log(self) -> None:
         """Auto-purge activity log entries older than the retention window

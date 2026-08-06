@@ -28,6 +28,8 @@ import json
 import os
 from typing import Optional, Tuple
 
+from secrets_vault import decrypt, encrypt, is_encrypted
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _CFG  = os.path.join(_HERE, "config.json")
 
@@ -36,31 +38,68 @@ _CFG  = os.path.join(_HERE, "config.json")
 # Config helpers
 # ---------------------------------------------------------------------------
 
-def get_ldap_config() -> dict:
-    """Load the 'ldap' block from config.json."""
+def _read_config_file() -> dict:
+    if not os.path.exists(_CFG):
+        return {}
     try:
         with open(_CFG) as f:
-            return json.load(f).get("ldap", {})
+            return json.load(f)
     except Exception:
         return {}
 
 
+def _write_config_file(cfg: dict) -> None:
+    with open(_CFG, "w") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def get_ldap_config() -> dict:
+    """Load the 'ldap' block from config.json.
+
+    Returns the config with `service_password` transparently decrypted
+    so callers keep working with a plain string. Legacy plaintext
+    passwords are re-encrypted on the next `save_ldap_config` call.
+    """
+    cfg = _read_config_file().get("ldap", {}) or {}
+    if cfg.get("service_password"):
+        cfg["service_password"] = decrypt(cfg["service_password"])
+    return cfg
+
+
 def save_ldap_config(ldap_cfg: dict) -> None:
-    """Persist the LDAP config block to config.json."""
+    """Persist the LDAP config block to config.json with the service
+    password encrypted at rest."""
     try:
-        cfg: dict = {}
-        if os.path.exists(_CFG):
-            with open(_CFG) as f:
-                cfg = json.load(f)
-        cfg["ldap"] = ldap_cfg
-        with open(_CFG, "w") as f:
-            json.dump(cfg, f, indent=2)
+        cfg = _read_config_file()
+        to_save = dict(ldap_cfg)
+        pwd = to_save.get("service_password", "") or ""
+        if pwd and not is_encrypted(pwd):
+            to_save["service_password"] = encrypt(pwd)
+        cfg["ldap"] = to_save
+        _write_config_file(cfg)
     except Exception:
         pass
 
 
 def is_ldap_enabled() -> bool:
     return bool(get_ldap_config().get("enabled", False))
+
+
+def migrate_plaintext_password() -> bool:
+    """Re-write config.json with the service password encrypted if it is
+    currently stored in plaintext. Returns True if a migration ran."""
+    cfg = _read_config_file()
+    ldap = cfg.get("ldap") or {}
+    pwd = ldap.get("service_password", "") or ""
+    if pwd and not is_encrypted(pwd):
+        ldap["service_password"] = encrypt(pwd)
+        cfg["ldap"] = ldap
+        try:
+            _write_config_file(cfg)
+            return True
+        except Exception:
+            return False
+    return False
 
 
 # ---------------------------------------------------------------------------
