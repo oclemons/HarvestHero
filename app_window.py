@@ -350,8 +350,8 @@ class AppWindow(ctk.CTkFrame):
     def _update_conn_status(self):
         try:
             import json, os
-            cfg_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "config.json")
+            from paths import USER_DIR
+            cfg_path = os.path.join(USER_DIR, "config.json")
             mode = "local"
             if os.path.exists(cfg_path):
                 with open(cfg_path) as f:

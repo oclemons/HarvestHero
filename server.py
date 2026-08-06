@@ -23,7 +23,8 @@ from database import Database
 app = Flask(__name__)
 
 # Load config for port
-_cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+from paths import USER_DIR
+_cfg_path = os.path.join(USER_DIR, "config.json")
 _cfg = {}
 if os.path.exists(_cfg_path):
     with open(_cfg_path) as _f:
@@ -417,6 +418,8 @@ def api_create_pantry_client():
         d.get("email", ""), d.get("phone", ""), d.get("semester", ""),
         d.get("enrollment_status", "full_time"),
         d.get("household_size", 1), d.get("notes", ""),
+        int(d.get("waiver_signed", 0) or 0),
+        int(d.get("locker_waiver_signed", 0) or 0),
     )
     return ok({"id": new_id})
 
@@ -429,6 +432,8 @@ def api_update_pantry_client(client_id):
         d.get("email", ""), d.get("phone", ""), d.get("semester", ""),
         d.get("enrollment_status", "full_time"),
         d.get("household_size", 1), d.get("notes", ""),
+        int(d.get("waiver_signed", 0) or 0),
+        int(d.get("locker_waiver_signed", 0) or 0),
     )
     return ok()
 

@@ -37,7 +37,8 @@ def _fix_macos_app_name() -> None:
 _fix_macos_app_name()
 apply_theme()
 
-_CFG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+from paths import USER_DIR
+_CFG_PATH = os.path.join(USER_DIR, "config.json")
 
 
 def _load_db():

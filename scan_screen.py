@@ -626,7 +626,16 @@ class ScanScreen(ctk.CTkFrame):
     def _do_api_lookup(self, barcode: str):
         from barcode_lookup import lookup_barcode
         product = lookup_barcode(barcode)
-        self.after(0, lambda: self._on_api_result(barcode, product))
+        def _deliver():
+            try:
+                if self.winfo_exists():
+                    self._on_api_result(barcode, product)
+            except Exception:
+                pass
+        try:
+            self.after(0, _deliver)
+        except Exception:
+            pass
 
     def _on_api_result(self, barcode: str, product):
         if product:

@@ -837,10 +837,14 @@ class Database:
 
     def permanently_delete_archived_item(self, archive_id: int) -> bool:
         conn = self._connect()
-        conn.execute("DELETE FROM archived_inventory WHERE archive_id=?", (archive_id,))
-        conn.commit()
-        conn.close()
-        return True
+        try:
+            conn.execute(
+                "DELETE FROM archived_inventory WHERE archive_id=?", (archive_id,)
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
 
     # ------------------------------------------------------------------
     # Pantry client archival
@@ -943,10 +947,14 @@ class Database:
 
     def permanently_delete_archived_client(self, archive_id: int) -> bool:
         conn = self._connect()
-        conn.execute("DELETE FROM archived_pantry_clients WHERE archive_id=?", (archive_id,))
-        conn.commit()
-        conn.close()
-        return True
+        try:
+            conn.execute(
+                "DELETE FROM archived_pantry_clients WHERE archive_id=?", (archive_id,)
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
 
     # ------------------------------------------------------------------
     # User archival
@@ -1043,10 +1051,14 @@ class Database:
 
     def permanently_delete_archived_user(self, archive_id: int) -> bool:
         conn = self._connect()
-        conn.execute("DELETE FROM archived_users WHERE archive_id=?", (archive_id,))
-        conn.commit()
-        conn.close()
-        return True
+        try:
+            conn.execute(
+                "DELETE FROM archived_users WHERE archive_id=?", (archive_id,)
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
 
     # ------------------------------------------------------------------
     # Transaction archival
@@ -1133,10 +1145,14 @@ class Database:
 
     def permanently_delete_archived_transaction(self, archive_id: int) -> bool:
         conn = self._connect()
-        conn.execute("DELETE FROM archived_transactions WHERE archive_id=?", (archive_id,))
-        conn.commit()
-        conn.close()
-        return True
+        try:
+            conn.execute(
+                "DELETE FROM archived_transactions WHERE archive_id=?", (archive_id,)
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
 
     # ------------------------------------------------------------------
     # Pantry clients (student profiles)

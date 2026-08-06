@@ -30,8 +30,8 @@ from typing import Optional, Tuple
 
 from secrets_vault import decrypt, encrypt, is_encrypted
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_CFG  = os.path.join(_HERE, "config.json")
+from paths import USER_DIR
+_CFG = os.path.join(USER_DIR, "config.json")
 
 
 # ---------------------------------------------------------------------------

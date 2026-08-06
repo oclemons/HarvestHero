@@ -135,6 +135,7 @@ class ApiClient:
             "brand": brand, "storage_location": storage_location,
             "shelf_life_days": shelf_life_days,
             "expiration_date": expiration_date,
+            "nutrition_data": nutrition_data,
         })
 
     def get_item_by_barcode(self, barcode: str):
@@ -270,24 +271,30 @@ class ApiClient:
     def create_pantry_client(self, first_name, last_name, student_id="",
                               email="", phone="", semester="",
                               enrollment_status="full_time",
-                              household_size=1, notes=""):
+                              household_size=1, notes="",
+                              waiver_signed=0, locker_waiver_signed=0):
         ok, data = self._post("/api/pantry-clients", {
             "first_name": first_name, "last_name": last_name,
             "student_id": student_id, "email": email, "phone": phone,
             "semester": semester, "enrollment_status": enrollment_status,
             "household_size": household_size, "notes": notes,
+            "waiver_signed": waiver_signed,
+            "locker_waiver_signed": locker_waiver_signed,
         })
         return (data or {}).get("id") if ok else None
 
     def update_pantry_client(self, client_id, first_name, last_name,
                               student_id="", email="", phone="", semester="",
                               enrollment_status="full_time",
-                              household_size=1, notes=""):
+                              household_size=1, notes="",
+                              waiver_signed=0, locker_waiver_signed=0):
         self._post(f"/api/pantry-clients/{client_id}/update", {
             "first_name": first_name, "last_name": last_name,
             "student_id": student_id, "email": email, "phone": phone,
             "semester": semester, "enrollment_status": enrollment_status,
             "household_size": household_size, "notes": notes,
+            "waiver_signed": waiver_signed,
+            "locker_waiver_signed": locker_waiver_signed,
         })
 
     def set_pantry_client_active(self, client_id: int, active: bool):

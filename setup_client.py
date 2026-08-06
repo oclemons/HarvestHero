@@ -15,7 +15,12 @@ import socket
 import urllib.error
 import urllib.request
 
-CFG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+try:
+    from paths import USER_DIR
+    CFG_PATH = os.path.join(USER_DIR, "config.json")
+except Exception:
+    # paths.py has side effects; fall back to script-local if it fails
+    CFG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
 BANNER = """
 ╔══════════════════════════════════════════════════╗
