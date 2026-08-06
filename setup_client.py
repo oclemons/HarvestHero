@@ -12,6 +12,8 @@ No JSON editing required — just answer two questions.
 import json
 import os
 import socket
+import urllib.error
+import urllib.request
 
 CFG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
@@ -76,10 +78,29 @@ def main():
 
     url = f"http://{ip}:{port}"
 
+    token = input("  Enter the API token shown on the server: ").strip()
+    while not token:
+        print("  API token cannot be empty.")
+        token = input("  Enter the API token shown on the server: ").strip()
+
     print(f"\n  Testing connection to {url} ...")
-    if _test_connection(url):
-        print("  ✓ Server reachable!")
-    else:
+    try:
+        req = urllib.request.Request(
+            f"{url}/api/health",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        urllib.request.urlopen(req, timeout=5)
+        print("  ✓ Server reachable and token accepted!")
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            print("  ✗ Invalid API token. Check the token shown on the server.")
+        else:
+            print(f"  ✗ Server returned error {e.code}.")
+        proceed = input("\n  Save anyway? [y/N]: ").strip().lower()
+        if proceed not in ("y", "yes"):
+            print("\n  Cancelled. No changes saved.")
+            return
+    except Exception:
         print("  ✗ Could not reach the server.")
         print("    Make sure server.py is running on the host PC and")
         print("    both computers are on the same Wi-Fi / network.")
@@ -88,7 +109,7 @@ def main():
             print("\n  Cancelled. No changes saved.")
             return
 
-    cfg = {"mode": "client", "server_url": url}
+    cfg = {"mode": "client", "server_url": url, "api_key": token}
     with open(CFG_PATH, "w") as f:
         json.dump(cfg, f, indent=2)
 

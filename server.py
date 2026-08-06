@@ -14,6 +14,7 @@ Find this PC's IP on Mac/Linux: ifconfig  or  ip addr
 
 import json
 import os
+import secrets
 
 from flask import Flask, jsonify, request
 
@@ -32,6 +33,37 @@ HOST = _cfg.get("server_host", "0.0.0.0")
 PORT = int(_cfg.get("server_port", 5000))
 
 db = Database()
+
+
+def _ensure_api_token() -> str:
+    """Return the persistent API token, creating one if it doesn't exist."""
+    token = db.get_app_setting("api_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        db.set_app_setting("api_token", token)
+    return token
+
+
+API_TOKEN = _ensure_api_token()
+
+
+# ---------------------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------------------
+
+@app.before_request
+def require_auth():
+    """Require a valid Bearer token for every API endpoint except /api/health."""
+    if request.path == "/api/health":
+        return None
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or auth[7:] != API_TOKEN:
+        return err("Unauthorized — provide a valid Authorization: Bearer <token> header", 401)
+
+
+@app.get("/api/health")
+def api_health():
+    return ok("healthy")
 
 
 # ---------------------------------------------------------------------------
@@ -456,7 +488,9 @@ if __name__ == "__main__":
     print("  Inventory Control Center — LAN Server")
     print(f"  Listening on  http://{HOST}:{PORT}")
     print()
-    print("  Share your local IP with client PCs.")
+    print("  Share your local IP and the API token with client PCs.")
+    print(f"  API Token:  {API_TOKEN}")
+    print()
     print("  Windows: run  ipconfig  in a terminal.")
     print("  Mac/Linux: run  ifconfig  or  ip addr")
     print("=" * 55)

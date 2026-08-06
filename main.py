@@ -51,10 +51,11 @@ def _load_db():
 
     if mode == "client":
         server_url = cfg.get("server_url", "http://localhost:5000")
+        api_key = cfg.get("api_key", "")
         from api_client import ApiClient, ConnectionError as ApiError
-        client = ApiClient(server_url)
+        client = ApiClient(server_url, api_key=api_key)
         try:
-            client.get_all_users()  # connectivity check
+            client.get_all_users()  # connectivity + token check
         except ApiError as e:
             messagebox.showerror("Cannot Connect to Server", str(e))
             sys.exit(1)

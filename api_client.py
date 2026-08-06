@@ -15,9 +15,11 @@ class ConnectionError(Exception):
 
 
 class ApiClient:
-    def __init__(self, server_url: str):
+    def __init__(self, server_url: str, api_key: str = ""):
         self.base = server_url.rstrip("/")
         self._session = requests.Session()
+        if api_key:
+            self._session.headers.update({"Authorization": f"Bearer {api_key}"})
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -26,7 +28,7 @@ class ApiClient:
     def _get(self, path: str, params: dict = None):
         try:
             r = self._session.get(self.base + path, params=params, timeout=6)
-            r.raise_for_status()
+            self._check_status(r)
             return r.json().get("data")
         except requests.exceptions.ConnectionError:
             raise ConnectionError(
@@ -37,6 +39,7 @@ class ApiClient:
     def _post(self, path: str, payload: dict = None):
         try:
             r = self._session.post(self.base + path, json=payload or {}, timeout=6)
+            self._check_status(r)
             body = r.json()
             if not body.get("ok"):
                 return False, body.get("error", "Unknown error")
@@ -47,23 +50,28 @@ class ApiClient:
     def _put(self, path: str, payload: dict = None):
         try:
             r = self._session.put(self.base + path, json=payload or {}, timeout=6)
-            r.raise_for_status()
+            self._check_status(r)
         except requests.exceptions.ConnectionError:
             raise ConnectionError(f"Cannot reach server at {self.base}.")
 
     def _patch(self, path: str, payload: dict = None):
         try:
             r = self._session.patch(self.base + path, json=payload or {}, timeout=6)
-            r.raise_for_status()
+            self._check_status(r)
         except requests.exceptions.ConnectionError:
             raise ConnectionError(f"Cannot reach server at {self.base}.")
 
     def _delete(self, path: str):
         try:
             r = self._session.delete(self.base + path, timeout=6)
-            r.raise_for_status()
+            self._check_status(r)
         except requests.exceptions.ConnectionError:
             raise ConnectionError(f"Cannot reach server at {self.base}.")
+
+    def _check_status(self, r):
+        if r.status_code == 401:
+            raise ConnectionError("Invalid or missing API token.")
+        r.raise_for_status()
 
     # ------------------------------------------------------------------
     # User operations
