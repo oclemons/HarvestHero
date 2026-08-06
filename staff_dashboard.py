@@ -243,6 +243,3 @@ class StaffDashboard(ctk.CTkFrame):
 
     def on_shown(self):
         pass
-
-    def on_shown(self):
-        pass

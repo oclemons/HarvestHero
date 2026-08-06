@@ -1,5 +1,6 @@
 import json
 import os
+import secrets
 import sys
 from tkinter import messagebox
 
@@ -103,10 +104,17 @@ class App(ctk.CTk):
             pass
 
     def _ensure_default_admin(self) -> None:
-        """Create a default admin account if no users exist yet."""
+        """Create a default admin account with a random password if no users exist yet."""
         if not self.db.get_all_users():
-            pwd_hash, salt = hash_password("admin123")
+            random_pwd = secrets.token_urlsafe(12)
+            pwd_hash, salt = hash_password(random_pwd)
             self.db.create_user("admin", pwd_hash, salt, "admin")
+            messagebox.showinfo(
+                "Default Admin Account Created",
+                f"A default 'admin' account has been created.\n\n"
+                f"Password: {random_pwd}\n\n"
+                f"Please log in and reset this password immediately.",
+            )
 
     def _purge_old_activity_log(self) -> None:
         """Auto-purge activity log entries older than the retention window

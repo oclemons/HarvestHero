@@ -317,6 +317,7 @@ class ArchiveManager(ctk.CTkFrame):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
+        self._tabs = {}
         tabs = ctk.CTkTabview(
             self, fg_color=BG_PRIMARY, corner_radius=12,
             border_color=BORDER_COLOR, segmented_button_fg_color=BG_SECONDARY,
@@ -327,6 +328,7 @@ class ArchiveManager(ctk.CTkFrame):
             text_color=TEXT_PRIMARY,
         )
         tabs.grid(row=0, column=0, sticky="nsew", padx=24, pady=(16, 8))
+        self._tabview = tabs
 
         for name, Tab in (
             ("Inventory",    _InventoryArchiveTab),
@@ -337,4 +339,12 @@ class ArchiveManager(ctk.CTkFrame):
             tab = tabs.add(name)
             tab.grid_rowconfigure(0, weight=1)
             tab.grid_columnconfigure(0, weight=1)
-            Tab(tab, self.db, self.user).grid(row=0, column=0, sticky="nsew")
+            widget = Tab(tab, self.db, self.user)
+            widget.grid(row=0, column=0, sticky="nsew")
+            self._tabs[name] = widget
+
+    def on_shown(self):
+        current = self._tabview.get()
+        tab = self._tabs.get(current)
+        if tab and hasattr(tab, "on_shown"):
+            tab.on_shown()
