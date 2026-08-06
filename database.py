@@ -736,35 +736,41 @@ class Database:
     # ------------------------------------------------------------------
 
     def archive_inventory_item(self, item_id: int, archived_by: str = "") -> bool:
-        """Move an inventory item into archived_inventory and remove it."""
+        """Move an inventory item into archived_inventory and remove it.
+        Both statements run in a single transaction; on failure the DB is
+        rolled back so nothing is half-archived."""
         conn = self._connect()
-        row = conn.execute(
-            "SELECT * FROM inventory_items WHERE id=?", (item_id,)
-        ).fetchone()
-        if row is None:
-            conn.close()
-            return False
+        try:
+            row = conn.execute(
+                "SELECT * FROM inventory_items WHERE id=?", (item_id,)
+            ).fetchone()
+            if row is None:
+                return False
 
-        item = dict(row)
-        conn.execute(
-            """INSERT INTO archived_inventory
-                (original_id, barcode, barcode_out, item_name, brand, category,
-                 current_quantity, minimum_stock, storage_location, shelf_life_days,
-                 expiration_date, nutrition_data, notes, created_at, updated_at,
-                 archived_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                item["id"], item["barcode"], item["barcode_out"], item["item_name"],
-                item["brand"], item["category"], item["current_quantity"],
-                item["minimum_stock"], item["storage_location"], item["shelf_life_days"],
-                item["expiration_date"], item["nutrition_data"], item["notes"],
-                item["created_at"], item["updated_at"], archived_by,
-            ),
-        )
-        conn.execute("DELETE FROM inventory_items WHERE id=?", (item_id,))
-        conn.commit()
-        conn.close()
-        return True
+            item = dict(row)
+            conn.execute(
+                """INSERT INTO archived_inventory
+                    (original_id, barcode, barcode_out, item_name, brand, category,
+                     current_quantity, minimum_stock, storage_location, shelf_life_days,
+                     expiration_date, nutrition_data, notes, created_at, updated_at,
+                     archived_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    item["id"], item["barcode"], item["barcode_out"], item["item_name"],
+                    item["brand"], item["category"], item["current_quantity"],
+                    item["minimum_stock"], item["storage_location"], item["shelf_life_days"],
+                    item["expiration_date"], item["nutrition_data"], item["notes"],
+                    item["created_at"], item["updated_at"], archived_by,
+                ),
+            )
+            conn.execute("DELETE FROM inventory_items WHERE id=?", (item_id,))
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def get_archived_inventory(self, search: str = ""):
         conn = self._connect()
@@ -784,42 +790,50 @@ class Database:
         return [dict(r) for r in rows]
 
     def restore_archived_item(self, archive_id: int) -> bool:
-        """Restore an archived inventory item back into active inventory."""
+        """Restore an archived inventory item back into active inventory,
+        atomically. Rolls back on any error."""
         conn = self._connect()
-        row = conn.execute(
-            "SELECT * FROM archived_inventory WHERE archive_id=?", (archive_id,)
-        ).fetchone()
-        if row is None:
+        try:
+            row = conn.execute(
+                "SELECT * FROM archived_inventory WHERE archive_id=?", (archive_id,)
+            ).fetchone()
+            if row is None:
+                return False
+
+            item = dict(row)
+            existing = conn.execute(
+                "SELECT id FROM inventory_items WHERE barcode=?", (item["barcode"],)
+            ).fetchone()
+
+            if existing:
+                conn.execute(
+                    "DELETE FROM archived_inventory WHERE archive_id=?", (archive_id,)
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO inventory_items
+                        (barcode, barcode_out, item_name, brand, category,
+                         current_quantity, minimum_stock, storage_location, shelf_life_days,
+                         expiration_date, nutrition_data, notes, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        item["barcode"], item["barcode_out"], item["item_name"],
+                        item["brand"], item["category"], item["current_quantity"],
+                        item["minimum_stock"], item["storage_location"], item["shelf_life_days"],
+                        item["expiration_date"], item["nutrition_data"], item["notes"],
+                        item["created_at"], item["updated_at"],
+                    ),
+                )
+                conn.execute(
+                    "DELETE FROM archived_inventory WHERE archive_id=?", (archive_id,)
+                )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
             conn.close()
-            return False
-
-        item = dict(row)
-        existing = conn.execute(
-            "SELECT id FROM inventory_items WHERE barcode=?", (item["barcode"],)
-        ).fetchone()
-
-        if existing:
-            # If a record with the same barcode already exists, just delete the archive
-            conn.execute("DELETE FROM archived_inventory WHERE archive_id=?", (archive_id,))
-        else:
-            conn.execute(
-                """INSERT INTO inventory_items
-                    (barcode, barcode_out, item_name, brand, category,
-                     current_quantity, minimum_stock, storage_location, shelf_life_days,
-                     expiration_date, nutrition_data, notes, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    item["barcode"], item["barcode_out"], item["item_name"],
-                    item["brand"], item["category"], item["current_quantity"],
-                    item["minimum_stock"], item["storage_location"], item["shelf_life_days"],
-                    item["expiration_date"], item["nutrition_data"], item["notes"],
-                    item["created_at"], item["updated_at"],
-                ),
-            )
-            conn.execute("DELETE FROM archived_inventory WHERE archive_id=?", (archive_id,))
-        conn.commit()
-        conn.close()
-        return True
 
     def permanently_delete_archived_item(self, archive_id: int) -> bool:
         conn = self._connect()
@@ -834,32 +848,36 @@ class Database:
 
     def archive_pantry_client(self, client_id: int, archived_by: str = "") -> bool:
         conn = self._connect()
-        row = conn.execute(
-            "SELECT * FROM pantry_clients WHERE id=?", (client_id,)
-        ).fetchone()
-        if row is None:
-            conn.close()
-            return False
+        try:
+            row = conn.execute(
+                "SELECT * FROM pantry_clients WHERE id=?", (client_id,)
+            ).fetchone()
+            if row is None:
+                return False
 
-        client = dict(row)
-        conn.execute(
-            """INSERT INTO archived_pantry_clients
-                (original_id, student_id, first_name, last_name, email, phone,
-                 semester, enrollment_status, household_size, notes, waiver_signed,
-                 locker_waiver_signed, is_active, created_at, updated_at, archived_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                client["id"], client["student_id"], client["first_name"], client["last_name"],
-                client["email"], client["phone"], client["semester"], client["enrollment_status"],
-                client["household_size"], client["notes"], client["waiver_signed"],
-                client["locker_waiver_signed"], client["is_active"], client["created_at"],
-                client["updated_at"], archived_by,
-            ),
-        )
-        conn.execute("DELETE FROM pantry_clients WHERE id=?", (client_id,))
-        conn.commit()
-        conn.close()
-        return True
+            client = dict(row)
+            conn.execute(
+                """INSERT INTO archived_pantry_clients
+                    (original_id, student_id, first_name, last_name, email, phone,
+                     semester, enrollment_status, household_size, notes, waiver_signed,
+                     locker_waiver_signed, is_active, created_at, updated_at, archived_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    client["id"], client["student_id"], client["first_name"], client["last_name"],
+                    client["email"], client["phone"], client["semester"], client["enrollment_status"],
+                    client["household_size"], client["notes"], client["waiver_signed"],
+                    client["locker_waiver_signed"], client["is_active"], client["created_at"],
+                    client["updated_at"], archived_by,
+                ),
+            )
+            conn.execute("DELETE FROM pantry_clients WHERE id=?", (client_id,))
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def get_archived_clients(self, search: str = ""):
         conn = self._connect()
@@ -880,40 +898,48 @@ class Database:
 
     def restore_archived_client(self, archive_id: int) -> bool:
         conn = self._connect()
-        row = conn.execute(
-            "SELECT * FROM archived_pantry_clients WHERE archive_id=?", (archive_id,)
-        ).fetchone()
-        if row is None:
+        try:
+            row = conn.execute(
+                "SELECT * FROM archived_pantry_clients WHERE archive_id=?", (archive_id,)
+            ).fetchone()
+            if row is None:
+                return False
+
+            client = dict(row)
+            existing = conn.execute(
+                "SELECT id FROM pantry_clients WHERE student_id=?",
+                (client["student_id"],),
+            ).fetchone()
+
+            if existing:
+                conn.execute(
+                    "DELETE FROM archived_pantry_clients WHERE archive_id=?", (archive_id,)
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO pantry_clients
+                        (student_id, first_name, last_name, email, phone, semester,
+                         enrollment_status, household_size, notes, waiver_signed,
+                         locker_waiver_signed, is_active, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        client["student_id"], client["first_name"], client["last_name"],
+                        client["email"], client["phone"], client["semester"],
+                        client["enrollment_status"], client["household_size"], client["notes"],
+                        client["waiver_signed"], client["locker_waiver_signed"],
+                        client["is_active"], client["created_at"], client["updated_at"],
+                    ),
+                )
+                conn.execute(
+                    "DELETE FROM archived_pantry_clients WHERE archive_id=?", (archive_id,)
+                )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
             conn.close()
-            return False
-
-        client = dict(row)
-        existing = conn.execute(
-            "SELECT id FROM pantry_clients WHERE student_id=?",
-            (client["student_id"],),
-        ).fetchone()
-
-        if existing:
-            conn.execute("DELETE FROM archived_pantry_clients WHERE archive_id=?", (archive_id,))
-        else:
-            conn.execute(
-                """INSERT INTO pantry_clients
-                    (student_id, first_name, last_name, email, phone, semester,
-                     enrollment_status, household_size, notes, waiver_signed,
-                     locker_waiver_signed, is_active, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    client["student_id"], client["first_name"], client["last_name"],
-                    client["email"], client["phone"], client["semester"],
-                    client["enrollment_status"], client["household_size"], client["notes"],
-                    client["waiver_signed"], client["locker_waiver_signed"],
-                    client["is_active"], client["created_at"], client["updated_at"],
-                ),
-            )
-            conn.execute("DELETE FROM archived_pantry_clients WHERE archive_id=?", (archive_id,))
-        conn.commit()
-        conn.close()
-        return True
 
     def permanently_delete_archived_client(self, archive_id: int) -> bool:
         conn = self._connect()
@@ -928,29 +954,33 @@ class Database:
 
     def archive_user(self, user_id: int, archived_by: str = "") -> bool:
         conn = self._connect()
-        row = conn.execute(
-            "SELECT * FROM users WHERE id=?", (user_id,)
-        ).fetchone()
-        if row is None:
-            conn.close()
-            return False
+        try:
+            row = conn.execute(
+                "SELECT * FROM users WHERE id=?", (user_id,)
+            ).fetchone()
+            if row is None:
+                return False
 
-        user = dict(row)
-        conn.execute(
-            """INSERT INTO archived_users
-                (original_id, username, password_hash, salt, role, full_name,
-                 created_at, is_active, has_completed_tour, last_login, created_by, archived_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                user["id"], user["username"], user["password_hash"], user["salt"],
-                user["role"], user["full_name"], user["created_at"], user["is_active"],
-                user["has_completed_tour"], user["last_login"], user["created_by"], archived_by,
-            ),
-        )
-        conn.execute("DELETE FROM users WHERE id=?", (user_id,))
-        conn.commit()
-        conn.close()
-        return True
+            user = dict(row)
+            conn.execute(
+                """INSERT INTO archived_users
+                    (original_id, username, password_hash, salt, role, full_name,
+                     created_at, is_active, has_completed_tour, last_login, created_by, archived_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    user["id"], user["username"], user["password_hash"], user["salt"],
+                    user["role"], user["full_name"], user["created_at"], user["is_active"],
+                    user["has_completed_tour"], user["last_login"], user["created_by"], archived_by,
+                ),
+            )
+            conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def get_archived_users(self, search: str = ""):
         conn = self._connect()
@@ -971,37 +1001,45 @@ class Database:
 
     def restore_archived_user(self, archive_id: int) -> bool:
         conn = self._connect()
-        row = conn.execute(
-            "SELECT * FROM archived_users WHERE archive_id=?", (archive_id,)
-        ).fetchone()
-        if row is None:
+        try:
+            row = conn.execute(
+                "SELECT * FROM archived_users WHERE archive_id=?", (archive_id,)
+            ).fetchone()
+            if row is None:
+                return False
+
+            user = dict(row)
+            existing = conn.execute(
+                "SELECT id FROM users WHERE username=?", (user["username"],)
+            ).fetchone()
+
+            if existing:
+                conn.execute(
+                    "DELETE FROM archived_users WHERE archive_id=?", (archive_id,)
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO users
+                        (username, password_hash, salt, role, full_name, created_at,
+                         is_active, has_completed_tour, last_login, created_by)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        user["username"], user["password_hash"], user["salt"],
+                        user["role"], user["full_name"], user["created_at"],
+                        user["is_active"], user["has_completed_tour"], user["last_login"],
+                        user["created_by"],
+                    ),
+                )
+                conn.execute(
+                    "DELETE FROM archived_users WHERE archive_id=?", (archive_id,)
+                )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
             conn.close()
-            return False
-
-        user = dict(row)
-        existing = conn.execute(
-            "SELECT id FROM users WHERE username=?", (user["username"],)
-        ).fetchone()
-
-        if existing:
-            conn.execute("DELETE FROM archived_users WHERE archive_id=?", (archive_id,))
-        else:
-            conn.execute(
-                """INSERT INTO users
-                    (username, password_hash, salt, role, full_name, created_at,
-                     is_active, has_completed_tour, last_login, created_by)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    user["username"], user["password_hash"], user["salt"],
-                    user["role"], user["full_name"], user["created_at"],
-                    user["is_active"], user["has_completed_tour"], user["last_login"],
-                    user["created_by"],
-                ),
-            )
-            conn.execute("DELETE FROM archived_users WHERE archive_id=?", (archive_id,))
-        conn.commit()
-        conn.close()
-        return True
 
     def permanently_delete_archived_user(self, archive_id: int) -> bool:
         conn = self._connect()
@@ -1016,29 +1054,33 @@ class Database:
 
     def archive_transaction(self, transaction_id: int, archived_by: str = "") -> bool:
         conn = self._connect()
-        row = conn.execute(
-            "SELECT * FROM transactions WHERE id=?", (transaction_id,)
-        ).fetchone()
-        if row is None:
-            conn.close()
-            return False
+        try:
+            row = conn.execute(
+                "SELECT * FROM transactions WHERE id=?", (transaction_id,)
+            ).fetchone()
+            if row is None:
+                return False
 
-        txn = dict(row)
-        conn.execute(
-            """INSERT INTO archived_transactions
-                (original_id, transaction_type, barcode, item_name, category,
-                 quantity, recipient, username, timestamp, notes, archived_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                txn["id"], txn["transaction_type"], txn["barcode"], txn["item_name"],
-                txn["category"], txn["quantity"], txn["recipient"], txn["username"],
-                txn["timestamp"], txn["notes"], archived_by,
-            ),
-        )
-        conn.execute("DELETE FROM transactions WHERE id=?", (transaction_id,))
-        conn.commit()
-        conn.close()
-        return True
+            txn = dict(row)
+            conn.execute(
+                """INSERT INTO archived_transactions
+                    (original_id, transaction_type, barcode, item_name, category,
+                     quantity, recipient, username, timestamp, notes, archived_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    txn["id"], txn["transaction_type"], txn["barcode"], txn["item_name"],
+                    txn["category"], txn["quantity"], txn["recipient"], txn["username"],
+                    txn["timestamp"], txn["notes"], archived_by,
+                ),
+            )
+            conn.execute("DELETE FROM transactions WHERE id=?", (transaction_id,))
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def get_archived_transactions(self, search: str = ""):
         conn = self._connect()
@@ -1059,29 +1101,35 @@ class Database:
 
     def restore_archived_transaction(self, archive_id: int) -> bool:
         conn = self._connect()
-        row = conn.execute(
-            "SELECT * FROM archived_transactions WHERE archive_id=?", (archive_id,)
-        ).fetchone()
-        if row is None:
-            conn.close()
-            return False
+        try:
+            row = conn.execute(
+                "SELECT * FROM archived_transactions WHERE archive_id=?", (archive_id,)
+            ).fetchone()
+            if row is None:
+                return False
 
-        txn = dict(row)
-        conn.execute(
-            """INSERT INTO transactions
-                (transaction_type, barcode, item_name, category, quantity,
-                 recipient, username, timestamp, notes)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                txn["transaction_type"], txn["barcode"], txn["item_name"],
-                txn["category"], txn["quantity"], txn["recipient"], txn["username"],
-                txn["timestamp"], txn["notes"],
-            ),
-        )
-        conn.execute("DELETE FROM archived_transactions WHERE archive_id=?", (archive_id,))
-        conn.commit()
-        conn.close()
-        return True
+            txn = dict(row)
+            conn.execute(
+                """INSERT INTO transactions
+                    (transaction_type, barcode, item_name, category, quantity,
+                     recipient, username, timestamp, notes)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    txn["transaction_type"], txn["barcode"], txn["item_name"],
+                    txn["category"], txn["quantity"], txn["recipient"], txn["username"],
+                    txn["timestamp"], txn["notes"],
+                ),
+            )
+            conn.execute(
+                "DELETE FROM archived_transactions WHERE archive_id=?", (archive_id,)
+            )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def permanently_delete_archived_transaction(self, archive_id: int) -> bool:
         conn = self._connect()
