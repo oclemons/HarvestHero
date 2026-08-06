@@ -18,6 +18,10 @@ class ApiClient:
     def __init__(self, server_url: str, api_key: str = ""):
         self.base = server_url.rstrip("/")
         self._session = requests.Session()
+        # X-Requested-With satisfies the server's CSRF guard: browsers can't
+        # set this header on a cross-origin "simple request", so its presence
+        # proves the caller is our desktop client, not a hijacked browser.
+        self._session.headers.update({"X-Requested-With": "HarvestHero"})
         if api_key:
             self._session.headers.update({"Authorization": f"Bearer {api_key}"})
 

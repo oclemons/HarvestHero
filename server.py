@@ -48,25 +48,6 @@ API_TOKEN = _ensure_api_token()
 
 
 # ---------------------------------------------------------------------------
-# Authentication
-# ---------------------------------------------------------------------------
-
-@app.before_request
-def require_auth():
-    """Require a valid Bearer token for every API endpoint except /api/health."""
-    if request.path == "/api/health":
-        return None
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or auth[7:] != API_TOKEN:
-        return err("Unauthorized — provide a valid Authorization: Bearer <token> header", 401)
-
-
-@app.get("/api/health")
-def api_health():
-    return ok("healthy")
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -76,6 +57,62 @@ def ok(data=None):
 
 def err(msg, status=400):
     return jsonify({"ok": False, "error": msg}), status
+
+
+# ---------------------------------------------------------------------------
+# Authentication + CSRF protection
+# ---------------------------------------------------------------------------
+#
+# The HarvestHero API is a JSON-only service consumed by the desktop client
+# (api_client.py). Browsers should never talk to it. We defend against CSRF
+# with three overlapping controls:
+#
+#   1. Bearer token auth on every endpoint (already required below).
+#   2. State-changing verbs must send JSON, not form data. Browsers can
+#      forge a form POST cross-origin, but not application/json.
+#   3. All non-health requests must carry X-Requested-With: HarvestHero.
+#      This forces browsers to preflight the request, which our missing
+#      CORS headers will then block.
+#
+# All three fail closed.
+#
+# ---------------------------------------------------------------------------
+
+_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_XRW_HEADER    = "X-Requested-With"
+_XRW_EXPECTED  = "HarvestHero"
+
+
+@app.before_request
+def enforce_auth_and_csrf():
+    """Reject unauthenticated or CSRF-suspicious requests."""
+    if request.path == "/api/health":
+        return None
+
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or auth[7:] != API_TOKEN:
+        return err("Unauthorized — provide a valid Authorization: Bearer <token> header", 401)
+
+    if request.headers.get(_XRW_HEADER, "") != _XRW_EXPECTED:
+        return err("Forbidden — missing or invalid X-Requested-With header", 403)
+
+    if request.method in _UNSAFE_METHODS:
+        ctype = (request.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if ctype and ctype != "application/json":
+            return err("Unsupported Media Type — Content-Type must be application/json", 415)
+
+
+@app.after_request
+def no_cors(resp):
+    """Strip any implicit CORS allowances; browsers should never be able to
+    reach this API cross-origin."""
+    resp.headers["Vary"] = "Origin"
+    return resp
+
+
+@app.get("/api/health")
+def api_health():
+    return ok("healthy")
 
 
 # ---------------------------------------------------------------------------
