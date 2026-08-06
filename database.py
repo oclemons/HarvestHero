@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS pantry_visits (
     pounds_received REAL   DEFAULT 0,
     notes          TEXT    DEFAULT '',
     recorded_by    TEXT    DEFAULT '',
-    FOREIGN KEY (client_id) REFERENCES pantry_clients(id)
+    FOREIGN KEY (client_id) REFERENCES pantry_clients(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS archived_inventory (
@@ -205,6 +205,7 @@ class Database:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
     def _init(self) -> None:
@@ -249,7 +250,49 @@ class Database:
                 conn.commit()
             except Exception:
                 pass
+
+        self._migrate_pantry_visits_cascade(conn)
         conn.close()
+
+    def _migrate_pantry_visits_cascade(self, conn: sqlite3.Connection) -> None:
+        """Rebuild pantry_visits so its FK to pantry_clients uses ON DELETE
+        CASCADE. SQLite can't alter FK constraints in place; we detect the
+        old definition and swap the table in a single transaction."""
+        try:
+            row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='pantry_visits'"
+            ).fetchone()
+            if not row or not row[0]:
+                return
+            if "ON DELETE CASCADE" in row[0].upper():
+                return
+
+            conn.executescript("""
+                BEGIN;
+                CREATE TABLE pantry_visits_new (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id      INTEGER NOT NULL,
+                    visit_date     TEXT    DEFAULT (datetime('now', 'localtime')),
+                    pounds_received REAL   DEFAULT 0,
+                    notes          TEXT    DEFAULT '',
+                    recorded_by    TEXT    DEFAULT '',
+                    FOREIGN KEY (client_id) REFERENCES pantry_clients(id) ON DELETE CASCADE
+                );
+                INSERT INTO pantry_visits_new
+                    (id, client_id, visit_date, pounds_received, notes, recorded_by)
+                SELECT id, client_id, visit_date, pounds_received, notes, recorded_by
+                FROM pantry_visits;
+                DROP TABLE pantry_visits;
+                ALTER TABLE pantry_visits_new RENAME TO pantry_visits;
+                COMMIT;
+            """)
+        except Exception:
+            # If migration fails, roll back and leave the table alone;
+            # cascade still works for any freshly-created database.
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # User operations
