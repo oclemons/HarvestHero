@@ -203,9 +203,19 @@ class Database:
     # ------------------------------------------------------------------
 
     def _connect(self) -> sqlite3.Connection:
+        was_new = not os.path.exists(self.db_path)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        if was_new:
+            # Lock the DB file down to owner-only as soon as sqlite creates
+            # it, so password hashes and archived data aren't world-readable
+            # on shared systems. Best-effort — no-op on filesystems without
+            # POSIX permissions (e.g. FAT32 removable media).
+            try:
+                os.chmod(self.db_path, 0o600)
+            except OSError:
+                pass
         return conn
 
     def _init(self) -> None:

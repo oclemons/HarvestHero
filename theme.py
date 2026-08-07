@@ -251,6 +251,10 @@ def set_theme_name(name: str) -> None:
         cfg["theme"] = name
         with open(_CFG, "w") as f:
             json.dump(cfg, f, indent=2)
+        try:
+            os.chmod(_CFG, 0o600)
+        except OSError:
+            pass
     except Exception:
         pass
 

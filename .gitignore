@@ -19,8 +19,10 @@ assets/*.icns
 .vercel/cache
 .vercel/output
 
-# User data / local config
-data/inventory.db
+# User data / local config — the data/ directory holds the sqlite DB,
+# the machine-local Fernet key (data/.secret_key), and any test DBs
+# created during development. Ignore the whole thing.
+data/
 output/
 config.json
 .DS_Store

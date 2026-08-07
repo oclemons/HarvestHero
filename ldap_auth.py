@@ -51,6 +51,12 @@ def _read_config_file() -> dict:
 def _write_config_file(cfg: dict) -> None:
     with open(_CFG, "w") as f:
         json.dump(cfg, f, indent=2)
+    # config.json holds the (encrypted) LDAP service password and the
+    # API token used by client PCs. Lock the file to owner-read/write.
+    try:
+        os.chmod(_CFG, 0o600)
+    except OSError:
+        pass
 
 
 def get_ldap_config() -> dict:

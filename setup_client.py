@@ -117,6 +117,11 @@ def main():
     cfg = {"mode": "client", "server_url": url, "api_key": token}
     with open(CFG_PATH, "w") as f:
         json.dump(cfg, f, indent=2)
+    # Lock it — this file now holds the API token.
+    try:
+        os.chmod(CFG_PATH, 0o600)
+    except OSError:
+        pass
 
     print(f"\n  ✓ Saved! config.json now points to: {url}")
     print()
