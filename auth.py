@@ -1,6 +1,35 @@
 import hashlib
 import hmac
+import re
 import secrets
+
+MIN_PASSWORD_LENGTH = 8
+
+
+def validate_password_strength(password: str) -> tuple[bool, str]:
+    """Return (ok, error_message).
+
+    A password is accepted if it is at least MIN_PASSWORD_LENGTH characters
+    long and contains at least three of the four character classes
+    (lowercase letter, uppercase letter, digit, symbol). The requirement is
+    intentionally moderate — strong enough to lock out trivial passwords
+    like 'password1' without punishing users of long passphrases.
+    """
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return False, f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+
+    classes = sum([
+        bool(re.search(r"[a-z]", password)),
+        bool(re.search(r"[A-Z]", password)),
+        bool(re.search(r"\d",   password)),
+        bool(re.search(r"[^A-Za-z0-9]", password)),
+    ])
+    if classes < 3:
+        return False, (
+            "Password must include at least three of: lowercase, "
+            "uppercase, digits, symbols."
+        )
+    return True, ""
 
 
 def hash_password(password: str) -> tuple:

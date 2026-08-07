@@ -74,7 +74,7 @@ class ForgotPasswordDialog(ctk.CTkToplevel):
         self.new_pass_var = tk.StringVar()
         ctk.CTkEntry(
             inner, textvariable=self.new_pass_var,
-            placeholder_text="New password (min 6 characters)",
+            placeholder_text="New password (min 8 chars, 3 of: aA1!)",
             show="●", height=42, fg_color=BG_SECONDARY,
             border_color=BORDER_COLOR, text_color=TEXT_PRIMARY,
             corner_radius=8,
@@ -173,8 +173,10 @@ class ForgotPasswordDialog(ctk.CTkToplevel):
             self._set_status("New passwords do not match.")
             return
 
-        if len(new_pass) < 6:
-            self._set_status("New password must be at least 6 characters.")
+        from auth import validate_password_strength
+        ok, msg = validate_password_strength(new_pass)
+        if not ok:
+            self._set_status(msg)
             return
 
         # Verify admin credentials

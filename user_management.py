@@ -113,7 +113,7 @@ class _UserModal(ctk.CTkToplevel):
             ).grid(row=4, column=0, sticky="w", pady=(10, 3))
 
         ctk.CTkEntry(
-            form, textvariable=self._pv, placeholder_text="Min 6 characters",
+            form, textvariable=self._pv, placeholder_text="Min 8 chars, 3 of: aA1!",
             height=38, show="*",
             fg_color=BG_ELEVATED, border_color=BORDER_COLOR,
             text_color=TEXT_PRIMARY, corner_radius=8,
@@ -195,9 +195,12 @@ class _UserModal(ctk.CTkToplevel):
         if not self._edit_mode and not password:
             self._err_var.set("Password is required.")
             return
-        if password and len(password) < 6:
-            self._err_var.set("Password must be at least 6 characters.")
-            return
+        if password:
+            from auth import validate_password_strength
+            ok, msg = validate_password_strength(password)
+            if not ok:
+                self._err_var.set(msg)
+                return
         if password and password != confirm:
             self._err_var.set("Passwords do not match.")
             return
@@ -604,8 +607,10 @@ class UserManagement(ctk.CTkFrame):
         new_pass = dlg.get_input()
         if new_pass is None:
             return
-        if len(new_pass) < 6:
-            Toast.show(self, "Password must be at least 6 characters", kind="warning")
+        from auth import validate_password_strength
+        ok, msg = validate_password_strength(new_pass)
+        if not ok:
+            Toast.show(self, msg, kind="warning")
             return
         ph, salt = hash_password(new_pass)
         self.db.update_user_password(u["id"], ph, salt)
