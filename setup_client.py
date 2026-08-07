@@ -83,10 +83,15 @@ def main():
 
     url = f"http://{ip}:{port}"
 
-    token = input("  Enter the API token shown on the server: ").strip()
+    print()
+    print("  The server prints TWO tokens. Use the STAFF token on a staff")
+    print("  PC (scanning + transactions) and the ADMIN token on the")
+    print("  admin PC (user management, add/edit/delete inventory, settings).")
+    print()
+    token = input("  Paste the token for this PC: ").strip()
     while not token:
         print("  API token cannot be empty.")
-        token = input("  Enter the API token shown on the server: ").strip()
+        token = input("  Paste the token for this PC: ").strip()
 
     print(f"\n  Testing connection to {url} ...")
     try:

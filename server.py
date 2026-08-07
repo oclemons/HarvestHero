@@ -12,12 +12,13 @@ Find this PC's IP on Windows:  ipconfig
 Find this PC's IP on Mac/Linux: ifconfig  or  ip addr
 """
 
+import functools
 import hmac
 import json
 import os
 import secrets
 
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
 
 from database import Database
 
@@ -37,16 +38,20 @@ PORT = int(_cfg.get("server_port", 5000))
 db = Database()
 
 
-def _ensure_api_token() -> str:
-    """Return the persistent API token, creating one if it doesn't exist."""
-    token = db.get_app_setting("api_token")
+def _ensure_token(key: str) -> str:
+    """Return the persistent API token for `key`, creating one if it doesn't
+    exist. Two tokens are stored: `api_token` (staff-level, day-to-day
+    scanning) and `admin_api_token` (grants everything staff can do PLUS
+    admin operations like user management)."""
+    token = db.get_app_setting(key)
     if not token:
         token = secrets.token_urlsafe(32)
-        db.set_app_setting("api_token", token)
+        db.set_app_setting(key, token)
     return token
 
 
-API_TOKEN = _ensure_api_token()
+STAFF_TOKEN = _ensure_token("api_token")
+ADMIN_TOKEN = _ensure_token("admin_api_token")
 
 
 # ---------------------------------------------------------------------------
@@ -87,12 +92,25 @@ _XRW_EXPECTED  = "HarvestHero"
 
 @app.before_request
 def enforce_auth_and_csrf():
-    """Reject unauthenticated or CSRF-suspicious requests."""
+    """Reject unauthenticated or CSRF-suspicious requests.
+
+    Sets g.role to "admin" or "staff" based on which token was
+    presented. Endpoints decorated with @admin_required will reject
+    anything that isn't "admin".
+    """
     if request.path == "/api/health":
         return None
 
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:], API_TOKEN):
+    if not auth.startswith("Bearer "):
+        return err("Unauthorized — provide a valid Authorization: Bearer <token> header", 401)
+
+    presented = auth[7:]
+    if hmac.compare_digest(presented, ADMIN_TOKEN):
+        g.role = "admin"
+    elif hmac.compare_digest(presented, STAFF_TOKEN):
+        g.role = "staff"
+    else:
         return err("Unauthorized — provide a valid Authorization: Bearer <token> header", 401)
 
     if request.headers.get(_XRW_HEADER, "") != _XRW_EXPECTED:
@@ -102,6 +120,20 @@ def enforce_auth_and_csrf():
         ctype = (request.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
         if ctype and ctype != "application/json":
             return err("Unsupported Media Type — Content-Type must be application/json", 415)
+
+
+def admin_required(fn):
+    """Reject non-admin callers with 403. Applied to endpoints that
+    would let a staff-token holder escalate privileges or destroy data
+    (user management, item deletion, activity-log wipe, etc.)."""
+
+    @functools.wraps(fn)
+    def _wrapped(*args, **kwargs):
+        if getattr(g, "role", None) != "admin":
+            return err("Forbidden — admin token required for this operation", 403)
+        return fn(*args, **kwargs)
+
+    return _wrapped
 
 
 @app.after_request
@@ -133,6 +165,7 @@ def api_get_all_users():
 
 
 @app.post("/api/users")
+@admin_required
 def api_create_user():
     d = request.get_json()
     success, msg = db.create_user(
@@ -142,6 +175,7 @@ def api_create_user():
 
 
 @app.put("/api/users/<int:uid>/role")
+@admin_required
 def api_update_role(uid):
     d = request.get_json()
     db.update_user_role(uid, d["role"])
@@ -149,6 +183,7 @@ def api_update_role(uid):
 
 
 @app.put("/api/users/<int:uid>/password")
+@admin_required
 def api_update_password(uid):
     d = request.get_json()
     db.update_user_password(uid, d["password_hash"], d["salt"])
@@ -156,6 +191,7 @@ def api_update_password(uid):
 
 
 @app.put("/api/users/<int:uid>/active")
+@admin_required
 def api_set_active(uid):
     d = request.get_json()
     db.set_user_active(uid, d["active"])
@@ -163,6 +199,7 @@ def api_set_active(uid):
 
 
 @app.post("/api/users/full")
+@admin_required
 def api_create_user_full():
     d = request.get_json()
     success, msg = db.create_user_full(
@@ -173,6 +210,7 @@ def api_create_user_full():
 
 
 @app.put("/api/users/<int:uid>/fullname")
+@admin_required
 def api_update_fullname(uid):
     d = request.get_json()
     db.update_user_full_name(uid, d["full_name"])
@@ -229,6 +267,7 @@ def api_out_of_stock():
 
 
 @app.post("/api/items")
+@admin_required
 def api_add_item():
     d = request.get_json()
     success, msg = db.add_item(
@@ -245,6 +284,7 @@ def api_add_item():
 
 
 @app.put("/api/items/<int:item_id>/extended")
+@admin_required
 def api_update_item_extended(item_id):
     d = request.get_json()
     db.update_item_extended(
@@ -275,6 +315,7 @@ def api_stats():
 
 
 @app.put("/api/items/<int:item_id>")
+@admin_required
 def api_update_item(item_id):
     d = request.get_json()
     db.update_item(
@@ -286,6 +327,7 @@ def api_update_item(item_id):
 
 
 @app.put("/api/items/<int:item_id>/stock")
+@admin_required
 def api_set_stock(item_id):
     d = request.get_json()
     db.set_stock(item_id, d["quantity"])
@@ -294,12 +336,14 @@ def api_set_stock(item_id):
 
 @app.patch("/api/items/adjust")
 def api_adjust_stock():
+    # Staff-allowed: scan-in / scan-out call this with delta ±1.
     d = request.get_json()
     db.adjust_stock(d["barcode"], d["delta"])
     return ok()
 
 
 @app.delete("/api/items/<int:item_id>")
+@admin_required
 def api_delete_item(item_id):
     db.delete_item(item_id)
     return ok()
@@ -347,6 +391,7 @@ def api_get_setting():
 
 
 @app.put("/api/settings")
+@admin_required
 def api_set_setting():
     d = request.get_json()
     db.set_app_setting(d["key"], d["value"])
@@ -371,6 +416,7 @@ def api_get_activity():
 
 
 @app.post("/api/activity/clear")
+@admin_required
 def api_clear_activity():
     d = request.get_json(silent=True) or {}
     older_than_days = d.get("older_than_days")
@@ -441,6 +487,7 @@ def api_update_pantry_client(client_id):
 
 
 @app.post("/api/pantry-clients/<int:client_id>/active")
+@admin_required
 def api_set_pantry_client_active(client_id):
     d = request.get_json()
     db.set_pantry_client_active(client_id, bool(d.get("active", True)))
@@ -510,6 +557,7 @@ def api_get_clients():
 
 
 @app.put("/api/clients/<machine_id>/approve")
+@admin_required
 def api_approve_client(machine_id):
     d = request.get_json()
     db.set_client_approved(
@@ -528,14 +576,21 @@ def api_is_client_approved(machine_id):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    print("=" * 55)
+    print("=" * 65)
     print("  Inventory Control Center — LAN Server")
     print(f"  Listening on  http://{HOST}:{PORT}")
     print()
-    print("  Share your local IP and the API token with client PCs.")
-    print(f"  API Token:  {API_TOKEN}")
+    print("  There are TWO tokens. Give each client PC exactly one, based")
+    print("  on the role of the user who will sit in front of it.")
+    print()
+    print(f"  Staff token (scanning, transactions, view inventory):")
+    print(f"    {STAFF_TOKEN}")
+    print()
+    print(f"  Admin token (everything staff can do PLUS user management,")
+    print(f"  add/edit/delete inventory, settings, client approvals):")
+    print(f"    {ADMIN_TOKEN}")
     print()
     print("  Windows: run  ipconfig  in a terminal.")
     print("  Mac/Linux: run  ifconfig  or  ip addr")
-    print("=" * 55)
+    print("=" * 65)
     app.run(host=HOST, port=PORT, debug=False)
