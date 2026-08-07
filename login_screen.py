@@ -503,6 +503,7 @@ class LoginScreen(ctk.CTkFrame):
         user = self.db.get_user(username)
         if user and user.get("is_active") and \
                 verify_password(password, user["password_hash"], user["salt"]):
+            self._upgrade_hash_if_needed(user, password)
             _succeed(user)
         else:
             if user and not user.get("is_active"):
@@ -511,6 +512,20 @@ class LoginScreen(ctk.CTkFrame):
                 _fail("This account has been deactivated.")
             else:
                 _fail("Invalid username or password.")
+
+    def _upgrade_hash_if_needed(self, user: dict, plaintext_password: str) -> None:
+        """After a successful local login, transparently re-hash the
+        password at the current PBKDF2 work factor if the stored record
+        was generated with a weaker one. Silent no-op on failure — we
+        don't want a background upgrade to block or reveal itself to
+        the user."""
+        try:
+            from auth import hash_password as _hp, needs_rehash
+            if needs_rehash(user["password_hash"]):
+                new_hash, new_salt = _hp(plaintext_password)
+                self.db.update_user_password(user["id"], new_hash, new_salt)
+        except Exception:
+            pass
 
     def _provision_ldap_user(self, username: str, display_name) -> dict | None:
         """Return the local user record for an LDAP-authenticated user,
