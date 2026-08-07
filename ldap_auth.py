@@ -106,6 +106,23 @@ def migrate_plaintext_password() -> bool:
 # Connection test
 # ---------------------------------------------------------------------------
 
+def _build_tls(config: dict):
+    """Return a Tls context that validates certs by default.
+
+    Callers can opt out for self-signed / test LDAP servers by setting
+    "verify_cert": false in the ldap config. Otherwise CERT_REQUIRED is
+    used so man-in-the-middle attacks against the LDAP server are
+    detected.
+    """
+    from ldap3 import Tls
+    import ssl
+
+    if not (config.get("use_ssl") or config.get("use_tls")):
+        return None
+    validate = ssl.CERT_NONE if not config.get("verify_cert", True) else ssl.CERT_REQUIRED
+    return Tls(validate=validate)
+
+
 def test_ldap_connection(config: dict) -> Tuple[bool, str]:
     """Verify connectivity using service account or anonymous bind.
 
@@ -113,8 +130,7 @@ def test_ldap_connection(config: dict) -> Tuple[bool, str]:
         (success: bool, message: str)
     """
     try:
-        from ldap3 import Server, Connection, Tls, SIMPLE  # noqa
-        import ssl
+        from ldap3 import Server, Connection, SIMPLE  # noqa
 
         server_url   = (config.get("server_url") or "").strip()
         port         = int(config.get("port") or 389)
@@ -126,7 +142,7 @@ def test_ldap_connection(config: dict) -> Tuple[bool, str]:
         if not server_url:
             return False, "Server URL is required."
 
-        tls    = Tls(validate=ssl.CERT_NONE) if (use_ssl or use_tls) else None
+        tls    = _build_tls(config)
         server = Server(server_url, port=port, use_ssl=use_ssl, tls=tls,
                         connect_timeout=6)
 
@@ -176,8 +192,9 @@ def verify_ldap_credentials(
         return False, None, "Password required."
 
     try:
-        from ldap3 import Server, Connection, Tls, SIMPLE, SUBTREE  # noqa
-        import ssl
+        from ldap3 import Server, Connection, SIMPLE, SUBTREE  # noqa
+        from ldap3.utils.conv import escape_filter_chars
+        from ldap3.utils.dn import escape_rdn
 
         server_url  = (config.get("server_url") or "").strip()
         port        = int(config.get("port") or 389)
@@ -190,8 +207,16 @@ def verify_ldap_credentials(
         if not server_url:
             return False, None, "LDAP server URL not configured."
 
-        user_dn = dn_format.replace("{username}", username)
-        tls     = Tls(validate=ssl.CERT_NONE) if (use_ssl or use_tls) else None
+        # Escape the username separately for the two contexts it flows into:
+        # - RDN escaping for the bind DN so an attacker can't inject extra
+        #   attribute-value assertions or DN components.
+        # - LDAP filter escaping so it can't smuggle wildcards or filter
+        #   operators into the search that follows a successful bind.
+        safe_dn_username     = escape_rdn(username)
+        safe_filter_username = escape_filter_chars(username)
+
+        user_dn = dn_format.replace("{username}", safe_dn_username)
+        tls     = _build_tls(config)
         server  = Server(server_url, port=port, use_ssl=use_ssl, tls=tls,
                          connect_timeout=8)
         conn    = Connection(server, user=user_dn, password=password,
@@ -212,7 +237,7 @@ def verify_ldap_credentials(
             try:
                 conn.search(
                     search_base=base_dn,
-                    search_filter=f"({search_attr}={username})",
+                    search_filter=f"({search_attr}={safe_filter_username})",
                     search_scope=SUBTREE,
                     attributes=["displayName", "cn", "givenName", "sn"],
                 )
