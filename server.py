@@ -238,6 +238,7 @@ def api_add_item():
         storage_location=d.get("storage_location", ""),
         shelf_life_days=int(d.get("shelf_life_days", 0) or 0),
         expiration_date=d.get("expiration_date", ""),
+        nutrition_data=d.get("nutrition_data", "{}"),
     )
     return ok(msg) if success else err(msg)
 
