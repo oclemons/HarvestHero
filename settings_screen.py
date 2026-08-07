@@ -749,6 +749,12 @@ class SettingsScreen(ctk.CTkFrame):
         dst = os.path.join(BACKUP_DIR, f"inventory_backup_{ts_file}.db")
         try:
             shutil.copy2(src, dst)
+            # The backup contains password hashes, salts, and all
+            # inventory data. Lock it to owner-only.
+            try:
+                os.chmod(dst, 0o600)
+            except OSError:
+                pass
             ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
             self.db.set_app_setting("last_backup", ts)
             self._last_backup_lbl.configure(text=f"Last backup: {ts}")

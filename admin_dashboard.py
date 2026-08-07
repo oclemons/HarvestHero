@@ -534,6 +534,11 @@ class AdminDashboard(ctk.CTkFrame):
         dst = os.path.join(BACKUP_DIR, f"inventory_backup_{ts_file}.db")
         try:
             shutil.copy2(src, dst)
+            # Backups carry password hashes and full inventory — lock to owner.
+            try:
+                os.chmod(dst, 0o600)
+            except OSError:
+                pass
             ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
             self.db.set_app_setting("last_backup", ts)
             Toast.show(self, f"Backup saved \u2192 output/backups/{os.path.basename(dst)}", kind="success")
