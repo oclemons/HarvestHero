@@ -448,10 +448,36 @@ class LoginScreen(ctk.CTkFrame):
             self._set_status("Please enter your username and password.")
             return
 
+        import login_throttle
+        wait = login_throttle.locked_seconds(username)
+        if wait > 0:
+            self._set_status(
+                f"Too many failed attempts. Try again in {wait} seconds."
+            )
+            return
+
         self.login_btn.configure(text="Signing in...  ", state="disabled")
         self.after(400, lambda: self._do_login(username, password))
 
     def _do_login(self, username: str, password: str) -> None:
+        import login_throttle
+
+        def _fail(msg: str) -> None:
+            lock_for = login_throttle.record_failure(username)
+            self.login_btn.configure(text="SIGN IN  →", state="normal")
+            if lock_for > 0:
+                self._set_status(
+                    f"Too many failed attempts. Try again in {lock_for} seconds."
+                )
+            else:
+                self._set_status(msg)
+            self.password_entry.delete(0, tk.END)
+            self.password_entry.focus()
+
+        def _succeed(user: dict) -> None:
+            login_throttle.record_success(username)
+            self.on_success(user)
+
         # ── LDAP authentication (if enabled) ──────────────────────────
         try:
             from ldap_auth import is_ldap_enabled, verify_ldap_credentials, get_ldap_config
@@ -460,7 +486,7 @@ class LoginScreen(ctk.CTkFrame):
                 if ok:
                     user = self._provision_ldap_user(username, display_name)
                     if user:
-                        self.on_success(user)
+                        _succeed(user)
                         return
                     self.login_btn.configure(text="SIGN IN  →", state="normal")
                     self._set_status("Account is disabled. Contact an administrator.")
@@ -468,10 +494,7 @@ class LoginScreen(ctk.CTkFrame):
                 else:
                     cfg = get_ldap_config()
                     if not cfg.get("fallback_to_local", True):
-                        self.login_btn.configure(text="SIGN IN  →", state="normal")
-                        self._set_status(f"LDAP: {err or 'Authentication failed.'}")
-                        self.password_entry.delete(0, tk.END)
-                        self.password_entry.focus()
+                        _fail(f"LDAP: {err or 'Authentication failed.'}")
                         return
         except Exception:
             pass  # ldap_auth unavailable or LDAP disabled — fall through
@@ -480,15 +503,14 @@ class LoginScreen(ctk.CTkFrame):
         user = self.db.get_user(username)
         if user and user.get("is_active") and \
                 verify_password(password, user["password_hash"], user["salt"]):
-            self.on_success(user)
+            _succeed(user)
         else:
-            self.login_btn.configure(text="SIGN IN  →", state="normal")
             if user and not user.get("is_active"):
-                self._set_status("This account has been deactivated.")
+                # Account deactivated — count as a failure so a stolen
+                # username still eats attempts against the lockout.
+                _fail("This account has been deactivated.")
             else:
-                self._set_status("Invalid username or password.")
-            self.password_entry.delete(0, tk.END)
-            self.password_entry.focus()
+                _fail("Invalid username or password.")
 
     def _provision_ldap_user(self, username: str, display_name) -> dict | None:
         """Return the local user record for an LDAP-authenticated user,
