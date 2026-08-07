@@ -66,6 +66,27 @@ def err(msg, status=400):
     return jsonify({"ok": False, "error": msg}), status
 
 
+def _int_arg(name: str, default: int, low: int | None = None,
+             high: int | None = None) -> int:
+    """Parse an integer query parameter defensively.
+
+    Non-numeric or out-of-range values fall back to `default` instead of
+    letting int() raise ValueError and returning a 500 to the client.
+    """
+    raw = request.args.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    if low is not None and value < low:
+        return low
+    if high is not None and value > high:
+        return high
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Authentication + CSRF protection
 # ---------------------------------------------------------------------------
@@ -300,7 +321,7 @@ def api_update_item_extended(item_id):
 
 @app.get("/api/items/expiring")
 def api_expiring():
-    days = int(request.args.get("days", 30))
+    days = _int_arg("days", default=30, low=0, high=3650)
     return ok(db.get_expiring_items(days))
 
 
@@ -377,7 +398,7 @@ def api_get_transactions():
 
 @app.get("/api/transactions/recent")
 def api_recent_transactions():
-    limit = int(request.args.get("limit", 20))
+    limit = _int_arg("limit", default=20, low=1, high=1000)
     return ok(db.get_recent_transactions(limit))
 
 
@@ -411,7 +432,7 @@ def api_log_activity():
 
 @app.get("/api/activity")
 def api_get_activity():
-    limit = int(request.args.get("limit", 100))
+    limit = _int_arg("limit", default=100, low=1, high=5000)
     return ok(db.get_activity_log(limit))
 
 
@@ -532,7 +553,7 @@ def api_get_client_visit_stats(client_id):
 
 @app.get("/api/visits/recent")
 def api_get_recent_pantry_visits():
-    limit = int(request.args.get("limit", 20))
+    limit = _int_arg("limit", default=20, low=1, high=1000)
     return ok(db.get_recent_pantry_visits(limit))
 
 
