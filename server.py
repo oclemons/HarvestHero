@@ -12,6 +12,7 @@ Find this PC's IP on Windows:  ipconfig
 Find this PC's IP on Mac/Linux: ifconfig  or  ip addr
 """
 
+import hmac
 import json
 import os
 import secrets
@@ -91,7 +92,7 @@ def enforce_auth_and_csrf():
         return None
 
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or auth[7:] != API_TOKEN:
+    if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:], API_TOKEN):
         return err("Unauthorized — provide a valid Authorization: Bearer <token> header", 401)
 
     if request.headers.get(_XRW_HEADER, "") != _XRW_EXPECTED:
