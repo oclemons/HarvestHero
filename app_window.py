@@ -112,8 +112,10 @@ class AppWindow(ctk.CTkFrame):
         self._page_cache: dict = {}
         self._current_page: str = ""
         self._nav_btns: dict = {}
+        self._session_terminated = False
         self._build()
         self._start_clock()
+        self._start_session_check()
         # Store reference on toplevel so quick actions can navigate
         try:
             parent.winfo_toplevel()._app_window = self
@@ -373,6 +375,60 @@ class AppWindow(ctk.CTkFrame):
                 self._clock_lbl.configure(text=now + "  ")
                 self.after(1000, _tick)
         _tick()
+
+    # ------------------------------------------------------------------
+    # Session validity check
+    # ------------------------------------------------------------------
+    #
+    # Re-read this user's row from the DB every 30 seconds. If an admin
+    # has deactivated the account or changed their role, force logout so
+    # they don't keep clicking admin actions in a stale UI.
+
+    _SESSION_CHECK_MS = 30_000
+
+    def _start_session_check(self):
+        self.after(self._SESSION_CHECK_MS, self._check_session)
+
+    def _check_session(self):
+        if self._session_terminated:
+            return
+        try:
+            fresh = self.db.get_user(self.user["username"])
+        except Exception:
+            # Network hiccup in client mode — try again next tick.
+            self.after(self._SESSION_CHECK_MS, self._check_session)
+            return
+
+        if fresh is None or not fresh.get("is_active"):
+            self._terminate_session(
+                "This account has been deactivated. Please contact an administrator."
+            )
+            return
+        if fresh.get("role") != self.user.get("role"):
+            self._terminate_session(
+                "Your role was changed. Please sign in again to continue."
+            )
+            return
+
+        # Refresh cached fields that aren't security-sensitive (name, tour flag)
+        for key in ("full_name", "has_completed_tour"):
+            if key in fresh:
+                self.user[key] = fresh[key]
+
+        self.after(self._SESSION_CHECK_MS, self._check_session)
+
+    def _terminate_session(self, reason: str) -> None:
+        self._session_terminated = True
+        try:
+            from tkinter import messagebox
+            messagebox.showinfo("Session ended", reason)
+        except Exception:
+            pass
+        try:
+            self._page_cache.clear()
+        except Exception:
+            pass
+        self.on_logout()
 
     # ------------------------------------------------------------------
     # Logout
