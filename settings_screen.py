@@ -541,10 +541,15 @@ class SettingsScreen(ctk.CTkFrame):
                                 minimum_stock=mstk, notes=notes,
                                 barcode_out=b_out,
                             )
+                            # Preserve AI-populated fields the CSV doesn't
+                            # carry; without this, re-importing an existing
+                            # inventory wipes shelf_life_days and nutrition_data.
                             self.db.update_item_extended(
                                 existing["id"],
                                 brand=brand, storage_location=loc,
                                 expiration_date=exp,
+                                shelf_life_days=int(existing.get("shelf_life_days") or 0),
+                                nutrition_data=existing.get("nutrition_data") or "{}",
                             )
                             if qty > 0:
                                 self.db.set_stock(existing["id"], qty)
