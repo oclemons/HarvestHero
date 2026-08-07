@@ -113,9 +113,11 @@ class AppWindow(ctk.CTkFrame):
         self._current_page: str = ""
         self._nav_btns: dict = {}
         self._session_terminated = False
+        self._pending_update = None  # populated by updater worker thread
         self._build()
         self._start_clock()
         self._start_session_check()
+        self._start_update_check()
         # Store reference on toplevel so quick actions can navigate
         try:
             parent.winfo_toplevel()._app_window = self
@@ -177,6 +179,20 @@ class AppWindow(ctk.CTkFrame):
 
         ctk.CTkFrame(sb, height=1, fg_color=BORDER_COLOR).pack(
             side="bottom", fill="x", padx=14, pady=(8, 4))
+
+        # Update-available badge: hidden until the background check
+        # discovers a newer manifest version. Packing it AFTER the
+        # separator (still with side="bottom") makes it sit right below
+        # the user chip when it appears.
+        self._update_btn = ctk.CTkButton(
+            sb, text="", height=28, corner_radius=6,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            fg_color=ACCENT_GOLD, hover_color=ACCENT_GOLD,
+            text_color=BG_BASE, border_width=0,
+            command=self._open_update_url,
+        )
+        # Not packed yet — _show_update_badge() calls .pack() when needed.
+        self._update_url: str = ""
 
         # ── Top: logo ──
         brand = ctk.CTkFrame(sb, fg_color="transparent")
@@ -416,6 +432,81 @@ class AppWindow(ctk.CTkFrame):
                 self.user[key] = fresh[key]
 
         self.after(self._SESSION_CHECK_MS, self._check_session)
+
+    # ------------------------------------------------------------------
+    # Update-available check
+    # ------------------------------------------------------------------
+
+    def _start_update_check(self) -> None:
+        """Kick off a background updater manifest fetch. The worker
+        thread sets self._pending_update; a poller on the Tk main
+        thread picks it up and shows the badge."""
+        try:
+            from updater import check_async
+            import json, os
+            from paths import USER_DIR
+
+            manifest_url = None
+            cfg_path = os.path.join(USER_DIR, "config.json")
+            if os.path.exists(cfg_path):
+                try:
+                    with open(cfg_path) as f:
+                        manifest_url = json.load(f).get("update_url")
+                except Exception:
+                    manifest_url = None
+
+            def _on_result(info):
+                # Called from the worker thread — do NOT touch widgets here.
+                self._pending_update = info
+
+            kwargs = {"delay_seconds": 3.0}
+            if manifest_url:
+                kwargs["manifest_url"] = manifest_url
+            check_async(_on_result, **kwargs)
+        except Exception:
+            return
+
+        # Poll for the result on the main thread.
+        self.after(1500, self._poll_update)
+
+    def _poll_update(self) -> None:
+        info = self._pending_update
+        if info is None:
+            # Not yet — try again shortly.
+            try:
+                if self.winfo_exists():
+                    self.after(1500, self._poll_update)
+            except Exception:
+                pass
+            return
+        try:
+            if self.winfo_exists():
+                self._show_update_badge(info)
+        except Exception:
+            pass
+
+    def _show_update_badge(self, info) -> None:
+        self._update_url = info.url
+        self._update_btn.configure(
+            text=f"↑ Update available: {info.latest}"
+        )
+        self._update_btn.pack(
+            side="bottom", fill="x", padx=14, pady=(6, 4),
+            before=None,  # sit above the user chip stack we packed earlier
+        )
+
+    def _open_update_url(self) -> None:
+        if not self._update_url:
+            return
+        try:
+            import webbrowser
+            webbrowser.open(self._update_url, new=2)
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Session termination
+    # ------------------------------------------------------------------
 
     def _terminate_session(self, reason: str) -> None:
         self._session_terminated = True
