@@ -437,6 +437,14 @@ class Database:
         conn.close()
         return dict(row) if row else None
 
+    def get_item_by_id(self, item_id: int):
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT * FROM inventory_items WHERE id = ?", (item_id,)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
     def get_item_by_any_barcode(self, barcode: str):
         """Check both barcode (Scan-In) and barcode_out (Scan-Out).
 
@@ -459,19 +467,26 @@ class Database:
             return dict(row), "SCAN_OUT"
         return None, None
 
-    def get_all_items(self, search: str = ""):
+    def get_all_items(self, search: str = "", limit: int | None = None):
+        """Return active inventory rows.
+
+        `limit` is opt-in: callers that render a table can pass a cap so
+        a runaway DB doesn't try to inflate the entire inventory into
+        RAM. Exports and admin scripts pass None to get everything.
+        """
         conn = self._connect()
+        params: list = []
         if search:
-            rows = conn.execute(
-                """SELECT * FROM inventory_items
-                   WHERE barcode LIKE ? OR item_name LIKE ? OR category LIKE ?
-                   ORDER BY item_name""",
-                (f"%{search}%", f"%{search}%", f"%{search}%"),
-            ).fetchall()
+            query = ("SELECT * FROM inventory_items "
+                     "WHERE barcode LIKE ? OR item_name LIKE ? OR category LIKE ? "
+                     "ORDER BY item_name")
+            params += [f"%{search}%", f"%{search}%", f"%{search}%"]
         else:
-            rows = conn.execute(
-                "SELECT * FROM inventory_items ORDER BY item_name"
-            ).fetchall()
+            query = "SELECT * FROM inventory_items ORDER BY item_name"
+        if isinstance(limit, int) and limit > 0:
+            query += " LIMIT ?"
+            params.append(limit)
+        rows = conn.execute(query, params).fetchall()
         conn.close()
         return [dict(r) for r in rows]
 
@@ -1556,7 +1571,14 @@ class Database:
         date_from: str = "",
         date_to: str = "",
         recipient: str = "",
+        limit: int | None = None,
     ):
+        """Return transactions matching the filters, newest first.
+
+        `limit` is opt-in. UI views should pass a bound so a multi-year
+        transaction log doesn't blow up the window; CSV exports and
+        Ava's context builder pass their own explicit caps.
+        """
         conn = self._connect()
         query = "SELECT * FROM transactions WHERE 1=1"
         params = []
@@ -1578,6 +1600,9 @@ class Database:
             params.append(f"%{recipient}%")
 
         query += " ORDER BY timestamp DESC"
+        if isinstance(limit, int) and limit > 0:
+            query += " LIMIT ?"
+            params.append(limit)
         rows = conn.execute(query, params).fetchall()
         conn.close()
         return [dict(r) for r in rows]

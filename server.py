@@ -261,6 +261,11 @@ def api_get_items():
     return ok(db.get_all_items(search))
 
 
+@app.get("/api/items/<int:item_id>")
+def api_get_item_by_id(item_id):
+    return ok(db.get_item_by_id(item_id))
+
+
 @app.get("/api/items/barcode/<barcode>")
 def api_get_by_barcode(barcode):
     return ok(db.get_item_by_barcode(barcode))

@@ -146,6 +146,9 @@ class ApiClient:
     def get_item_by_barcode(self, barcode: str):
         return self._get(f"/api/items/barcode/{barcode}")
 
+    def get_item_by_id(self, item_id: int):
+        return self._get(f"/api/items/{int(item_id)}")
+
     def get_item_by_any_barcode(self, barcode: str):
         result = self._get(f"/api/items/anybarcode/{barcode}")
         if result:

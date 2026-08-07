@@ -240,10 +240,16 @@ class InventoryList(ctk.CTkFrame):
             messagebox.showwarning("No Selection", "Please select an item first.")
             return None
         item_id = int(sel[0])
-        for item in self.db.get_all_items():
-            if item["id"] == item_id:
-                return item
-        return None
+        # Query the row directly instead of scanning the full inventory
+        # for a match; O(1) vs O(n).
+        try:
+            return self.db.get_item_by_id(item_id)
+        except AttributeError:
+            # Older ApiClient without the helper — fall back gracefully.
+            for item in self.db.get_all_items():
+                if item["id"] == item_id:
+                    return item
+            return None
 
     def edit_selected(self):
         item = self._selected_item()

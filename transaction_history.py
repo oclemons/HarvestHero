@@ -209,7 +209,12 @@ class TransactionHistory(ctk.CTkFrame):
         date_to   = self.to_var.get().strip()
         recipient = self.recip_var.get().strip()
 
-        rows = self.db.get_transactions(search, ttype, date_from, date_to, recipient)
+        # Cap the on-screen list; users who need every row can use "Export CSV".
+        # This keeps the UI responsive on multi-year databases.
+        VIEW_LIMIT = 5000
+        rows = self.db.get_transactions(
+            search, ttype, date_from, date_to, recipient, limit=VIEW_LIMIT
+        )
 
         for r in self.tree.get_children():
             self.tree.delete(r)

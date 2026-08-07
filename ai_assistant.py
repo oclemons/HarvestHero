@@ -33,8 +33,12 @@ class _PatternEngine:
 
     def _load(self):
         if self._txns is None:
-            self._txns  = self.db.get_transactions()
-            self._items = self.db.get_all_items()
+            # Bound Ava's working set so the UI thread doesn't have to
+            # hydrate a decade of transactions on every question. The
+            # most recent slice is more than enough context for the
+            # rule-based summariser and OpenAI helper.
+            self._txns  = self.db.get_transactions(limit=5000)
+            self._items = self.db.get_all_items(limit=10000)
 
     # ── Consumption velocity ──────────────────────────────────────────
 
