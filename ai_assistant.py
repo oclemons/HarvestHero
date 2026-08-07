@@ -3,6 +3,7 @@
 import collections
 import datetime
 import statistics
+import threading
 import tkinter as tk
 from typing import List, Dict, Any
 
@@ -1348,8 +1349,52 @@ class AIAssistant(ctk.CTkFrame):
             return
         self._q_var.set("")
         self._add_chat_bubble(q, is_user=True)
-        answer = self._ai.answer(q)
-        self.after(280, lambda: self._add_chat_bubble(answer, is_user=False))
+        # Show a placeholder bubble immediately so users see progress,
+        # then run answer() off the Tk main thread. Otherwise the whole
+        # window freezes for seconds while the AI/database work happens.
+        self._add_chat_bubble("…thinking…", is_user=False)
+        thinking_row = self._chat_row - 1  # row of the placeholder we just added
+
+        result: dict = {"answer": None}
+        done = threading.Event()
+
+        def _worker():
+            try:
+                result["answer"] = self._ai.answer(q)
+            except Exception as exc:  # noqa: BLE001
+                result["answer"] = f"Sorry, I hit an error: {exc}"
+            finally:
+                done.set()
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+        def _poll():
+            try:
+                if not self.winfo_exists():
+                    return
+            except Exception:
+                return
+            if not done.is_set():
+                self.after(80, _poll)
+                return
+            try:
+                self._replace_chat_bubble(
+                    thinking_row, result["answer"] or "(no response)"
+                )
+            except Exception:
+                pass
+
+        self.after(80, _poll)
+
+    def _replace_chat_bubble(self, row: int, text: str) -> None:
+        """Replace the text in an existing bot chat bubble (used to swap
+        the '…thinking…' placeholder for the actual answer)."""
+        for child in self._chat_log.grid_slaves(row=row):
+            child.destroy()
+        prev_row = self._chat_row
+        self._chat_row = row
+        self._add_chat_bubble(text, is_user=False)
+        self._chat_row = prev_row
 
     def _add_chat_bubble(self, text: str, is_user: bool):
         fg  = ACCENT if is_user else BG_OVERLAY
