@@ -487,6 +487,9 @@ class SettingsScreen(ctk.CTkFrame):
         except Exception as e:
             Toast.show(self, f"Could not open folder: {e}", kind="error")
 
+    _CSV_MAX_BYTES = 50 * 1024 * 1024   # 50 MB
+    _CSV_MAX_ROWS  = 100_000
+
     def _import_csv(self):
         import csv, os
         from tkinter import filedialog
@@ -495,9 +498,30 @@ class SettingsScreen(ctk.CTkFrame):
         path = filedialog.askopenfilename(
             title="Select inventory CSV",
             initialdir=INPUT_DIR,
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            filetypes=[("CSV files", "*.csv")],
         )
         if not path:
+            return
+
+        # File-extension guard: only accept .csv. Belt-and-suspenders on
+        # top of the filedialog filter, which the user can bypass on Mac.
+        if not path.lower().endswith(".csv"):
+            Toast.show(self, "Only .csv files are supported for import.",
+                       kind="error")
+            return
+
+        # Size cap: refuse pathologically large files before we read
+        # anything into memory.
+        try:
+            size = os.path.getsize(path)
+        except OSError as exc:
+            Toast.show(self, f"Cannot read file: {exc}", kind="error")
+            return
+        if size > self._CSV_MAX_BYTES:
+            Toast.show(self,
+                f"CSV is {size // (1024*1024)} MB — max is "
+                f"{self._CSV_MAX_BYTES // (1024*1024)} MB.",
+                kind="error")
             return
 
         required = {"barcode", "item_name"}
@@ -515,6 +539,12 @@ class SettingsScreen(ctk.CTkFrame):
                     return
 
                 for i, row in enumerate(reader, start=2):
+                    if (i - 1) > self._CSV_MAX_ROWS:
+                        errors.append(
+                            f"Stopped at row {self._CSV_MAX_ROWS + 1}: "
+                            f"max import size is {self._CSV_MAX_ROWS} rows."
+                        )
+                        break
                     try:
                         barcode  = row.get("barcode", "").strip()
                         name     = row.get("item_name", "").strip()
