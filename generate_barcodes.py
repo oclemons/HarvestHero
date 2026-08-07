@@ -61,9 +61,10 @@ def _load_font(size: int) -> ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
-FONT_TITLE = _load_font(22)
-FONT_LOC   = _load_font(16)
+FONT_TITLE = _load_font(24)
+FONT_LOC   = _load_font(15)
 FONT_TAG   = _load_font(18)
+FONT_CODE  = _load_font(16)
 
 
 # ---------------------------------------------------------------------------
@@ -71,19 +72,18 @@ FONT_TAG   = _load_font(18)
 # ---------------------------------------------------------------------------
 
 def _render_barcode(value: str) -> Image.Image:
-    """Return a PIL image of `value` encoded as Code 128 with the human-
-    readable text underneath."""
+    """Return a PIL image of `value` encoded as Code 128 with NO embedded
+    text — we render the human-readable value ourselves below the bars
+    so it never overlaps the pattern."""
     writer = ImageWriter()
     buf = io.BytesIO()
     Code128(value, writer=writer).write(
         buf,
         options={
-            "module_width":  0.28,
-            "module_height": 12,
-            "font_size":     10,
-            "text_distance": 3,
+            "module_width":  0.32,
+            "module_height": 14,
             "quiet_zone":    3,
-            "write_text":    True,
+            "write_text":    False,
         },
     )
     buf.seek(0)
@@ -98,9 +98,22 @@ def _fit_barcode(img: Image.Image, max_w: int, max_h: int) -> Image.Image:
     return img.resize(new_size, Image.LANCZOS)
 
 
+def _text_size(draw: ImageDraw.ImageDraw, text: str,
+               font: ImageFont.ImageFont) -> tuple[int, int]:
+    """Return (width, height) of `text` in `font` — works for both truetype
+    and Pillow's default bitmap font."""
+    l, t, r, b = draw.textbbox((0, 0), text, font=font)
+    return r - l, b - t
+
+
 # ---------------------------------------------------------------------------
 # Page composition
 # ---------------------------------------------------------------------------
+
+TEXT_GAP    = 12   # gap between the barcode and the human-readable code
+LABEL_GAP   = 10   # gap between the SCAN IN/OUT tag and the barcode
+ROW_PAD_TOP = 12   # breathing room at the top of a row
+
 
 def _draw_row(page: Image.Image, draw: ImageDraw.ImageDraw,
               row_top: int, row: dict) -> None:
@@ -108,30 +121,47 @@ def _draw_row(page: Image.Image, draw: ImageDraw.ImageDraw,
     title = row["item_name"]
     loc   = row["storage_location"]
 
-    # Header
-    draw.text((MARGIN_X, row_top), title, fill="black", font=FONT_TITLE)
-    draw.text((MARGIN_X, row_top + 28), loc, fill="#444444", font=FONT_LOC)
+    # Header block
+    y = row_top + ROW_PAD_TOP
+    draw.text((MARGIN_X, y), title, fill="black", font=FONT_TITLE)
+    _, th = _text_size(draw, title, FONT_TITLE)
+    y += th + 4
+    draw.text((MARGIN_X, y), loc, fill="#555555", font=FONT_LOC)
+    _, lh = _text_size(draw, loc, FONT_LOC)
+    y += lh + 12
 
     # Divider under header
-    y_bar = row_top + 56
-    draw.line([(MARGIN_X, y_bar), (PAGE_W - MARGIN_X, y_bar)],
-              fill="#cccccc", width=1)
+    draw.line([(MARGIN_X, y), (PAGE_W - MARGIN_X, y)],
+              fill="#d0d0d0", width=1)
+    y += 14
 
-    max_h = ROW_H - 90
-    max_w = COL_W - 20
+    # Reserve enough room in the row for: tag + barcode + code text
+    remaining = (row_top + ROW_H) - y - 10
+    max_bc_h  = max(60, remaining - 24 - LABEL_GAP - TEXT_GAP)  # 24 ~ tag+text lineheights
+    max_bc_w  = COL_W - 30
 
     for col, (label, value, colour) in enumerate((
         ("SCAN IN",  row["barcode"],     "#0B7A3B"),
         ("SCAN OUT", row["barcode_out"], "#B4451E"),
     )):
         col_x = MARGIN_X + col * COL_W
-        draw.text((col_x, y_bar + 6), label, fill=colour, font=FONT_TAG)
+        col_centre = col_x + COL_W // 2
 
-        bc_img = _fit_barcode(_render_barcode(value), max_w, max_h - 22)
-        # centre horizontally within the column
-        x = col_x + (COL_W - bc_img.width) // 2
-        y = y_bar + 34
-        page.paste(bc_img, (x, y))
+        # Tag ("SCAN IN" / "SCAN OUT")
+        tw, tth = _text_size(draw, label, FONT_TAG)
+        draw.text((col_centre - tw // 2, y), label, fill=colour, font=FONT_TAG)
+
+        # Barcode
+        bc_img = _fit_barcode(_render_barcode(value), max_bc_w, max_bc_h)
+        bc_x = col_centre - bc_img.width // 2
+        bc_y = y + tth + LABEL_GAP
+        page.paste(bc_img, (bc_x, bc_y))
+
+        # Human-readable code
+        cw, ch = _text_size(draw, value, FONT_CODE)
+        code_x = col_centre - cw // 2
+        code_y = bc_y + bc_img.height + TEXT_GAP
+        draw.text((code_x, code_y), value, fill="black", font=FONT_CODE)
 
 
 def _new_page() -> Image.Image:
@@ -156,9 +186,9 @@ def build_pdf(rows: list[dict], out_path: str) -> None:
 
         # Separator between rows (except the last one on the page)
         if slot < ITEMS_PER_PG - 1:
-            sep_y = row_top + ROW_H - 6
+            sep_y = row_top + ROW_H - 4
             draw.line([(MARGIN_X, sep_y), (PAGE_W - MARGIN_X, sep_y)],
-                      fill="#e6e6e6", width=1)
+                      fill="#ececec", width=2)
 
         slot += 1
 
