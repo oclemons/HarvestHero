@@ -792,13 +792,22 @@ class SettingsScreen(ctk.CTkFrame):
         except Exception as e:
             Toast.show(self, f"Backup failed: {e}", kind="error")
 
+    # Explicit allowlist of fields to include in the transactions CSV
+    # export. Uses an allowlist rather than txns[0].keys() so that if the
+    # transactions table ever gains a sensitive column (say, an encrypted
+    # recipient PII field), it doesn't automatically get exported.
+    _EXPORT_TXN_FIELDS = (
+        "timestamp", "transaction_type", "barcode", "item_name",
+        "category", "quantity", "recipient", "username", "notes",
+    )
+
     def _export_csv(self):
         import csv, os, datetime
         from tkinter import filedialog
         from paths import EXPORT_DIR
         path = filedialog.asksaveasfilename(
             defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            filetypes=[("CSV files", "*.csv")],
             initialdir=EXPORT_DIR,
             initialfile=f"transactions_{datetime.date.today()}.csv",
         )
@@ -807,10 +816,13 @@ class SettingsScreen(ctk.CTkFrame):
         try:
             txns = self.db.get_transactions()
             with open(path, "w", newline="", encoding="utf-8") as f:
-                if txns:
-                    writer = csv.DictWriter(f, fieldnames=txns[0].keys())
-                    writer.writeheader()
-                    writer.writerows(txns)
+                writer = csv.DictWriter(
+                    f, fieldnames=self._EXPORT_TXN_FIELDS,
+                    extrasaction="ignore",  # drop any unknown columns silently
+                )
+                writer.writeheader()
+                for row in txns:
+                    writer.writerow({k: row.get(k, "") for k in self._EXPORT_TXN_FIELDS})
             Toast.show(self, f"Exported {len(txns)} rows to {os.path.basename(path)}", kind="success")
         except Exception as e:
             Toast.show(self, f"Export failed: {e}", kind="error")
