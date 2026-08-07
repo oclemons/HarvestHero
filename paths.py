@@ -69,7 +69,14 @@ if os.path.exists(_legacy_db) and not os.path.exists(DB_PATH):
     shutil.move(_legacy_db, DB_PATH)
 
 # ---------------------------------------------------------------------------
-# One-time seed: copy bundled database into the persistent user-data dir
+# Optional seed: copy a bundled starter database into the user-data dir
+# on first launch.
+#
+# The release build scripts DO NOT include a seed DB by default — shipping
+# the developer's inventory.db to every customer would leak password
+# hashes and real data. This block stays here so a downstream integrator
+# who intentionally adds `--add-data data/inventory.db:data` gets the
+# expected one-time-seed behaviour. In normal releases it's a no-op.
 # ---------------------------------------------------------------------------
 
 if _FROZEN and _MEIPASS:

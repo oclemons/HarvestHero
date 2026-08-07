@@ -46,12 +46,14 @@ if exist "assets\icon.ico" (
 
 REM 4. PyInstaller build
 echo [build] Building executable...
+REM NOTE: do NOT --add-data data\inventory.db — that would ship the
+REM developer's local database (password hashes, real inventory) to
+REM every customer. The app creates a fresh DB in USER_DIR on first launch.
 python -m PyInstaller --noconfirm --onefile --windowed ^
     --icon=assets\icon.ico ^
     --name HarvestHero ^
     --collect-data customtkinter ^
     --add-data "assets;assets" ^
-    --add-data "data\inventory.db;data" ^
     main.py
 
 REM 5. Assemble release folder

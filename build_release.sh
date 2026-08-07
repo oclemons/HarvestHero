@@ -48,9 +48,11 @@ python -m PyInstaller \
     --name HarvestHero \
     --collect-data customtkinter \
     --add-data "assets:assets" \
-    --add-data "data/inventory.db:data" \
     --noconfirm \
     main.py
+# NOTE: do NOT --add-data data/inventory.db — that would ship the
+# developer's local database (password hashes, real inventory) to every
+# customer. The app creates a fresh DB in USER_DIR on first launch.
 
 # 5. Assemble release folder
 RELEASE="dist/HarvestHero-release"
