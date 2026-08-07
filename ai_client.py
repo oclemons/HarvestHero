@@ -24,14 +24,17 @@ def _load_api_key() -> str | None:
     if env:
         return env
 
-    # Candidate locations (frozen builds keep user data in USER_DIR)
-    candidates = [USER_DIR, APP_DIR]
-    # Also allow the key file next to the .app bundle / release folder
+    # 2. On-disk key file. Constrain the search:
+    #   - In a frozen .app the key MUST live in USER_DIR (per-user data);
+    #     walking parent directories of the executable would let the
+    #     key be picked up from a shared /Applications folder or from
+    #     any other bundle a user happens to have installed.
+    #   - In a dev checkout, also allow APP_DIR (the project root)
+    #     because that's where developers typically drop the file.
     if getattr(sys, "frozen", False):
-        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-        for _ in range(3):
-            exe_dir = os.path.dirname(exe_dir)
-            candidates.append(exe_dir)
+        candidates = [USER_DIR]
+    else:
+        candidates = [USER_DIR, APP_DIR]
 
     for folder in candidates:
         path = os.path.join(folder, "OpenAI.env")
