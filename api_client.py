@@ -18,6 +18,11 @@ class ApiClient:
     def __init__(self, server_url: str, api_key: str = ""):
         self.base = server_url.rstrip("/")
         self._session = requests.Session()
+        # trust_env=False stops requests from picking up ambient config
+        # from the environment (HTTP_PROXY, .netrc credentials, etc.).
+        # For a LAN app talking to a single known server, ambient config
+        # is only ever a source of surprise or credential-leak CVEs.
+        self._session.trust_env = False
         # X-Requested-With satisfies the server's CSRF guard: browsers can't
         # set this header on a cross-origin "simple request", so its presence
         # proves the caller is our desktop client, not a hijacked browser.
