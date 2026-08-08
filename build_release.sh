@@ -54,7 +54,58 @@ python -m PyInstaller \
 # developer's local database (password hashes, real inventory) to every
 # customer. The app creates a fresh DB in USER_DIR on first launch.
 
-# 5. Assemble release folder
+# 5. (optional) Code sign + notarize the .app
+#
+# Skipped entirely unless APPLE_DEVELOPER_ID is set. Then the script
+# codesigns the bundle, submits it to Apple's notary service, and
+# staples the ticket so first-launch on a customer's Mac shows no
+# Gatekeeper warning.
+#
+# Required environment variables when signing:
+#   APPLE_DEVELOPER_ID      "Developer ID Application: Your Name (TEAMID)"
+#                           — paste exactly as `security find-identity -v` prints it.
+#   APPLE_NOTARY_PROFILE    A keychain profile name you set up once with
+#                           `xcrun notarytool store-credentials`.
+#                           See SIGNING.md.
+#
+# Optional:
+#   APPLE_ENTITLEMENTS      Path to an entitlements.plist. Defaults to
+#                           none (Tk apps don't need any yet).
+if [ -n "$APPLE_DEVELOPER_ID" ]; then
+    echo "[sign] Codesigning HarvestHero.app as: $APPLE_DEVELOPER_ID"
+    SIGN_ARGS=(--force --deep --options runtime --timestamp
+               --sign "$APPLE_DEVELOPER_ID")
+    if [ -n "$APPLE_ENTITLEMENTS" ] && [ -f "$APPLE_ENTITLEMENTS" ]; then
+        SIGN_ARGS+=(--entitlements "$APPLE_ENTITLEMENTS")
+    fi
+    codesign "${SIGN_ARGS[@]}" dist/HarvestHero.app
+    codesign --verify --deep --strict --verbose=2 dist/HarvestHero.app
+
+    if [ -n "$APPLE_NOTARY_PROFILE" ]; then
+        NOTARY_ZIP="dist/HarvestHero-notary.zip"
+        echo "[sign] Creating temp zip for notarization..."
+        ditto -c -k --keepParent dist/HarvestHero.app "$NOTARY_ZIP"
+        echo "[sign] Submitting to Apple notary service (may take a few minutes)..."
+        xcrun notarytool submit "$NOTARY_ZIP" \
+            --keychain-profile "$APPLE_NOTARY_PROFILE" \
+            --wait
+        rm -f "$NOTARY_ZIP"
+        echo "[sign] Stapling notarization ticket..."
+        xcrun stapler staple dist/HarvestHero.app
+        xcrun stapler validate dist/HarvestHero.app
+        echo "[sign] ✓ Signed + notarized + stapled."
+    else
+        echo "[sign] APPLE_NOTARY_PROFILE not set — skipping notarization."
+        echo "       The app is signed but customers will still see a"
+        echo "       Gatekeeper prompt on first launch. See SIGNING.md."
+    fi
+else
+    echo "[sign] APPLE_DEVELOPER_ID not set — shipping UNSIGNED."
+    echo "       Customers will see a Gatekeeper warning on first launch."
+    echo "       See SIGNING.md when you're ready to obtain a certificate."
+fi
+
+# 6. Assemble release folder
 RELEASE="dist/HarvestHero-release"
 echo "[build] Assembling release package..."
 rm -rf "$RELEASE"
@@ -64,7 +115,7 @@ cp -R dist/HarvestHero.app       "$RELEASE/"
 cp setup_client.py             "$RELEASE/"
 cp HOW_TO_START.txt            "$RELEASE/"
 
-# 6. Create zip
+# 7. Create zip
 ZIP="dist/HarvestHero-$(date +%Y%m%d).zip"
 cd dist
 zip -ry "../$ZIP" HarvestHero-release/
@@ -75,6 +126,11 @@ echo "  ✓ Build complete!"
 echo "    App bundle : $RELEASE/HarvestHero.app"
 echo "    Zip to send: $ZIP"
 echo ""
-echo "  Send the ZIP to end users."
-echo "  They unzip it, right-click HarvestHero.app, and choose Open."
+if [ -n "$APPLE_DEVELOPER_ID" ]; then
+    echo "  This build is signed. Customers just double-click the .app."
+else
+    echo "  This build is UNSIGNED. On first launch customers must"
+    echo "  right-click HarvestHero.app → Open (or run once from"
+    echo "  System Settings → Privacy & Security)."
+fi
 echo ""
