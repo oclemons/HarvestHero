@@ -1015,19 +1015,30 @@ class Database:
         finally:
             conn.close()
 
+    # Columns of archived_users that are safe to hand back to the UI.
+    # password_hash and salt stay in the DB (restore_archived_user needs
+    # them) but must NEVER leave server memory — they'd otherwise show up
+    # in list responses, screenshots, error tracebacks, etc.
+    _ARCHIVED_USER_SAFE_COLS = (
+        "archive_id, original_id, username, role, full_name, created_at, "
+        "is_active, has_completed_tour, last_login, created_by, "
+        "archived_at, archived_by"
+    )
+
     def get_archived_users(self, search: str = ""):
         conn = self._connect()
+        cols = self._ARCHIVED_USER_SAFE_COLS
         if search:
             like = f"%{search}%"
             rows = conn.execute(
-                """SELECT * FROM archived_users
-                   WHERE username LIKE ? OR full_name LIKE ?
-                   ORDER BY archived_at DESC""",
+                f"""SELECT {cols} FROM archived_users
+                    WHERE username LIKE ? OR full_name LIKE ?
+                    ORDER BY archived_at DESC""",
                 (like, like),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM archived_users ORDER BY archived_at DESC"
+                f"SELECT {cols} FROM archived_users ORDER BY archived_at DESC"
             ).fetchall()
         conn.close()
         return [dict(r) for r in rows]
