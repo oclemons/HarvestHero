@@ -4,6 +4,7 @@ Premium sidebar + swappable content.  Scanner is the primary page.
 """
 
 import datetime
+import threading
 import tkinter as tk
 
 import customtkinter as ctk
@@ -406,12 +407,49 @@ class AppWindow(ctk.CTkFrame):
         self.after(self._SESSION_CHECK_MS, self._check_session)
 
     def _check_session(self):
+        """Kick off a background DB lookup and hand the result back to
+        the main thread for widget updates.
+
+        The DB call has a 6-second HTTP timeout in client mode, so
+        running it on the Tk main thread would freeze the entire UI
+        while the network hangs. Move it to a daemon thread and
+        deliver via after(0, ...).
+        """
         if self._session_terminated:
             return
-        try:
-            fresh = self.db.get_user(self.user["username"])
-        except Exception:
-            # Network hiccup in client mode — try again next tick.
+
+        username = self.user["username"]
+
+        def _worker():
+            try:
+                fresh = self.db.get_user(username)
+                err = None
+            except Exception as exc:  # noqa: BLE001
+                fresh = None
+                err = exc
+
+            def _apply():
+                try:
+                    if not self.winfo_exists() or self._session_terminated:
+                        return
+                except Exception:
+                    return
+                self._apply_session_check_result(fresh, err)
+
+            try:
+                self.after(0, _apply)
+            except Exception:
+                # Tk 3.14 refuses cross-thread after() when the main
+                # loop isn't running yet; nothing to do — the next
+                # check tick will retry.
+                pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _apply_session_check_result(self, fresh, err) -> None:
+        if err is not None:
+            # Network hiccup or DB error — treat as transient and try
+            # again next tick rather than kicking a legitimate user out.
             self.after(self._SESSION_CHECK_MS, self._check_session)
             return
 
