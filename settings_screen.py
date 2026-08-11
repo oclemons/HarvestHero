@@ -833,6 +833,13 @@ class SettingsScreen(ctk.CTkFrame):
         "category", "quantity", "recipient", "username", "notes",
     )
 
+    # Hard cap on how many transaction rows the CSV export will
+    # materialize in memory. Ten years of a busy pantry is usually
+    # well under 100k rows; if a customer hits this limit we truncate
+    # to the most recent 100k and tell them in a toast rather than
+    # OOMing the app.
+    _EXPORT_TXN_MAX_ROWS = 100_000
+
     def _export_csv(self):
         import csv, os, datetime
         from tkinter import filedialog
@@ -846,7 +853,7 @@ class SettingsScreen(ctk.CTkFrame):
         if not path:
             return
         try:
-            txns = self.db.get_transactions()
+            txns = self.db.get_transactions(limit=self._EXPORT_TXN_MAX_ROWS)
             with open(path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(
                     f, fieldnames=self._EXPORT_TXN_FIELDS,
@@ -855,7 +862,19 @@ class SettingsScreen(ctk.CTkFrame):
                 writer.writeheader()
                 for row in txns:
                     writer.writerow({k: row.get(k, "") for k in self._EXPORT_TXN_FIELDS})
-            Toast.show(self, f"Exported {len(txns)} rows to {os.path.basename(path)}", kind="success")
+            if len(txns) >= self._EXPORT_TXN_MAX_ROWS:
+                Toast.show(
+                    self,
+                    f"Exported the most recent {len(txns):,} rows "
+                    f"(older transactions were truncated).",
+                    kind="warning",
+                )
+            else:
+                Toast.show(
+                    self,
+                    f"Exported {len(txns):,} rows to {os.path.basename(path)}",
+                    kind="success",
+                )
         except Exception as e:
             Toast.show(self, f"Export failed: {e}", kind="error")
 
