@@ -110,6 +110,17 @@ _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _XRW_HEADER    = "X-Requested-With"
 _XRW_EXPECTED  = "HarvestHero"
 
+# Neutral, identical error bodies for every auth-gate failure. A
+# staff-token holder probing admin-only endpoints would otherwise see
+# different messages for "missing X-Requested-With" vs "admin required",
+# which lets them enumerate which endpoints they're locked out of. The
+# HTTP status still distinguishes 401 (no valid credential) from 403
+# (valid credential, wrong role or missing anti-CSRF header) so real
+# clients can react appropriately, but the response body says the same
+# thing in both cases.
+_UNAUTHENTICATED_MSG = "Authentication required."
+_FORBIDDEN_MSG       = "Access denied."
+
 
 @app.before_request
 def enforce_auth_and_csrf():
@@ -124,7 +135,7 @@ def enforce_auth_and_csrf():
 
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
-        return err("Unauthorized — provide a valid Authorization: Bearer <token> header", 401)
+        return err(_UNAUTHENTICATED_MSG, 401)
 
     presented = auth[7:]
     if hmac.compare_digest(presented, ADMIN_TOKEN):
@@ -132,15 +143,15 @@ def enforce_auth_and_csrf():
     elif hmac.compare_digest(presented, STAFF_TOKEN):
         g.role = "staff"
     else:
-        return err("Unauthorized — provide a valid Authorization: Bearer <token> header", 401)
+        return err(_UNAUTHENTICATED_MSG, 401)
 
     if request.headers.get(_XRW_HEADER, "") != _XRW_EXPECTED:
-        return err("Forbidden — missing or invalid X-Requested-With header", 403)
+        return err(_FORBIDDEN_MSG, 403)
 
     if request.method in _UNSAFE_METHODS:
         ctype = (request.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
         if ctype and ctype != "application/json":
-            return err("Unsupported Media Type — Content-Type must be application/json", 415)
+            return err(_FORBIDDEN_MSG, 415)
 
 
 def admin_required(fn):
@@ -151,7 +162,7 @@ def admin_required(fn):
     @functools.wraps(fn)
     def _wrapped(*args, **kwargs):
         if getattr(g, "role", None) != "admin":
-            return err("Forbidden — admin token required for this operation", 403)
+            return err(_FORBIDDEN_MSG, 403)
         return fn(*args, **kwargs)
 
     return _wrapped
