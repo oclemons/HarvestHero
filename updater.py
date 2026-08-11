@@ -114,7 +114,8 @@ def check_for_update(manifest_url: str = DEFAULT_MANIFEST_URL,
 def check_async(callback: Callable[[Optional[UpdateInfo]], None],
                 manifest_url: str = DEFAULT_MANIFEST_URL,
                 current_version: str = __version__,
-                delay_seconds: float = 0.0) -> None:
+                delay_seconds: float = 0.0,
+                shutdown_event: Optional[threading.Event] = None) -> None:
     """Fire-and-forget: run `check_for_update` on a daemon thread and
     invoke `callback(info)` from that thread when done. The Tk UI
     should not touch widgets from the callback directly — it should
@@ -122,14 +123,32 @@ def check_async(callback: Callable[[Optional[UpdateInfo]], None],
 
     A small startup `delay_seconds` avoids competing with the login
     round-trip and dashboard hydration on first launch.
+
+    If `shutdown_event` is provided, the worker checks it during the
+    startup delay and before invoking the callback. On shutdown the
+    callback is never called and the thread exits promptly, avoiding
+    a stray "invoked from a callback after the interpreter shut down"
+    traceback on macOS during quick app quits.
     """
     def _worker():
         try:
             if delay_seconds:
-                time.sleep(delay_seconds)
+                # Sleep in small slices so we notice a shutdown signal
+                # instead of blocking the whole delay first.
+                slept = 0.0
+                step = 0.2
+                while slept < delay_seconds:
+                    if shutdown_event is not None and shutdown_event.is_set():
+                        return
+                    time.sleep(min(step, delay_seconds - slept))
+                    slept += step
+            if shutdown_event is not None and shutdown_event.is_set():
+                return
             info = check_for_update(manifest_url, current_version)
         except Exception:
             info = None
+        if shutdown_event is not None and shutdown_event.is_set():
+            return
         try:
             callback(info)
         except Exception:

@@ -115,6 +115,8 @@ class AppWindow(ctk.CTkFrame):
         self._nav_btns: dict = {}
         self._session_terminated = False
         self._pending_update = None  # populated by updater worker thread
+        self._shutdown = threading.Event()  # tells background workers we're going away
+        self.bind("<Destroy>", self._on_destroy, add="+")
         self._build()
         self._start_clock()
         self._start_session_check()
@@ -428,6 +430,11 @@ class AppWindow(ctk.CTkFrame):
                 fresh = None
                 err = exc
 
+            # If the app closed while our DB call was in-flight there's
+            # no point poking at Tk widgets on the way out.
+            if self._shutdown.is_set():
+                return
+
             def _apply():
                 try:
                     if not self.winfo_exists() or self._session_terminated:
@@ -497,7 +504,10 @@ class AppWindow(ctk.CTkFrame):
                 # Called from the worker thread — do NOT touch widgets here.
                 self._pending_update = info
 
-            kwargs = {"delay_seconds": 3.0}
+            kwargs = {
+                "delay_seconds": 3.0,
+                "shutdown_event": self._shutdown,
+            }
             if manifest_url:
                 kwargs["manifest_url"] = manifest_url
             check_async(_on_result, **kwargs)
@@ -548,6 +558,7 @@ class AppWindow(ctk.CTkFrame):
 
     def _terminate_session(self, reason: str) -> None:
         self._session_terminated = True
+        self._shutdown.set()
         try:
             from tkinter import messagebox
             messagebox.showinfo("Session ended", reason)
@@ -558,6 +569,16 @@ class AppWindow(ctk.CTkFrame):
         except Exception:
             pass
         self.on_logout()
+
+    def _on_destroy(self, event) -> None:
+        """Tell background worker threads (session check, update
+        checker) that the AppWindow is going away so they don't try to
+        deliver results into destroyed widgets."""
+        # <Destroy> fires for every child widget too; only act on the
+        # window itself.
+        if event.widget is self:
+            self._shutdown.set()
+            self._session_terminated = True
 
     # ------------------------------------------------------------------
     # Logout
@@ -579,5 +600,6 @@ class AppWindow(ctk.CTkFrame):
                        on_complete=_on_tour_complete)
 
     def _logout(self):
+        self._shutdown.set()
         self._page_cache.clear()
         self.on_logout()
