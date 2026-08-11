@@ -429,6 +429,96 @@ class Database:
         finally:
             conn.close()
 
+    def batch_upsert_inventory(self, rows: list[dict]) -> tuple[int, int, list[str]]:
+        """Apply a batch of inventory rows atomically.
+
+        Each row dict may contain: barcode, barcode_out, item_name,
+        category, quantity, minimum_stock, notes, brand, storage_location,
+        shelf_life_days, expiration_date, nutrition_data. `barcode` and
+        `item_name` are required; other fields fall back to sensible
+        defaults. Rows with an existing `barcode` are updated in place
+        (preserving shelf_life_days and nutrition_data when the CSV
+        doesn't carry them). Rows without one are inserted.
+
+        Returns (added, updated, per_row_errors). If the whole batch
+        raises, the transaction is rolled back and the caller sees the
+        exception — nothing is persisted.
+        """
+        added = updated = 0
+        errors: list[str] = []
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for i, row in enumerate(rows, start=1):
+                try:
+                    barcode = (row.get("barcode") or "").strip()
+                    name    = (row.get("item_name") or "").strip()
+                    if not barcode or not name:
+                        errors.append(f"Row {i}: barcode and item_name are required")
+                        continue
+
+                    b_out    = (row.get("barcode_out") or "").strip() or None
+                    category = row.get("category", "")
+                    qty      = int(row.get("current_quantity", 0) or 0)
+                    mstk     = int(row.get("minimum_stock", 0) or 0)
+                    notes    = row.get("notes", "") or ""
+                    brand    = row.get("brand", "") or ""
+                    loc      = row.get("storage_location", "") or ""
+                    exp      = row.get("expiration_date", "") or ""
+                    shelf    = int(row.get("shelf_life_days", 0) or 0)
+                    nutr     = row.get("nutrition_data", "{}") or "{}"
+
+                    existing = conn.execute(
+                        "SELECT id, shelf_life_days, nutrition_data "
+                        "FROM inventory_items WHERE barcode = ?",
+                        (barcode,),
+                    ).fetchone()
+
+                    if existing:
+                        eid = existing["id"]
+                        # Preserve AI-populated fields the CSV omits.
+                        keep_shelf = shelf if "shelf_life_days" in row else existing["shelf_life_days"]
+                        keep_nutr  = nutr  if "nutrition_data"  in row else (existing["nutrition_data"] or "{}")
+                        conn.execute(
+                            """UPDATE inventory_items
+                               SET item_name=?, category=?, minimum_stock=?, notes=?,
+                                   barcode_out=?, brand=?, storage_location=?,
+                                   shelf_life_days=?, expiration_date=?, nutrition_data=?,
+                                   updated_at=datetime('now','localtime')
+                               WHERE id=?""",
+                            (name, category, mstk, notes, b_out, brand, loc,
+                             keep_shelf, exp, keep_nutr, eid),
+                        )
+                        if qty > 0:
+                            conn.execute(
+                                "UPDATE inventory_items SET current_quantity=?, "
+                                "updated_at=datetime('now','localtime') WHERE id=?",
+                                (qty, eid),
+                            )
+                        updated += 1
+                    else:
+                        conn.execute(
+                            """INSERT INTO inventory_items
+                                (barcode, barcode_out, item_name, brand, category,
+                                 current_quantity, minimum_stock, storage_location,
+                                 shelf_life_days, expiration_date, nutrition_data, notes)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (barcode, b_out, name, brand, category,
+                             qty, mstk, loc, shelf, exp, nutr, notes),
+                        )
+                        added += 1
+                except sqlite3.IntegrityError as ex:
+                    errors.append(f"Row {i}: {ex}")
+                    # Continue with next row; the row itself failed but
+                    # the transaction stays open.
+            conn.commit()
+            return added, updated, errors
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def get_item_by_barcode(self, barcode: str):
         conn = self._connect()
         row = conn.execute(

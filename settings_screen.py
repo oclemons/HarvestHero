@@ -525,8 +525,6 @@ class SettingsScreen(ctk.CTkFrame):
             return
 
         required = {"barcode", "item_name"}
-        added = updated = skipped = 0
-        errors = []
 
         try:
             with open(path, newline="", encoding="utf-8-sig") as f:
@@ -538,73 +536,107 @@ class SettingsScreen(ctk.CTkFrame):
                         kind="error")
                     return
 
-                for i, row in enumerate(reader, start=2):
-                    if (i - 1) > self._CSV_MAX_ROWS:
-                        errors.append(
-                            f"Stopped at row {self._CSV_MAX_ROWS + 1}: "
-                            f"max import size is {self._CSV_MAX_ROWS} rows."
-                        )
+                rows: list[dict] = []
+                truncated = False
+                for i, row in enumerate(reader, start=1):
+                    if i > self._CSV_MAX_ROWS:
+                        truncated = True
                         break
-                    try:
-                        barcode  = row.get("barcode", "").strip()
-                        name     = row.get("item_name", "").strip()
-                        if not barcode or not name:
-                            skipped += 1
-                            continue
+                    # Attach a marker for each column that WAS in the CSV,
+                    # so batch_upsert_inventory can distinguish "column
+                    # missing" from "column present but empty".
+                    row = {k: v for k, v in row.items() if k in cols}
+                    rows.append(row)
 
-                        existing = self.db.get_item_by_barcode(barcode)
-                        qty   = int(row.get("current_quantity", 0) or 0)
-                        mstk  = int(row.get("minimum_stock", 0) or 0)
-                        cat   = row.get("category", "")
-                        notes = row.get("notes", "")
-                        brand = row.get("brand", "")
-                        loc   = row.get("storage_location", "")
-                        exp   = row.get("expiration_date", "")
-                        has_bout = "barcode_out" in cols
+        except OSError as e:
+            Toast.show(self, f"Cannot read CSV: {e}", kind="error")
+            return
 
-                        if existing:
-                            b_out = (row["barcode_out"].strip() if has_bout
-                                     else (existing.get("barcode_out") or ""))
-                            self.db.update_item(
-                                existing["id"],
-                                item_name=name, category=cat,
-                                minimum_stock=mstk, notes=notes,
-                                barcode_out=b_out,
-                            )
-                            # Preserve AI-populated fields the CSV doesn't
-                            # carry; without this, re-importing an existing
-                            # inventory wipes shelf_life_days and nutrition_data.
-                            self.db.update_item_extended(
-                                existing["id"],
-                                brand=brand, storage_location=loc,
-                                expiration_date=exp,
-                                shelf_life_days=int(existing.get("shelf_life_days") or 0),
-                                nutrition_data=existing.get("nutrition_data") or "{}",
-                            )
-                            if qty > 0:
-                                self.db.set_stock(existing["id"], qty)
-                            updated += 1
-                        else:
-                            b_out = row["barcode_out"].strip() if has_bout else ""
-                            self.db.add_item(
-                                barcode=barcode, barcode_out=b_out,
-                                item_name=name,
-                                category=cat, quantity=qty,
-                                minimum_stock=mstk, notes=notes,
-                                brand=brand, storage_location=loc,
-                                expiration_date=exp,
-                            )
-                            added += 1
-                    except Exception as row_err:
-                        errors.append(f"Row {i}: {row_err}")
-
-            msg = f"Import complete — {added} added, {updated} updated, {skipped} skipped."
-            if errors:
-                msg += f"  ({len(errors)} row errors)"
-            Toast.show(self, msg, kind="success" if not errors else "warning")
-
+        # Prefer the atomic batch method (local mode). If we're pointed
+        # at a remote ApiClient it doesn't have batch_upsert_inventory,
+        # so fall back to per-row calls — client-mode imports are not
+        # atomic but that's a pre-existing constraint of the API.
+        try:
+            if hasattr(self.db, "batch_upsert_inventory"):
+                added, updated, errors = self.db.batch_upsert_inventory(rows)
+                skipped = 0
+            else:
+                added, updated, skipped, errors = self._legacy_import_rows(rows, cols)
         except Exception as e:
-            Toast.show(self, f"Import failed: {e}", kind="error")
+            Toast.show(self,
+                f"Import failed and DB rolled back: {e}",
+                kind="error")
+            return
+
+        if truncated:
+            errors = list(errors) + [
+                f"Stopped at row {self._CSV_MAX_ROWS + 1}: "
+                f"max import size is {self._CSV_MAX_ROWS} rows."
+            ]
+
+        msg = f"Import complete — {added} added, {updated} updated"
+        if skipped:
+            msg += f", {skipped} skipped"
+        if errors:
+            msg += f"  ({len(errors)} row errors)"
+        Toast.show(self, msg, kind="success" if not errors else "warning")
+
+    def _legacy_import_rows(self, rows, cols):
+        """Per-row import used only when self.db doesn't expose the
+        atomic batch helper (i.e. client-server mode). Kept intentionally
+        equivalent to the old inline loop."""
+        added = updated = skipped = 0
+        errors = []
+        has_bout = "barcode_out" in cols
+        for i, row in enumerate(rows, start=2):
+            try:
+                barcode = (row.get("barcode") or "").strip()
+                name    = (row.get("item_name") or "").strip()
+                if not barcode or not name:
+                    skipped += 1
+                    continue
+                existing = self.db.get_item_by_barcode(barcode)
+                qty   = int(row.get("current_quantity", 0) or 0)
+                mstk  = int(row.get("minimum_stock", 0) or 0)
+                cat   = row.get("category", "")
+                notes = row.get("notes", "")
+                brand = row.get("brand", "")
+                loc   = row.get("storage_location", "")
+                exp   = row.get("expiration_date", "")
+
+                if existing:
+                    b_out = (row["barcode_out"].strip() if has_bout
+                             else (existing.get("barcode_out") or ""))
+                    self.db.update_item(
+                        existing["id"],
+                        item_name=name, category=cat,
+                        minimum_stock=mstk, notes=notes,
+                        barcode_out=b_out,
+                    )
+                    self.db.update_item_extended(
+                        existing["id"],
+                        brand=brand, storage_location=loc,
+                        expiration_date=exp,
+                        shelf_life_days=int(existing.get("shelf_life_days") or 0),
+                        nutrition_data=existing.get("nutrition_data") or "{}",
+                    )
+                    if qty > 0:
+                        self.db.set_stock(existing["id"], qty)
+                    updated += 1
+                else:
+                    b_out = row["barcode_out"].strip() if has_bout else ""
+                    self.db.add_item(
+                        barcode=barcode, barcode_out=b_out,
+                        item_name=name,
+                        category=cat, quantity=qty,
+                        minimum_stock=mstk, notes=notes,
+                        brand=brand, storage_location=loc,
+                        expiration_date=exp,
+                    )
+                    added += 1
+            except Exception as row_err:
+                errors.append(f"Row {i}: {row_err}")
+        return added, updated, skipped, errors
 
     def _save_ldap_config(self):
         from ldap_auth import save_ldap_config
