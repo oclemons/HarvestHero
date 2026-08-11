@@ -1,9 +1,12 @@
-customtkinter>=5.2.0
-openpyxl>=3.1.0
-flask>=3.1.3
-requests>=2.32.4
-ldap3>=2.9.1
-Pillow>=10.0.0
-cryptography>=44.0.1
-python-barcode>=0.15.1
+# Runtime dependencies. Upper bounds cap any library whose next major
+# version is likely to break the app; loose lower bounds otherwise pick
+# up patch/security releases automatically.
+customtkinter>=5.2.0,<7.0.0
+openpyxl>=3.1.0,<4.0.0
+flask>=3.1.3,<4.0.0
+requests>=2.32.4,<3.0.0
+ldap3>=2.9.1,<3.0.0
+Pillow>=10.0.0,<14.0.0
+cryptography>=44.0.1,<60.0.0
+python-barcode>=0.16.1,<1.0.0
 pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
