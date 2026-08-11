@@ -23,19 +23,35 @@ _PREFIX = "enc:v1:"
 
 
 def _load_or_create_key() -> bytes:
-    """Return the persistent machine-local Fernet key, creating one if needed."""
+    """Return the persistent machine-local Fernet key, creating one if needed.
+
+    New keys are written to a temp file first and then renamed into
+    place with os.replace(). A crash mid-write would otherwise leave
+    a truncated .secret_key on disk — after which every future
+    decrypt() would return "" and the operator would have to re-enter
+    the LDAP service password from scratch to recover.
+    """
     if os.path.exists(_KEY_PATH):
         with open(_KEY_PATH, "rb") as f:
             return f.read().strip()
 
     os.makedirs(DATA_DIR, exist_ok=True)
     key = Fernet.generate_key()
-    with open(_KEY_PATH, "wb") as f:
+    tmp_path = _KEY_PATH + ".tmp"
+    with open(tmp_path, "wb") as f:
         f.write(key)
+        f.flush()
+        try:
+            os.fsync(f.fileno())
+        except OSError:
+            pass
     try:
-        os.chmod(_KEY_PATH, stat.S_IRUSR | stat.S_IWUSR)  # 0600
+        os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)  # 0600
     except OSError:
         pass
+    # os.replace() is atomic on POSIX and Windows: the destination
+    # either has the old file or the new file, never a partial one.
+    os.replace(tmp_path, _KEY_PATH)
     return key
 
 
