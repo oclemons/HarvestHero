@@ -496,13 +496,65 @@ class _LocalAI:
         return self._pe
 
     def answer(self, question: str) -> str:
+        """Answer a question using OpenAI if available, else fall back to rules."""
+        # Try OpenAI first for better, more natural responses
+        openai_response = self._answer_with_openai(question)
+        if openai_response:
+            return openai_response
+        
+        # Fall back to rule-based answers
+        return self._answer_with_rules(question)
+    
+    def _answer_with_openai(self, question: str) -> str | None:
+        """Try to answer using OpenAI API."""
+        try:
+            from ai_client import _call_openai, _build_context
+            
+            context = _build_context(self.db)
+            
+            system_prompt = """You are Ava, an intelligent inventory assistant for a food pantry.
+You have access to real-time inventory data and transaction history.
+
+Your role is to:
+1. Provide clear, actionable insights about inventory status
+2. Identify problems and suggest solutions
+3. Answer questions about what items need restocking, expiring items, consumption patterns
+4. Give recommendations for ordering and distribution
+5. Highlight anomalies or concerns that need attention
+
+Be concise but thorough. Use specific numbers when available.
+Format responses with bullet points for clarity.
+Focus on actionable insights, not just raw data."""
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"""Inventory Context:
+{context}
+
+Question: {question}
+
+Please provide a helpful, specific answer based on the inventory data above."""}
+            ]
+            
+            response = _call_openai(
+                messages=messages,
+                model="gpt-4o-mini",
+                temperature=0.3,  # Lower temperature for more consistent answers
+                max_tokens=1000
+            )
+            return response
+        except Exception:
+            return None
+    
+    def _answer_with_rules(self, question: str) -> str:
+        """Fall back to rule-based answers when OpenAI is unavailable."""
         q = question.lower()
         stats = self.db.get_stats()
         self._pe._load()
 
         # ── Loss / shrinkage ──────────────────────────────
         if any(w in q for w in ("loss", "shrinkage", "missing", "theft",
-                                "stolen", "disappear")):
+                                "stolen", "disappear", "unaccounted")):
             losses = self._pe.loss_indicators()
             if not losses:
                 return "No shrinkage patterns detected in the last 30 days."
@@ -962,12 +1014,16 @@ class AIAssistant(ctk.CTkFrame):
         chips = ctk.CTkFrame(panel, fg_color="transparent")
         chips.grid(row=0, column=0, sticky="ew", padx=40, pady=(12, 0))
         for q in [
-            "Any inventory loss or shrinkage?",
-            "What are the stockout predictions?",
-            "Are there duplicate scans?",
-            "What's today's activity?",
-            "Show consumption velocity",
-            "Any unusual user activity?",
+            "📋 Morning briefing",
+            "📦 What should we order?",
+            "⚠️ What's expiring soon?",
+            "📊 Show consumption velocity",
+            "🔍 Any inventory loss or shrinkage?",
+            "⏱️ What are the stockout predictions?",
+            "🔄 Are there duplicate scans?",
+            "👥 Any unusual user activity?",
+            "📈 What's today's activity?",
+            "❤️ What's the inventory health score?",
         ]:
             ctk.CTkButton(
                 chips, text=q, height=30, corner_radius=20,
