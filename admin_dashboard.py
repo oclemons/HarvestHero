@@ -476,6 +476,7 @@ class AdminDashboard(ctk.CTkFrame):
         actions = [
             ("Add Item",        ACCENT,       self._qa_add_item),
             ("Create User",     ACCENT_GREEN, self._qa_create_user),
+            ("Review Barcodes", BG_ELEVATED,  self._qa_review_barcodes),
             ("Archive Manager", BG_ELEVATED,  self._qa_archive),
             ("Export Report",   BG_ELEVATED,  self._qa_export),
             ("Backup Database", BG_ELEVATED,  self._qa_backup),
@@ -544,6 +545,12 @@ class AdminDashboard(ctk.CTkFrame):
             Toast.show(self, f"Backup saved \u2192 output/backups/{os.path.basename(dst)}", kind="success")
         except Exception as e:
             Toast.show(self, f"Backup failed: {e}", kind="error")
+
+    def _qa_review_barcodes(self):
+        if self._navigate:
+            self._navigate("barcodes")
+        else:
+            Toast.show(self, "Navigate to Barcode Review", kind="info")
 
     def _build_charts(self, p):
         ctk.CTkLabel(

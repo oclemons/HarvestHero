@@ -342,6 +342,9 @@ class AppWindow(ctk.CTkFrame):
             if key == "archive":
                 from archive_manager import ArchiveManager
                 return ArchiveManager(self._content, self.db, self.user, embedded=True)
+            if key == "barcodes":
+                from barcode_review import BarcodeReviewFrame
+                return BarcodeReviewFrame(self._content)
             if key == "settings":
                 from settings_screen import SettingsScreen
                 return SettingsScreen(self._content, self.db)
