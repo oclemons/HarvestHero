@@ -780,16 +780,34 @@ class ScanScreen(ctk.CTkFrame):
                 kind="error",
             )
             return
+        
+        # Adjust inventory
         self.db.adjust_stock(item["barcode"], -qty)
         self.db.add_transaction(
             "SCAN_OUT", item["barcode"], item["item_name"],
             item["category"], qty, recipient, self.user["username"],
         )
+        
+        # Try to record pantry visit if recipient is a client
+        try:
+            # Search for client by name
+            clients = self.db.get_all_pantry_clients(recipient)
+            if clients:
+                client = clients[0]  # Get first matching client
+                # Record visit with estimated weight (1 lb per item as default)
+                self.db.record_pantry_visit(
+                    client["id"], float(qty), self.user["username"],
+                    f"Scanned out: {item['item_name']}"
+                )
+        except Exception:
+            pass  # If client lookup fails, just continue without recording visit
+        
         try:
             self.db.log_activity(self.user["username"], "SCAN_OUT",
                                  f"{item['item_name']} -{qty} to {recipient}")
         except Exception:
             pass
+        
         Toast.show(
             self,
             f"Scan Out  {item['item_name']}  -{qty}  →  {recipient}",
