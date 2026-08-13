@@ -19,6 +19,9 @@ from theme import (
     FONT_FAMILY, BORDER_COLOR, BORDER_SUBTLE,
 )
 
+# Overstock color (distinct from low stock)
+OVERSTOCK_COLOR = "#FF9500"  # Bright orange for overstock
+
 
 class PantryItemCard(ctk.CTkFrame):
     """Visual item card for pantry display."""
@@ -101,15 +104,22 @@ class PantryItemCard(ctk.CTkFrame):
 
     @staticmethod
     def _get_status_color(status: str) -> str:
-        """Get color for status."""
+        """Get color for status.
+        
+        Colors:
+        - OUT: Red (out of stock)
+        - LOW: Amber (low stock warning)
+        - OVER: Orange (overstock alert)
+        - OK: Green (normal stock)
+        """
         if status == "OUT":
-            return ACCENT_RED
+            return ACCENT_RED  # Red for out of stock
         elif status == "LOW":
-            return ACCENT_AMBER
+            return ACCENT_AMBER  # Amber for low stock
         elif status == "OVER":
-            return ACCENT_AMBER
+            return OVERSTOCK_COLOR  # Bright orange for overstock
         else:
-            return ACCENT_GREEN
+            return ACCENT_GREEN  # Green for normal stock
 
 
 class PantryShelfView(ctk.CTkFrame):
