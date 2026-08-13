@@ -339,10 +339,14 @@ class LoginScreen(ctk.CTkFrame):
             text_color=_IN_TXT, placeholder_text_color=_IN_PH,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12))
         self.password_entry.pack(side="left", padx=(6, 2), pady=4)
-        ctk.CTkButton(p, text="👁", width=36, height=36,
-                      fg_color="transparent", hover_color=_IN_BDR,
-                      text_color=_IN_PH, corner_radius=6, font=ctk.CTkFont(size=14),
-                      command=self._toggle_pw).pack(side="right", padx=(0, 6))
+        
+        # Eye button to toggle password visibility
+        self._eye_btn = ctk.CTkButton(
+            p, text="👁‍🗨", width=36, height=36,
+            fg_color="transparent", hover_color=_IN_BDR,
+            text_color=_IN_PH, corner_radius=6, font=ctk.CTkFont(size=14),
+            command=self._toggle_pw)
+        self._eye_btn.pack(side="right", padx=(0, 6))
 
         # Status
         self.status_label = ctk.CTkLabel(
@@ -417,8 +421,16 @@ class LoginScreen(ctk.CTkFrame):
                 relx=0.5, rely=0.5, anchor="center", y=p))
 
     def _toggle_pw(self):
+        """Toggle password visibility and update eye icon accordingly."""
         self._show_pw = not self._show_pw
-        self.password_entry.configure(show="" if self._show_pw else "●")
+        
+        # Show plaintext when eye is open, hide when closed
+        if self._show_pw:
+            self.password_entry.configure(show="")  # Show plaintext
+            self._eye_btn.configure(text="👁")  # Open eye = plaintext visible
+        else:
+            self.password_entry.configure(show="●")  # Hide with dots
+            self._eye_btn.configure(text="👁‍🗨")  # Closed eye = encrypted
 
     def _start_rotation(self):
         self._rotate_msg()
