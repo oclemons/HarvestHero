@@ -19,6 +19,7 @@ from theme import (
     BG_PRIMARY, BG_SECONDARY, BG_CARD,
 )
 from toast import Toast
+from tooltip_helper import add_tooltip
 
 _DEFAULT_LIMIT_FULL_TIME = "2"   # visits per week
 _DEFAULT_LIMIT_PART_TIME = "1"   # visits per week
@@ -106,67 +107,79 @@ class _ClientModal(ctk.CTkToplevel):
         self._hh = tk.StringVar(value=str(d.get("household_size", 1)))
         self._notes = tk.StringVar(value=d.get("notes", ""))
         self._waiver = tk.IntVar(value=int(d.get("waiver_signed") or 0))
-        self._locker_waiver = tk.IntVar(value=int(d.get("locker_waiver_signed") or 0))
 
         _field("First Name", self._fn, 0, "e.g. Jane")
         _field("Last Name", self._ln, 1, "e.g. Doe")
         _field("Student ID  (optional)", self._sid, 2, "e.g. 900123456")
         _field("Email  (optional)", self._em, 3, "e.g. jdoe@university.edu")
         _field("Phone  (optional)", self._ph, 4, "e.g. 555-123-4567")
-        _field("Semester", self._sem, 5, "e.g. Fall 2026")
+        sem_field = _field("Semester", self._sem, 5, "e.g. Fall 2026")
+        add_tooltip(sem_field, "The academic semester (e.g., Fall 2026, Spring 2027)")
 
-        ctk.CTkLabel(
+        # Enrollment Status
+        status_label = ctk.CTkLabel(
             form, text="Enrollment Status",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
             text_color=TEXT_SECONDARY,
-        ).grid(row=12, column=0, sticky="w", pady=(10, 3))
-        ctk.CTkOptionMenu(
+        )
+        status_label.grid(row=12, column=0, sticky="w", pady=(10, 3))
+        add_tooltip(status_label, "Whether student is full-time or part-time")
+
+        status_menu = ctk.CTkOptionMenu(
             form, variable=self._status,
             values=["full_time", "part_time"],
             height=38, corner_radius=8,
             fg_color=BG_ELEVATED, button_color=BG_HOVER,
             text_color=TEXT_PRIMARY,
-        ).grid(row=13, column=0, sticky="ew")
+        )
+        status_menu.grid(row=13, column=0, sticky="ew")
+        add_tooltip(status_menu, "Full-time: eligible for 2 visits/week | Part-time: eligible for 1 visit/week")
 
-        ctk.CTkLabel(
+        # Household Size
+        hh_label = ctk.CTkLabel(
             form, text="Household Size",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
             text_color=TEXT_SECONDARY,
-        ).grid(row=14, column=0, sticky="w", pady=(10, 3))
-        ctk.CTkEntry(
+        )
+        hh_label.grid(row=14, column=0, sticky="w", pady=(10, 3))
+        add_tooltip(hh_label, "Number of people in the student's household")
+
+        hh_entry = ctk.CTkEntry(
             form, textvariable=self._hh, height=38,
             fg_color=BG_ELEVATED, border_color=BORDER_COLOR,
             text_color=TEXT_PRIMARY, corner_radius=8,
-        ).grid(row=15, column=0, sticky="ew")
+        )
+        hh_entry.grid(row=15, column=0, sticky="ew")
+        add_tooltip(hh_entry, "Number of people in the student's household")
 
-        ctk.CTkLabel(
+        # Notes
+        notes_label = ctk.CTkLabel(
             form, text="Notes  (optional)",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
             text_color=TEXT_SECONDARY,
-        ).grid(row=16, column=0, sticky="w", pady=(10, 3))
-        ctk.CTkEntry(
+        )
+        notes_label.grid(row=16, column=0, sticky="w", pady=(10, 3))
+        add_tooltip(notes_label, "Any additional information about the student")
+
+        notes_entry = ctk.CTkEntry(
             form, textvariable=self._notes, height=38,
             fg_color=BG_ELEVATED, border_color=BORDER_COLOR,
             text_color=TEXT_PRIMARY, corner_radius=8,
-        ).grid(row=17, column=0, sticky="ew")
+        )
+        notes_entry.grid(row=17, column=0, sticky="ew")
+        add_tooltip(notes_entry, "Any additional information about the student")
 
-        ctk.CTkCheckBox(
+        # Waiver checkbox
+        waiver_cb = ctk.CTkCheckBox(
             form, text="Waiver signed",
             variable=self._waiver,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=TEXT_PRIMARY,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             border_color=BORDER_COLOR, corner_radius=6,
-        ).grid(row=18, column=0, sticky="w", pady=(18, 4))
-
-        ctk.CTkCheckBox(
-            form, text="Locker waiver signed",
-            variable=self._locker_waiver,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=TEXT_PRIMARY,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            border_color=BORDER_COLOR, corner_radius=6,
-        ).grid(row=19, column=0, sticky="w", pady=(0, 4))
+        )
+        waiver_cb.grid(row=18, column=0, sticky="w", pady=(18, 4))
+        add_tooltip(waiver_cb, "Check if student has signed the pantry waiver form")
 
         self._err_var = tk.StringVar()
         ctk.CTkLabel(
@@ -215,7 +228,7 @@ class _ClientModal(ctk.CTkToplevel):
             household_size=household_size,
             notes=self._notes.get().strip(),
             waiver_signed=self._waiver.get(),
-            locker_waiver_signed=self._locker_waiver.get(),
+            locker_waiver_signed=0,  # Always set to 0 since field was removed
         )
 
         try:
