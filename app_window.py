@@ -1,6 +1,7 @@
 """
 app_window.py — Main application shell.
-Premium sidebar + swappable content.  Scanner is the primary page.
+Premium sidebar + swappable content. Scanner is the primary page.
+Enhanced with premium glass effects and theme awareness.
 """
 
 import datetime
@@ -20,6 +21,8 @@ from theme import (
     BG_PRIMARY, BG_SECONDARY, BG_CARD,
 )
 from glass_effects import create_glass_button
+from glass_effects_premium import GlassEffectManager
+from theme_environments import get_theme_environment
 
 # (label, icon, page_key, admin_only, staff_visible)
 _NAV_ITEMS = [
@@ -73,17 +76,18 @@ class _NavButton(ctk.CTkFrame):
     def set_active(self, active: bool):
         self._active = active
         if active:
-            # Active state: glass effect with accent color
+            # Active state: Level 2 Reflective Glass effect with accent color
             self.configure(fg_color=ACCENT_MUTED,
-                           border_width=1,
-                           border_color=ACCENT)
+                           border_width=2,
+                           border_color=ACCENT,
+                           corner_radius=10)
             self._icon_lbl.configure(text_color=ACCENT)
             self._text_lbl.configure(
                 text_color=ACCENT,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             )
         else:
-            self.configure(fg_color="transparent", border_width=0)
+            self.configure(fg_color="transparent", border_width=0, corner_radius=8)
             self._icon_lbl.configure(text_color=TEXT_MUTED)
             self._text_lbl.configure(
                 text_color=TEXT_SECONDARY,
@@ -92,10 +96,11 @@ class _NavButton(ctk.CTkFrame):
 
     def _on_enter(self, _=None):
         if not self._active:
-            # Hover state: subtle glass effect
+            # Hover state: Level 2 Reflective Glass effect with subtle depth
             self.configure(fg_color=BG_HOVER,
                            border_width=1,
-                           border_color=BORDER_SUBTLE)
+                           border_color=BORDER_COLOR,
+                           corner_radius=10)
             self._icon_lbl.configure(text_color=TEXT_PRIMARY)
 
     def _on_leave(self, _=None):
