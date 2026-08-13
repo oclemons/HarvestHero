@@ -1,177 +1,124 @@
-"""barcode_lookup.py — Open Food Facts product lookup (no API key required).
+"""
+barcode_lookup.py — Barcode lookup integration for product information.
 
-Returns a normalized product dict so the scan screen can pre-fill every field.
-Falls back gracefully when the network is unavailable or the product is unknown.
+Supports multiple barcode APIs:
+- Open Food Facts (free, no key required)
+- Barcode Lookup API (requires key)
 """
 
-import json
-from typing import Optional
-
-_OFF_URL = "https://world.openfoodfacts.org/api/v3/product/{}.json"
-
-# ---------------------------------------------------------------------------
-# Shelf-life estimates (days) keyed by lowercase category fragment
-# ---------------------------------------------------------------------------
-_SHELF_LIFE: dict = {
-    "frozen":      540,
-    "dairy":        14,
-    "produce":       7,
-    "bread":         7,
-    "baked":        10,
-    "meat":          4,
-    "seafood":       3,
-    "deli":          7,
-    "juice":        30,
-    "beverage":    365,
-    "drink":       365,
-    "water":       730,
-    "canned":      730,
-    "soup":        730,
-    "pasta":       730,
-    "rice":        730,
-    "grain":       730,
-    "cereal":      365,
-    "snack":       180,
-    "chip":        180,
-    "cracker":     180,
-    "cookie":      180,
-    "candy":       365,
-    "chocolate":   365,
-    "sauce":       365,
-    "condiment":   365,
-    "oil":         730,
-    "vinegar":     730,
-    "coffee":      365,
-    "tea":         365,
-    "baby":        365,
-    "infant":      365,
-    "formula":     365,
-    "supplement":  730,
-    "vitamin":     730,
-}
-
-# ---------------------------------------------------------------------------
-# Storage suggestions
-# ---------------------------------------------------------------------------
-_STORAGE: dict = {
-    "frozen":    "Freezer",
-    "dairy":     "Refrigerator",
-    "produce":   "Refrigerator",
-    "meat":      "Refrigerator",
-    "seafood":   "Refrigerator",
-    "deli":      "Refrigerator",
-    "bread":     "Shelf",
-    "baked":     "Shelf",
-    "canned":    "Shelf",
-    "soup":      "Shelf",
-    "pasta":     "Shelf",
-    "rice":      "Shelf",
-    "grain":     "Shelf",
-    "cereal":    "Shelf",
-    "snack":     "Shelf",
-    "chip":      "Shelf",
-    "beverage":  "Shelf",
-    "drink":     "Shelf",
-    "water":     "Shelf",
-    "baby":      "Shelf",
-}
+import requests
+from typing import Optional, Dict
+import os
 
 
-def _best_category(tags: list) -> str:
-    """Pick the most specific English category label from Open Food Facts tags."""
-    skip = {"foods", "food", "plant-based", "plant based", "groceries", "grocery"}
-    for tag in tags:
-        if not tag.startswith("en:"):
-            continue
-        label = tag[3:].replace("-", " ").title()
-        if label.lower() in skip:
-            continue
-        return label
-    return "Food"
+class BarcodeLookuper:
+    """Looks up product information from barcodes."""
 
+    def __init__(self):
+        """Initialize barcode lookup."""
+        self.open_food_facts_url = "https://world.openfoodfacts.org/api/v0/product"
+        self.barcode_lookup_key = os.getenv("BARCODE_LOOKUP_KEY")
 
-def _estimate_shelf_life(category: str) -> int:
-    cat = category.lower()
-    for key, days in _SHELF_LIFE.items():
-        if key in cat:
-            return days
-    return 365
-
-
-def _suggest_storage(category: str) -> str:
-    cat = category.lower()
-    for key, loc in _STORAGE.items():
-        if key in cat:
-            return loc
-    return "Shelf"
-
-
-def _parse_nutrition(nutriments: dict) -> dict:
-    return {
-        "calories_per_100g": nutriments.get("energy-kcal_100g"),
-        "protein_g":         nutriments.get("proteins_100g"),
-        "fat_g":             nutriments.get("fat_100g"),
-        "carbs_g":           nutriments.get("carbohydrates_100g"),
-        "sodium_mg":         nutriments.get("sodium_100g") and
-                             round(float(nutriments["sodium_100g"]) * 1000, 1),
-        "sugar_g":           nutriments.get("sugars_100g"),
-        "fiber_g":           nutriments.get("fiber_100g"),
-    }
-
-
-def lookup_barcode(barcode: str) -> Optional[dict]:
-    """
-    Query Open Food Facts for product data.
-
-    Returns a dict with:
-        name, brand, category, storage_suggestion, shelf_life_days,
-        nutrition (dict), image_url, off_url
-
-    Returns None when the barcode is unknown or the network is unavailable.
-    """
-    try:
-        import requests  # lazy import so startup is fast if not available
-
-        resp = requests.get(
-            _OFF_URL.format(barcode),
-            timeout=6,
-            headers={"User-Agent": "InventoryControlCenter/2.0"},
-        )
-        if resp.status_code != 200:
+    def lookup_open_food_facts(self, barcode: str) -> Optional[Dict]:
+        """Look up product using Open Food Facts API (free).
+        
+        Args:
+            barcode: Product barcode (UPC/EAN)
+            
+        Returns:
+            Product data or None if not found
+        """
+        if not barcode or not barcode.strip():
             return None
+        
+        try:
+            url = f"{self.open_food_facts_url}/{barcode}.json"
+            response = requests.get(url, timeout=5)
+            
+            if response.status_code == 200:
+                data = response.json()
+                product = data.get("product", {})
+                
+                if product:
+                    return {
+                        "item_name": product.get("product_name", ""),
+                        "brand": product.get("brands", ""),
+                        "category": product.get("categories", ""),
+                        "nutrition": {
+                            "calories": product.get("nutriments", {}).get("energy-kcal_100g"),
+                            "protein": product.get("nutriments", {}).get("proteins_100g"),
+                            "carbs": product.get("nutriments", {}).get("carbohydrates_100g"),
+                            "fat": product.get("nutriments", {}).get("fat_100g"),
+                        },
+                        "source": "Open Food Facts"
+                    }
+        except requests.exceptions.Timeout:
+            print("Open Food Facts lookup timeout")
+        except Exception as e:
+            print(f"Open Food Facts lookup error: {e}")
+        
+        return None
 
-        data = resp.json()
-
-        if data.get("status") not in ("success", 1):
+    def lookup_barcode_lookup_api(self, barcode: str) -> Optional[Dict]:
+        """Look up product using Barcode Lookup API (requires key).
+        
+        Args:
+            barcode: Product barcode
+            
+        Returns:
+            Product data or None if not found
+        """
+        if not self.barcode_lookup_key or not barcode or not barcode.strip():
             return None
+        
+        try:
+            url = "https://api.barcodelookup.com/v3/products"
+            params = {
+                "barcode": barcode,
+                "key": self.barcode_lookup_key
+            }
+            response = requests.get(url, params=params, timeout=5)
+            
+            if response.status_code == 200:
+                data = response.json()
+                products = data.get("products", [])
+                
+                if products:
+                    product = products[0]
+                    return {
+                        "item_name": product.get("title", ""),
+                        "brand": product.get("brand", ""),
+                        "category": product.get("category", ""),
+                        "description": product.get("description", ""),
+                        "source": "Barcode Lookup API"
+                    }
+        except requests.exceptions.Timeout:
+            print("Barcode Lookup API timeout")
+        except Exception as e:
+            print(f"Barcode Lookup API error: {e}")
+        
+        return None
 
-        p = data.get("product", {})
-
-        name = (
-            p.get("product_name_en")
-            or p.get("product_name")
-            or ""
-        ).strip()
-        if not name:
+    def lookup(self, barcode: str) -> Optional[Dict]:
+        """Look up product from barcode using available APIs.
+        
+        Args:
+            barcode: Product barcode
+            
+        Returns:
+            Product data or None if not found
+        """
+        if not barcode or not barcode.strip():
             return None
-
-        brand = (p.get("brands") or "").split(",")[0].strip()
-        category = _best_category(p.get("categories_tags", []))
-        shelf_life = _estimate_shelf_life(category)
-        storage    = _suggest_storage(category)
-        nutrition  = _parse_nutrition(p.get("nutriments", {}))
-        image_url  = p.get("image_front_url") or p.get("image_url") or ""
-
-        return {
-            "name":             name,
-            "brand":            brand,
-            "category":         category,
-            "storage_suggestion": storage,
-            "shelf_life_days":  shelf_life,
-            "nutrition":        nutrition,
-            "image_url":        image_url,
-            "off_url":          f"https://world.openfoodfacts.org/product/{barcode}",
-        }
-
-    except Exception:
+        
+        # Try Open Food Facts first (free)
+        result = self.lookup_open_food_facts(barcode)
+        if result:
+            return result
+        
+        # Try Barcode Lookup API if key is available
+        result = self.lookup_barcode_lookup_api(barcode)
+        if result:
+            return result
+        
         return None
