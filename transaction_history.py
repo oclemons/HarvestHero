@@ -5,11 +5,12 @@ from tkinter import filedialog, messagebox, ttk
 import customtkinter as ctk
 
 from theme import (
-    BG_PRIMARY, BG_SECONDARY, BG_CARD, BG_HOVER,
+    BG_PRIMARY, BG_SECONDARY, BG_CARD, BG_HOVER, BG_ELEVATED,
     ACCENT_GOLD, ACCENT_GREEN, ACCENT_RED, ACCENT_BLUE,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, FONT_FAMILY, BORDER_COLOR,
+    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, FONT_FAMILY, BORDER_COLOR, BORDER_SUBTLE,
 )
 from toast import Toast
+from glass_effects import create_glass_button
 
 
 class TransactionHistory(ctk.CTkFrame):

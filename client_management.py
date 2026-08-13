@@ -15,11 +15,12 @@ import customtkinter as ctk
 from theme import (
     BG_BASE, BG_SURFACE, BG_ELEVATED, BG_OVERLAY, BG_HOVER,
     ACCENT, ACCENT_HOVER, ACCENT_GREEN, ACCENT_RED, ACCENT_AMBER, ACCENT_GOLD,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, FONT_FAMILY, BORDER_COLOR,
+    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, FONT_FAMILY, BORDER_COLOR, BORDER_SUBTLE,
     BG_PRIMARY, BG_SECONDARY, BG_CARD,
 )
 from toast import Toast
 from tooltip_helper import add_tooltip
+from glass_effects import create_glass_button, create_glass_card
 
 _DEFAULT_LIMIT_FULL_TIME = "2"   # visits per week
 _DEFAULT_LIMIT_PART_TIME = "1"   # visits per week

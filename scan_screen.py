@@ -29,10 +29,11 @@ from theme import (
     ACCENT, ACCENT_HOVER, ACCENT_GREEN, ACCENT_RED, ACCENT_AMBER, ACCENT_BLUE,
     GREEN_DIM, RED_DIM, AMBER_DIM,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
-    FONT_FAMILY, BORDER_COLOR,
+    FONT_FAMILY, BORDER_COLOR, BORDER_SUBTLE,
     BG_PRIMARY, BG_SECONDARY, BG_CARD,
 )
 from toast import Toast
+from glass_effects import create_glass_button, create_glass_entry
 
 
 class ScanScreen(ctk.CTkFrame):

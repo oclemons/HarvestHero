@@ -4,13 +4,15 @@ from tkinter import messagebox, ttk
 import customtkinter as ctk
 
 from theme import (
-    BG_PRIMARY, BG_SECONDARY, BG_CARD, BG_HOVER,
+    BG_PRIMARY, BG_SECONDARY, BG_CARD, BG_HOVER, BG_ELEVATED,
     ACCENT_GOLD, ACCENT_GREEN, ACCENT_RED, ACCENT_AMBER, ACCENT_BLUE,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, FONT_FAMILY, BORDER_COLOR,
+    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, FONT_FAMILY, BORDER_COLOR, BORDER_SUBTLE,
 )
+from glass_effects import create_glass_button
 
 
 def _apply_treeview_style():
+    """Apply harvest-themed treeview styling with glass effects."""
     style = ttk.Style()
     try:
         style.theme_use("clam")
@@ -19,14 +21,15 @@ def _apply_treeview_style():
     style.configure("Treeview",
                     rowheight=30, font=(FONT_FAMILY, 10),
                     background=BG_SECONDARY, fieldbackground=BG_SECONDARY,
-                    foreground=TEXT_PRIMARY, borderwidth=0)
+                    foreground=TEXT_PRIMARY, borderwidth=1, relief="solid")
     style.configure("Treeview.Heading",
                     font=(FONT_FAMILY, 10, "bold"),
-                    background=BG_CARD, foreground=ACCENT_GOLD,
-                    relief="flat", padding=6)
+                    background=BG_ELEVATED, foreground=ACCENT_GOLD,
+                    relief="flat", padding=6, borderwidth=1)
     style.map("Treeview",
               background=[("selected", ACCENT_BLUE)],
-              foreground=[("selected", "white")])
+              foreground=[("selected", "white")],
+              fieldbackground=[("selected", ACCENT_BLUE)])
 
 
 class InventoryList(ctk.CTkFrame):

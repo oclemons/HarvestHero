@@ -14,9 +14,10 @@ from theme import (
     ACCENT, ACCENT_HOVER, ACCENT_GOLD,
     ACCENT_GREEN, ACCENT_RED, ACCENT_AMBER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
-    FONT_FAMILY, BORDER_COLOR,
+    FONT_FAMILY, BORDER_COLOR, BORDER_SUBTLE,
     BG_PRIMARY, BG_SECONDARY, BG_CARD,
 )
+from glass_effects import create_glass_button, create_glass_card
 
 
 # ---------------------------------------------------------------------------
