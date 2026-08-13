@@ -40,6 +40,7 @@ class Reports(ctk.CTkFrame):
         ).pack(pady=(24, 16), padx=16, anchor="w")
 
         report_defs = [
+            ("📊  Dashboard Metrics",  self._rpt_metrics),
             ("▤  Current Inventory",  self._rpt_inventory),
             ("⚠  Low Stock",          self._rpt_low_stock),
             ("✕  Out of Stock",       self._rpt_out_of_stock),
@@ -221,6 +222,28 @@ class Reports(ctk.CTkFrame):
     # ------------------------------------------------------------------
     # Export
     # ------------------------------------------------------------------
+
+    def _rpt_metrics(self):
+        """Display key inventory metrics and KPIs."""
+        self.title_lbl.configure(text="Dashboard Metrics")
+        hdrs   = ["Metric", "Value", "Description"]
+        widths = [200, 100, 300]
+        
+        s = self.db.get_stats()
+        
+        metrics_data = [
+            ("Total Items", str(s["total_items"]), "Total unique items in inventory"),
+            ("Total Units", str(s["total_units"]), "Total quantity of all items combined"),
+            ("Low Stock Items", str(s["low_stock"]), "Items below their low-stock threshold"),
+            ("Out of Stock Items", str(s["out_of_stock"]), "Items with zero quantity"),
+            ("Today's Activity", str(s["today_total"]), "Total inventory transactions today"),
+            ("Active Users", str(s["active_users"]), "Users with active accounts"),
+            ("Transactions This Week", str(s["week_txns"]), "Total scans this week"),
+            ("Transactions This Month", str(s["month_txns"]), "Total scans this month"),
+        ]
+        
+        self._headers = hdrs
+        self._fill(metrics_data, "")
 
     def _tree_rows(self):
         return [self.tree.item(r)["values"] for r in self.tree.get_children()]

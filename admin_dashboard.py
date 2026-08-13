@@ -78,12 +78,12 @@ class AdminDashboard(ctk.CTkFrame):
         wrap.grid_columnconfigure(0, weight=1)
 
         self._build_header(wrap)
-        self._build_kpis(wrap)
+        self._build_quick_actions(wrap)  # Moved to top, near AI widget
         self._build_alerts(wrap)
         self._build_ava_insights(wrap)
         self._build_activity(wrap)
-        self._build_quick_actions(wrap)
         self._build_charts(wrap)
+        # KPIs moved to reports tab - see reports.py
 
     def _get_briefing_bullets(self):
         bullets = []
@@ -211,42 +211,14 @@ class AdminDashboard(ctk.CTkFrame):
             command=lambda: self._navigate("shopping") if self._navigate else None,
         ).pack(side="left")
 
+    # KPIs moved to Reports tab - see reports.py
+    # This method is kept for reference but not called
     def _build_kpis(self, p):
-        # Section label
-        ctk.CTkLabel(
-            p, text="OVERVIEW",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
-            text_color=TEXT_MUTED, anchor="w",
-        ).grid(row=1, column=0, sticky="w", pady=(0, 4))
+        pass
 
-        grid = ctk.CTkFrame(p, fg_color="transparent")
-        grid.grid(row=2, column=0, sticky="ew", pady=(0, 20))
-        for c in range(4):
-            grid.grid_columnconfigure(c, weight=1, uniform="kpi")
-
-        self._kpi_grid = grid
-        self._populate_kpis()
-
+    # KPIs moved to Reports tab - see reports.py
     def _populate_kpis(self):
-        for w in self._kpi_grid.winfo_children():
-            w.destroy()
-
-        s = self.db.get_stats()
-
-        # Show only essential metrics (6 cards instead of 15)
-        kpi_data = [
-            ("TOTAL ITEMS",          str(s["total_items"]),          "items in inventory",     None,         0, 0, "Total number of unique items in the pantry"),
-            ("TOTAL UNITS",          str(s["total_units"]),           "units on hand",          None,         0, 1, "Total quantity of all items combined"),
-            ("LOW STOCK",            str(s["low_stock"]),             "need restocking",        ACCENT_AMBER, 0, 2, "Items below their low-stock threshold"),
-            ("OUT OF STOCK",         str(s["out_of_stock"]),          "items depleted",         ACCENT_RED,   0, 3, "Items with zero quantity"),
-            ("TODAY'S ACTIVITY",     str(s["today_total"]),           "scans in/out",           None,         1, 0, "Total inventory transactions today"),
-            ("ACTIVE USERS",         str(s["active_users"]),          "can log in",             ACCENT_GREEN, 1, 1, "Users with active accounts"),
-        ]
-
-        for title, value, sub, color, row, col, tooltip_text in kpi_data:
-            card = _kpi(self._kpi_grid, title, value, sub, color, col=col, row=row)
-            # Add tooltip to the card
-            add_tooltip(card, tooltip_text)
+        pass
 
     def _build_alerts(self, p):
         ctk.CTkLabel(

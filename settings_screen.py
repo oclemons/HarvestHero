@@ -221,14 +221,7 @@ class SettingsScreen(ctk.CTkFrame):
         self._last_backup_lbl.grid(
             row=1, column=0, columnspan=2, padx=20, pady=(0, 14), sticky="w")
 
-        # ── 6. LDAP / Active Directory ───────────────────────────────
-        self._section_header(scroll, "LDAP / Active Directory Authentication",
-                              "Authenticate users against your organization's directory server.", r)
-        r += 1
-        ldap_card = self._card(scroll, r); r += 1
-        self._build_ldap_section(ldap_card)
-
-        # ── 7. Advanced Developer Settings ──────────────────────────
+        # ── 6. Advanced Developer Settings ──────────────────────
         self._section_header(scroll, "Advanced Developer Settings",
                               "OpenAI / external AI provider, API keys, model selection.", r)
         r += 1
@@ -294,8 +287,10 @@ class SettingsScreen(ctk.CTkFrame):
         ).pack(side="left")
 
     # ------------------------------------------------------------------
-    # LDAP section
+    # LDAP section - REMOVED (not used)
     # ------------------------------------------------------------------
+    # LDAP authentication has been removed from settings.
+    # Users are authenticated via local database only.
 
     def _build_ldap_section(self, card):
         from ldap_auth import get_ldap_config
