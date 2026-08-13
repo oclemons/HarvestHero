@@ -194,6 +194,35 @@ class EnvDashboard(ctk.CTkFrame):
 
         self._populate_clients()
 
+        # ── Data Management ──────────────────────────────────────────
+        self._section(scroll, "Data Management",
+                      "Clear historical data (admin only).", r)
+        r += 1
+        dm = self._card(scroll, r); r += 1
+        
+        ctk.CTkLabel(
+            dm, text="Clear Transaction History",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=TEXT_PRIMARY,
+        ).pack(anchor="w", padx=20, pady=(16, 4))
+        
+        ctk.CTkLabel(
+            dm, text="Permanently delete all inventory transaction records. This cannot be undone.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=TEXT_MUTED,
+        ).pack(anchor="w", padx=20, pady=(0, 12))
+        
+        btn_row = ctk.CTkFrame(dm, fg_color="transparent")
+        btn_row.pack(anchor="w", padx=20, pady=(0, 16))
+        ctk.CTkButton(
+            btn_row, text="🗑 Clear All Transactions",
+            height=38, corner_radius=8,
+            fg_color=ACCENT_RED, hover_color="#dc2626",
+            text_color="white",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            command=self._clear_transactions,
+        ).pack(side="left", padx=(0, 10))
+
         # ── License Management ──────────────────────────────────────
         self._section(scroll, "License Management",
                       "Update organization name or regenerate environment ID.", r)
@@ -340,6 +369,34 @@ class EnvDashboard(ctk.CTkFrame):
         write_license(org, new_id)
         self._populate_license(self._lic_card)
         Toast.show(self, f"New environment ID: {new_id}", kind="info")
+
+    def _clear_transactions(self):
+        """Clear all transaction history (admin only)."""
+        from tkinter import messagebox
+        
+        if not messagebox.askyesno(
+            "Confirm Clear Transactions",
+            "Delete ALL transaction history?\n\n"
+            "This action cannot be undone. All inventory transaction records will be permanently deleted.",
+            icon="warning",
+        ):
+            return
+        
+        try:
+            # Delete all transactions
+            conn = self.db._connect()
+            conn.execute("DELETE FROM transactions")
+            conn.commit()
+            conn.close()
+            
+            Toast.show(self, "✓ All transaction history cleared", kind="success")
+            self.db.log_activity(
+                self.user.get("username", ""),
+                "CLEAR_TRANSACTIONS",
+                "Cleared all transaction history"
+            )
+        except Exception as e:
+            Toast.show(self, f"Error clearing transactions: {str(e)}", kind="error")
 
     def on_shown(self):
         self._populate_license(self._lic_card)
