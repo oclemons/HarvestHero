@@ -16,6 +16,7 @@ import threading
 from typing import Optional, Callable
 
 from interactive_pantry import InteractivePantry
+from tooltip_helper import add_tooltip
 from theme import (
     BG_PRIMARY, BG_SURFACE, BG_ELEVATED, BG_HOVER, BG_OVERLAY,
     ACCENT_GOLD, ACCENT_GREEN, ACCENT_RED, ACCENT_AMBER, ACCENT_BLUE,
@@ -107,20 +108,25 @@ class ItemDetailDrawer(ctk.CTkToplevel):
                 ctrl_frame, placeholder_text="Amount", width=80, height=32,
             )
             self.qty_input.grid(row=1, column=0, padx=4, pady=4)
+            add_tooltip(self.qty_input, "Enter the quantity to add or remove")
 
-            ctk.CTkButton(
+            add_btn = ctk.CTkButton(
                 ctrl_frame, text="+ Add", width=60, height=32,
                 fg_color=ACCENT_GREEN, hover_color="#16a34a",
                 text_color="white", corner_radius=6,
                 command=self._add_quantity,
-            ).grid(row=1, column=1, padx=4, pady=4)
+            )
+            add_btn.grid(row=1, column=1, padx=4, pady=4)
+            add_tooltip(add_btn, "Add the specified quantity to inventory")
 
-            ctk.CTkButton(
+            remove_btn = ctk.CTkButton(
                 ctrl_frame, text="- Remove", width=70, height=32,
                 fg_color=ACCENT_RED, hover_color="#dc2626",
                 text_color="white", corner_radius=6,
                 command=self._remove_quantity,
-            ).grid(row=1, column=2, padx=4, pady=4)
+            )
+            remove_btn.grid(row=1, column=2, padx=4, pady=4)
+            add_tooltip(remove_btn, "Remove the specified quantity from inventory")
 
         # Thresholds section (admin only)
         if self.user.get("role") == "admin":
@@ -138,6 +144,7 @@ class ItemDetailDrawer(ctk.CTkToplevel):
             )
             self.low_input.pack(fill="x", padx=12, pady=4)
             self.low_input.insert(0, str(self.status.low_threshold))
+            add_tooltip(self.low_input, "Quantity at or below this level triggers low-stock alert")
 
             # Overstock threshold
             ctk.CTkLabel(
@@ -151,13 +158,16 @@ class ItemDetailDrawer(ctk.CTkToplevel):
             )
             self.over_input.pack(fill="x", padx=12, pady=4)
             self.over_input.insert(0, str(self.status.overstock_threshold))
+            add_tooltip(self.over_input, "Quantity above this level indicates overstock")
 
-            ctk.CTkButton(
+            save_btn = ctk.CTkButton(
                 content, text="Save Thresholds", height=36,
                 fg_color=ACCENT_BLUE, hover_color="#1d4ed8",
                 text_color="white", corner_radius=8,
                 command=self._save_thresholds,
-            ).pack(fill="x", padx=12, pady=8)
+            )
+            save_btn.pack(fill="x", padx=12, pady=8)
+            add_tooltip(save_btn, "Save low-stock and overstock threshold changes")
 
         # Item details
         self._add_section(content, "Item Details")
@@ -312,19 +322,23 @@ class InteractivePantryUI(ctk.CTkFrame):
         # Search
         self.search_var = tk.StringVar()
         self.search_var.trace("w", self._on_search)
-        ctk.CTkEntry(
+        search_entry = ctk.CTkEntry(
             header, textvariable=self.search_var, width=300, height=36,
             placeholder_text="Search items...",
             fg_color=BG_SURFACE, border_color=BORDER_COLOR,
             text_color=TEXT_PRIMARY, corner_radius=8,
-        ).grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        )
+        search_entry.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        add_tooltip(search_entry, "Search by item name or barcode")
 
-        ctk.CTkButton(
+        refresh_btn = ctk.CTkButton(
             header, text="↻ Refresh", width=90, height=36,
             fg_color=BG_SURFACE, hover_color=BG_HOVER,
             text_color=TEXT_SECONDARY, corner_radius=8,
             command=self.load_pantry,
-        ).grid(row=0, column=2, sticky="e")
+        )
+        refresh_btn.grid(row=0, column=2, sticky="e")
+        add_tooltip(refresh_btn, "Reload inventory data from database")
 
         # Summary cards
         summary_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -351,6 +365,16 @@ class InteractivePantryUI(ctk.CTkFrame):
 
     def _create_summary_card(self, parent, label: str, color: str, key: str) -> ctk.CTkFrame:
         """Create a summary statistic card."""
+        # Tooltip text for each metric
+        tooltips = {
+            "total_items": "Total number of items in the inventory",
+            "normal_items": "Items with adequate stock levels",
+            "low_stock_items": "Items below their low-stock threshold",
+            "out_of_stock_items": "Items with zero quantity",
+            "overstock_items": "Items above their overstock threshold",
+            "not_configured": "Items without quantity configured",
+        }
+
         card = ctk.CTkFrame(
             parent, fg_color=BG_ELEVATED, corner_radius=8,
             border_width=1, border_color=BORDER_COLOR,
@@ -370,6 +394,10 @@ class InteractivePantryUI(ctk.CTkFrame):
         )
         value_label.pack(padx=12, pady=(2, 8))
         self.summary_value_labels[key] = value_label
+
+        # Add tooltip to card
+        if key in tooltips:
+            add_tooltip(card, tooltips[key])
 
         return card
 
