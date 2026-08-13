@@ -6,6 +6,7 @@ import customtkinter as ctk
 
 from auth import verify_password
 from theme import FONT_FAMILY
+from glass_effects import create_glass_entry, create_glass_button
 
 # ── Palette ───────────────────────────────────────────────────────────────────
 _PAGE_BG  = "#2A2E14"
@@ -283,9 +284,13 @@ class LoginScreen(ctk.CTkFrame):
                      font=ctk.CTkFont(family=FONT_FAMILY, size=25, weight="bold"),
                      text_color=_TITLE).pack()
 
-        ctk.CTkLabel(sec, text="AI-Powered Pantry Intelligence Platform",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+        ctk.CTkLabel(sec, text="Welcome Back",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=13),
                      text_color=_SUB).pack(pady=(3, 0))
+
+        ctk.CTkLabel(sec, text="Helping our community grow, one harvest at a time.",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                     text_color=_AI_DIM).pack(pady=(2, 0))
 
         msg_row = ctk.CTkFrame(sec, fg_color="transparent")
         msg_row.pack(pady=(9, 0))
