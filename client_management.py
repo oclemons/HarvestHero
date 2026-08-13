@@ -59,6 +59,7 @@ class _ClientModal(ctk.CTkToplevel):
 
     def _build(self):
         self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
 
         ctk.CTkLabel(
             self,
@@ -73,8 +74,9 @@ class _ClientModal(ctk.CTkToplevel):
             text_color=TEXT_MUTED,
         ).grid(row=1, column=0, sticky="w", padx=28, pady=(0, 20))
 
-        form = ctk.CTkFrame(self, fg_color="transparent")
-        form.grid(row=2, column=0, sticky="ew", padx=28)
+        # Use scrollable frame for form to prevent button from being hidden
+        form = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        form.grid(row=2, column=0, sticky="nsew", padx=28, pady=(0, 12))
         form.grid_columnconfigure(0, weight=1)
 
         d = self.client_data or {}

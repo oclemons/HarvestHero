@@ -28,14 +28,25 @@ class Tooltip:
         self.id: Optional[str] = None
         self.x = self.y = 0
 
-        # Bind hover events - use add=True to preserve existing bindings
+        # Bind hover events
+        self._bind_events()
+
+    def _bind_events(self):
+        """Bind hover events to the widget."""
         try:
+            # Try direct binding first
             self.widget.bind("<Enter>", self._on_enter, add=True)
             self.widget.bind("<Leave>", self._on_leave, add=True)
             self.widget.bind("<Motion>", self._on_motion, add=True)
         except Exception:
-            # If binding fails, try to get the underlying widget
-            pass
+            # If that fails, try binding to all child widgets
+            try:
+                for child in self.widget.winfo_children():
+                    child.bind("<Enter>", self._on_enter, add=True)
+                    child.bind("<Leave>", self._on_leave, add=True)
+                    child.bind("<Motion>", self._on_motion, add=True)
+            except Exception:
+                pass
 
     def _on_enter(self, event):
         """Show tooltip after delay."""
