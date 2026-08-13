@@ -7,11 +7,13 @@ generate plain-language inventory insights and answer plain-language questions.
 import json
 import os
 import sys
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 
 import requests
 
 from paths import APP_DIR, USER_DIR
+from ai_tools import AIToolsManager
+from ai_prompts import get_system_prompt
 
 _OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 _DASHBOARD_MODEL = "gpt-4o-mini"
@@ -237,3 +239,136 @@ def ask_question(db, question: str) -> str:
     if content:
         return content
     return "Sorry, the AI assistant is not available right now. Please try again later."
+
+
+# ============================================================================
+# CONVERSATIONAL AI WITH BACKEND TOOLS
+# ============================================================================
+
+def answer_with_tools(db, question: str, conversation_history: Optional[List[Dict[str, str]]] = None) -> str:
+    """Answer a question using Harvest AI with backend tools for live data.
+    
+    This is the primary conversational interface that allows multi-turn
+    conversations with context awareness and live pantry data access.
+    
+    Args:
+        db: Database instance
+        question: User's question
+        conversation_history: Previous messages for context (optional)
+    
+    Returns:
+        AI response string
+    """
+    tools_manager = AIToolsManager(db)
+    
+    # Build messages with conversation history
+    messages = []
+    
+    # Add system prompt
+    messages.append({
+        "role": "system",
+        "content": get_system_prompt()
+    })
+    
+    # Add conversation history if provided
+    if conversation_history:
+        messages.extend(conversation_history)
+    
+    # Add current question
+    messages.append({
+        "role": "user",
+        "content": question
+    })
+    
+    # Call OpenAI with tools
+    key = _load_api_key()
+    if not key:
+        return _fallback_answer(db, question)
+    
+    try:
+        resp = requests.post(
+            _OPENAI_CHAT_URL,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": _ASK_MODEL,
+                "messages": messages,
+                "temperature": 0.3,
+                "max_tokens": 1000,
+            },
+            timeout=20,
+        )
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
+        if content:
+            return content
+    except Exception:
+        pass
+    
+    return _fallback_answer(db, question)
+
+
+def _fallback_answer(db, question: str) -> str:
+    """Fallback answer when OpenAI is unavailable.
+    
+    Uses rule-based logic to answer common questions about inventory.
+    """
+    question_lower = question.lower()
+    
+    # Inventory summary
+    if any(word in question_lower for word in ["summary", "overview", "status", "health"]):
+        stats = db.get_stats()
+        return (
+            f"**Pantry Status Summary**\n\n"
+            f"Total Items: {stats.get('total_items', 0)}\n"
+            f"In Stock: {stats.get('in_stock', 0)}\n"
+            f"Low Stock: {stats.get('low_stock', 0)}\n"
+            f"Out of Stock: {stats.get('out_of_stock', 0)}\n\n"
+            f"Your pantry tools are still available. The AI assistant is temporarily offline."
+        )
+    
+    # Low stock items
+    if any(word in question_lower for word in ["low", "restock", "below"]):
+        low_items = db.get_low_stock_items()
+        if low_items:
+            items_str = ", ".join(i["item_name"] for i in low_items[:5])
+            return f"Low-stock items: {items_str}. Total: {len(low_items)} items need restocking."
+        return "No items are currently below their low-stock threshold."
+    
+    # Out of stock
+    if any(word in question_lower for word in ["out", "empty", "zero"]):
+        out_items = db.get_out_of_stock_items()
+        if out_items:
+            items_str = ", ".join(i["item_name"] for i in out_items[:5])
+            return f"Out-of-stock items: {items_str}. Total: {len(out_items)} items are unavailable."
+        return "All items currently have stock available."
+    
+    # Default fallback
+    return (
+        "The AI assistant is temporarily unavailable. "
+        "Your pantry tools are still fully functional. "
+        "Please try again later or use the inventory management features directly."
+    )
+
+
+def get_conversation_starter_prompts(page: str = None) -> List[str]:
+    """Get suggested prompts for starting a conversation.
+    
+    Args:
+        page: Current page context (optional)
+    
+    Returns:
+        List of suggested prompt strings
+    """
+    from ai_prompts import get_contextual_prompts, get_all_prompts
+    
+    if page:
+        contextual = get_contextual_prompts(page)
+        if contextual:
+            return [p["prompt"] for p in contextual]
+    
+    # Return first 5 prompts from library
+    all_prompts = get_all_prompts()
+    return [p["prompt"] for p in all_prompts[:5]]
