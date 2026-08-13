@@ -1,4 +1,7 @@
-"""login_screen.py — Harvest Hero Login  ·  Responsive layout, no fixed pixel positions."""
+"""login_screen.py — Harvest Hero Login  ·  Responsive layout, no fixed pixel positions.
+
+Enhanced with premium glass effects and theme-aware visual environments.
+"""
 
 import os
 import tkinter as tk
@@ -7,11 +10,14 @@ import customtkinter as ctk
 from auth import verify_password
 from theme import FONT_FAMILY
 from glass_effects import create_glass_entry, create_glass_button
+from glass_effects_premium import GlassEffectManager, create_hero_mirror_card
+from theme_environments import get_theme_environment, get_glass_reflection_color
 
-# ── Palette ───────────────────────────────────────────────────────────────────
+# ── Palette (Theme-Aware) ────────────────────────────────────────────────────
+# Default colors for Harvest Day theme
 _PAGE_BG  = "#2A2E14"
 
-# Glass card
+# Glass card (will be enhanced with Level 3 Hero Mirror)
 _CARD_BG  = "#C0CAB8"
 _CARD_BDR = "#E8F0E4"
 
@@ -70,6 +76,17 @@ class LoginScreen(ctk.CTkFrame):
         self._raw_farm   = None
         self._last_wh    = (0, 0)
         self._shadow_wh  = (0, 0)
+        
+        # Initialize glass effect manager with theme tokens
+        self._glass_manager = GlassEffectManager({
+            "name": "Harvest Day",
+            "BG_ELEVATED": _CARD_BG,
+            "BORDER_SUBTLE": _CARD_BDR,
+            "BORDER_COLOR": _DIV,
+            "TEXT_PRIMARY": _TITLE,
+            "TEXT_SECONDARY": _SUB,
+        })
+        
         self._build()
         self.after(900, self._start_rotation)
 
@@ -220,15 +237,14 @@ class LoginScreen(ctk.CTkFrame):
         img = img.filter(ImageFilter.GaussianBlur(radius=1.0))
         return img
 
-    # ── Glass Card ────────────────────────────────────────────────────────────
+    # ── Glass Card (Level 3 Hero Mirror) ──────────────────────────────────────
 
     def _build_card(self, parent):
-        card = ctk.CTkFrame(
+        # Create Level 3 Hero Mirror glass card for premium appearance
+        card = self._glass_manager.create_hero_mirror_panel(
             parent,
             fg_color=_CARD_BG,
             corner_radius=28,
-            border_width=1,
-            border_color=_CARD_BDR,
         )
         card.pack()
 
