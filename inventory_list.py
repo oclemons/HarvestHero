@@ -35,6 +35,9 @@ class InventoryList(ctk.CTkFrame):
         self.db = db
         self.user = user
         self.on_update = on_update
+        self._view_mode = "list"  # "list" or "pantry"
+        self._pantry_view = None
+        self._list_view = None
         _apply_treeview_style()
         self._build()
         self.load_items()
@@ -73,6 +76,21 @@ class InventoryList(ctk.CTkFrame):
             command=self.load_items,
         ).pack(side="left", padx=4)
 
+        # View toggle buttons
+        ctk.CTkButton(
+            top, text="📋 List View", width=100, height=36,
+            fg_color=ACCENT_BLUE, hover_color="#1d4ed8",
+            text_color="white", corner_radius=8,
+            command=self._switch_to_list,
+        ).pack(side="right", padx=4)
+
+        ctk.CTkButton(
+            top, text="🏪 Pantry View", width=120, height=36,
+            fg_color=BG_SECONDARY, hover_color=BG_CARD,
+            text_color=TEXT_SECONDARY, corner_radius=8,
+            command=self._switch_to_pantry,
+        ).pack(side="right", padx=4)
+
         if self.user["role"] == "admin":
             ctk.CTkButton(
                 top, text="+ Add Item", width=100, height=36,
@@ -93,9 +111,15 @@ class InventoryList(ctk.CTkFrame):
                 command=self.edit_selected,
             ).pack(side="right", padx=4)
 
-        # ---- treeview ----
-        tree_frame = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=12)
-        tree_frame.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 8))
+        # ---- content container ----
+        self.content_container = ctk.CTkFrame(self, fg_color=BG_PRIMARY)
+        self.content_container.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 8))
+        self.content_container.grid_rowconfigure(0, weight=1)
+        self.content_container.grid_columnconfigure(0, weight=1)
+
+        # ---- treeview (list view) ----
+        tree_frame = ctk.CTkFrame(self.content_container, fg_color=BG_CARD, corner_radius=12)
+        tree_frame.grid(row=0, column=0, sticky="nsew")
 
         cols = ("barcode", "item_name", "brand", "category", "current_qty",
                 "min_stock", "status", "storage", "expires", "notes")
@@ -124,6 +148,7 @@ class InventoryList(ctk.CTkFrame):
         self.tree.tag_configure("ok",       background=BG_SECONDARY, foreground=TEXT_PRIMARY)
         self.tree.tag_configure("expired",  background="#2d0f0f", foreground="#ff6b6b")
         self.tree.tag_configure("exp_soon", background="#2d2000", foreground="#fbbf24")
+        self.tree.tag_configure("overstock", background="#3b2d5e", foreground="#a78bfa")
 
         vsb = ttk.Scrollbar(tree_frame, orient="vertical",   command=self.tree.yview)
         hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
@@ -133,6 +158,8 @@ class InventoryList(ctk.CTkFrame):
         hsb.grid(row=1, column=0, sticky="ew")
         tree_frame.grid_rowconfigure(0, weight=1)
         tree_frame.grid_columnconfigure(0, weight=1)
+
+        self._list_view = tree_frame
 
         self.tree.bind("<Double-1>", lambda _e: self.edit_selected()
                        if self.user["role"] == "admin" else None)
@@ -186,6 +213,8 @@ class InventoryList(ctk.CTkFrame):
                 status, tag = "LOW STOCK", "low"
             elif exp_tag == "exp_soon":
                 status, tag = "EXPIRING SOON", "exp_soon"
+            elif mins > 0 and qty > (mins * 2.5):
+                status, tag = "OVERSTOCK", "overstock"
             else:
                 status, tag = "OK", "ok"
 
@@ -276,3 +305,54 @@ class InventoryList(ctk.CTkFrame):
             self.load_items()
             if self.on_update:
                 self.on_update()
+
+    # ------------------------------------------------------------------
+    # View switching
+    # ------------------------------------------------------------------
+
+    def _switch_to_list(self):
+        """Switch to list view."""
+        if self._view_mode == "list":
+            return
+
+        self._view_mode = "list"
+
+        # Hide pantry view
+        if self._pantry_view:
+            self._pantry_view.grid_forget()
+
+        # Show list view
+        self._list_view.grid(row=0, column=0, sticky="nsew")
+        self.load_items()
+
+    def _switch_to_pantry(self):
+        """Switch to pantry view."""
+        if self._view_mode == "pantry":
+            return
+
+        self._view_mode = "pantry"
+
+        # Hide list view
+        self._list_view.grid_forget()
+
+        # Create pantry view if needed
+        if not self._pantry_view:
+            from pantry_view import PantryView
+            self._pantry_view = PantryView(
+                self.content_container, self.db, self.user,
+                on_item_click=self._on_pantry_item_click,
+            )
+
+        self._pantry_view.grid(row=0, column=0, sticky="nsew")
+        self._pantry_view.load_pantry()
+
+    def _on_pantry_item_click(self, item: dict):
+        """Handle item click from pantry view."""
+        # Switch to list view and select the item
+        self._switch_to_list()
+        # Find and select the item in the tree
+        for iid in self.tree.get_children():
+            if int(iid) == item["id"]:
+                self.tree.selection_set(iid)
+                self.tree.see(iid)
+                break
