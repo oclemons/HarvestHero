@@ -380,11 +380,12 @@ class InteractivePantryUI(ctk.CTkFrame):
             border_width=1, border_color=BORDER_COLOR,
         )
 
-        ctk.CTkLabel(
+        label_widget = ctk.CTkLabel(
             card, text=label,
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=TEXT_MUTED,
-        ).pack(padx=12, pady=(8, 2))
+        )
+        label_widget.pack(padx=12, pady=(8, 2))
 
         self.summary_value_labels = getattr(self, 'summary_value_labels', {})
         value_label = ctk.CTkLabel(
@@ -395,9 +396,12 @@ class InteractivePantryUI(ctk.CTkFrame):
         value_label.pack(padx=12, pady=(2, 8))
         self.summary_value_labels[key] = value_label
 
-        # Add tooltip to card
-        if key in tooltips:
-            add_tooltip(card, tooltips[key])
+        # Add tooltip to both label and value for better hover detection
+        tooltip_text = tooltips.get(key, "")
+        if tooltip_text:
+            add_tooltip(label_widget, tooltip_text)
+            add_tooltip(value_label, tooltip_text)
+            add_tooltip(card, tooltip_text)
 
         return card
 
