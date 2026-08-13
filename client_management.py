@@ -216,15 +216,24 @@ class _ClientModal(ctk.CTkToplevel):
             locker_waiver_signed=self._locker_waiver.get(),
         )
 
-        if self._edit_mode:
-            self.db.update_pantry_client(
-                self.client_data["id"], first_name, last_name, **kwargs)
-        else:
-            self.db.create_pantry_client(first_name, last_name, **kwargs)
+        try:
+            if self._edit_mode:
+                self.db.update_pantry_client(
+                    self.client_data["id"], first_name, last_name, **kwargs)
+                success_msg = f"✓ Updated {first_name} {last_name}"
+            else:
+                self.db.create_pantry_client(first_name, last_name, **kwargs)
+                success_msg = f"✓ Added {first_name} {last_name}"
 
-        if self.on_save:
-            self.on_save()
-        self.destroy()
+            if self.on_save:
+                self.on_save()
+            
+            # Show success notification
+            Toast(self.master, success_msg, duration=2000)
+            self.destroy()
+        except Exception as e:
+            self._err_var.set(f"Error saving client: {str(e)}")
+            return
 
 
 # ---------------------------------------------------------------------------
