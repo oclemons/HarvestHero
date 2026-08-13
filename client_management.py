@@ -583,14 +583,37 @@ class ClientManagement(ctk.CTkFrame):
 
     def _build_visits_panel(self):
         panel = ctk.CTkFrame(self, fg_color="transparent")
-        panel.grid_rowconfigure(0, weight=1)
+        panel.grid_rowconfigure(1, weight=1)
         panel.grid_columnconfigure(0, weight=1)
+
+        # Header with clear history button (admin only)
+        if self._is_admin:
+            header = ctk.CTkFrame(panel, fg_color="transparent")
+            header.grid(row=0, column=0, sticky="ew", padx=40, pady=(12, 8))
+            header.grid_columnconfigure(0, weight=1)
+            
+            ctk.CTkLabel(
+                header, text="Visit History",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                text_color=TEXT_PRIMARY,
+            ).pack(side="left")
+            
+            clear_btn = ctk.CTkButton(
+                header, text="🗑 Clear All History",
+                height=32, corner_radius=8,
+                fg_color=ACCENT_RED, hover_color="#dc2626",
+                text_color="white",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                command=self._clear_all_history,
+            )
+            clear_btn.pack(side="right")
+            add_tooltip(clear_btn, "Delete all pantry visit history (admin only)")
 
         card = ctk.CTkFrame(
             panel, fg_color=BG_ELEVATED, corner_radius=12,
             border_width=1, border_color=BORDER_COLOR,
         )
-        card.grid(row=0, column=0, sticky="nsew", padx=40, pady=(0, 12))
+        card.grid(row=1, column=0, sticky="nsew", padx=40, pady=(0, 12))
         card.grid_rowconfigure(0, weight=1)
         card.grid_columnconfigure(0, weight=1)
 
@@ -834,6 +857,39 @@ class ClientManagement(ctk.CTkFrame):
                 client["id"], archived_by=self.user.get("username", ""))
             self._load_clients()
             Toast.show(self, f"Archived '{name}'", kind="success")
+
+    def _clear_all_history(self):
+        """Clear all pantry visit history (admin only)."""
+        if not self._is_admin:
+            Toast.show(self, "Only admins can clear history", kind="error")
+            return
+        
+        if not messagebox.askyesno(
+            "Confirm Clear History",
+            "Delete ALL pantry visit history?\n\n"
+            "This action cannot be undone. All visit records will be permanently deleted.",
+            icon="warning",
+        ):
+            return
+        
+        try:
+            # Delete all pantry visits
+            conn = self.db._connect()
+            conn.execute("DELETE FROM pantry_visits")
+            conn.commit()
+            conn.close()
+            
+            # Refresh the visits display
+            self._load_visits()
+            
+            Toast.show(self, "✓ All visit history cleared", kind="success")
+            self.db.log_activity(
+                self.user.get("username", ""),
+                "CLEAR_HISTORY",
+                "Cleared all pantry visit history"
+            )
+        except Exception as e:
+            Toast.show(self, f"Error clearing history: {str(e)}", kind="error")
 
     def _save_limits(self):
         try:
