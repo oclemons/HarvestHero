@@ -256,13 +256,31 @@ class AdminDashboard(ctk.CTkFrame):
         for w in self._low_frame.winfo_children():
             w.destroy()
 
-        # Header
+        # Get current low stock items
+        low_stock_items = self.db.get_low_stock_items()
+        
+        # Get predictive warnings (items that will run out soon)
+        try:
+            from ai_assistant import _PatternEngine
+            predictions = _PatternEngine(self.db).stockout_predictions(7)
+            # Filter out items already in low stock
+            low_stock_names = {item["item_name"] for item in low_stock_items}
+            predictive_items = [p for p in predictions if p["item_name"] not in low_stock_names]
+        except Exception:
+            predictive_items = []
+        
+        # Combine for display (current low stock + predictive warnings)
+        combined_low_stock = low_stock_items + predictive_items
+        
+        # Out of stock section
         self._alert_section(self._oos_frame, "OUT OF STOCK", ACCENT_RED,
                             self.db.get_out_of_stock_items())
-        self._alert_section(self._low_frame, "LOW STOCK", ACCENT_AMBER,
-                            self.db.get_low_stock_items())
+        
+        # Low stock section (with predictive warnings)
+        self._alert_section(self._low_frame, "LOW STOCK & PREDICTIONS", ACCENT_AMBER,
+                            combined_low_stock, show_predictions=True)
 
-    def _alert_section(self, parent, title, color, items):
+    def _alert_section(self, parent, title, color, items, show_predictions=False):
         ctk.CTkLabel(
             parent, text=title,
             font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
@@ -281,13 +299,27 @@ class AdminDashboard(ctk.CTkFrame):
             r = ctk.CTkFrame(parent, fg_color="transparent")
             r.pack(fill="x", padx=12, pady=2)
             r.grid_columnconfigure(0, weight=1)
+            
+            # Item name
+            item_name = item["item_name"]
+            # Add prediction indicator if this is a predictive item
+            if show_predictions and "days_until_zero" in item:
+                item_name += f" (⏱ {item['days_until_zero']}d)"
+            
             ctk.CTkLabel(
-                r, text=item["item_name"],
+                r, text=item_name,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                 text_color=TEXT_PRIMARY, anchor="w",
             ).grid(row=0, column=0, sticky="w")
+            
+            # Quantity display
+            if "days_until_zero" in item:
+                qty_text = f"{item['current_quantity']} units"
+            else:
+                qty_text = f"{item['current_quantity']} / {item['minimum_stock']}"
+            
             ctk.CTkLabel(
-                r, text=f"{item['current_quantity']} / {item['minimum_stock']}",
+                r, text=qty_text,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
                 text_color=color, anchor="e",
             ).grid(row=0, column=1, sticky="e")
