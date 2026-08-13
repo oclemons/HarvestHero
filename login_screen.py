@@ -297,26 +297,26 @@ class LoginScreen(ctk.CTkFrame):
                          text_color=_AI_HOT, fg_color="transparent").pack(pady=(0, 10))
 
         ctk.CTkLabel(sec, text="HARVEST HERO",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=25, weight="bold"),
+                     font=ctk.CTkFont(family="Times New Roman", size=32, weight="bold"),
                      text_color=_TITLE).pack()
 
         ctk.CTkLabel(sec, text="Welcome Back",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-                     text_color=_SUB).pack(pady=(3, 0))
+                     font=ctk.CTkFont(family="Times New Roman", size=18, weight="bold"),
+                     text_color=_SUB).pack(pady=(8, 0))
 
         ctk.CTkLabel(sec, text="Helping our community grow, one harvest at a time.",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                     text_color=_AI_DIM).pack(pady=(2, 0))
+                     font=ctk.CTkFont(family="Times New Roman", size=13, weight="bold"),
+                     text_color=_AI_DIM, wraplength=350).pack(pady=(6, 0))
 
         msg_row = ctk.CTkFrame(sec, fg_color="transparent")
-        msg_row.pack(pady=(9, 0))
+        msg_row.pack(pady=(12, 0))
         self._dot_lbl = ctk.CTkLabel(msg_row, text="✦",
-                                     font=ctk.CTkFont(size=10),
+                                     font=ctk.CTkFont(size=12),
                                      text_color=_AI_HOT, fg_color="transparent")
-        self._dot_lbl.pack(side="left", padx=(0, 5))
+        self._dot_lbl.pack(side="left", padx=(0, 6))
         self._msg_lbl = ctk.CTkLabel(msg_row, text=_AI_MSGS[0],
-                                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                                     text_color=_AI_DIM)
+                                     font=ctk.CTkFont(family="Times New Roman", size=12, weight="bold"),
+                                     text_color=_AI_DIM, wraplength=300)
         self._msg_lbl.pack(side="left")
 
         ctk.CTkFrame(sec, fg_color=_DIV, height=1).pack(fill="x", pady=(16, 0))
@@ -329,37 +329,37 @@ class LoginScreen(ctk.CTkFrame):
 
         # USERNAME
         ctk.CTkLabel(f, text="USERNAME",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=9, weight="bold"),
-                     text_color=_LABEL).pack(anchor="w", pady=(0, 5))
+                     font=ctk.CTkFont(family="Times New Roman", size=12, weight="bold"),
+                     text_color=_LABEL).pack(anchor="w", pady=(0, 6))
         u = ctk.CTkFrame(f, fg_color=_IN_BG, corner_radius=10,
                          border_width=1, border_color=_IN_BDR)
-        u.pack(fill="x", pady=(0, 12))
-        ctk.CTkLabel(u, text=" 👤", font=ctk.CTkFont(size=13),
+        u.pack(fill="x", pady=(0, 14))
+        ctk.CTkLabel(u, text=" 👤", font=ctk.CTkFont(size=15),
                      text_color=_IN_PH, fg_color="transparent").pack(side="left", padx=(12, 0))
         self.username_entry = ctk.CTkEntry(
-            u, width=340, height=42,
+            u, width=340, height=44,
             placeholder_text="Enter your username",
             fg_color="transparent", border_width=0,
             text_color=_IN_TXT, placeholder_text_color=_IN_PH,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12))
-        self.username_entry.pack(side="left", padx=(6, 12), pady=4)
+            font=ctk.CTkFont(family="Times New Roman", size=13))
+        self.username_entry.pack(side="left", padx=(6, 12), pady=5)
 
         # PASSWORD
         ctk.CTkLabel(f, text="PASSWORD",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=9, weight="bold"),
-                     text_color=_LABEL).pack(anchor="w", pady=(0, 5))
+                     font=ctk.CTkFont(family="Times New Roman", size=12, weight="bold"),
+                     text_color=_LABEL).pack(anchor="w", pady=(0, 6))
         p = ctk.CTkFrame(f, fg_color=_IN_BG, corner_radius=10,
                          border_width=1, border_color=_IN_BDR)
-        p.pack(fill="x", pady=(0, 4))
-        ctk.CTkLabel(p, text=" 🔒", font=ctk.CTkFont(size=13),
+        p.pack(fill="x", pady=(0, 6))
+        ctk.CTkLabel(p, text=" 🔒", font=ctk.CTkFont(size=15),
                      text_color=_IN_PH, fg_color="transparent").pack(side="left", padx=(12, 0))
         self.password_entry = ctk.CTkEntry(
-            p, width=300, height=42,
+            p, width=300, height=44,
             placeholder_text="Enter your password",
             show="●", fg_color="transparent", border_width=0,
             text_color=_IN_TXT, placeholder_text_color=_IN_PH,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12))
-        self.password_entry.pack(side="left", padx=(6, 2), pady=4)
+            font=ctk.CTkFont(family="Times New Roman", size=13))
+        self.password_entry.pack(side="left", padx=(6, 2), pady=5)
         
         # Eye button to toggle password visibility
         self._eye_btn = ctk.CTkButton(
@@ -371,33 +371,33 @@ class LoginScreen(ctk.CTkFrame):
 
         # Status
         self.status_label = ctk.CTkLabel(
-            f, text="", text_color=_ERR, height=18,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10))
-        self.status_label.pack(pady=(4, 2))
+            f, text="", text_color=_ERR, height=20,
+            font=ctk.CTkFont(family="Times New Roman", size=11, weight="bold"))
+        self.status_label.pack(pady=(6, 4))
 
         # Remember / Forgot
         row = ctk.CTkFrame(f, fg_color="transparent")
-        row.pack(fill="x", pady=(0, 14))
+        row.pack(fill="x", pady=(0, 16))
         self._remember_var = tk.BooleanVar(value=False)
         ctk.CTkCheckBox(row, text="Remember me", variable=self._remember_var,
-                        font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                        font=ctk.CTkFont(family="Times New Roman", size=11, weight="bold"),
                         text_color=_SUB, fg_color=_BTN, hover_color=_BTN_H,
                         border_color=_IN_BDR, checkmark_color="#FFFFFF",
                         corner_radius=4, width=16, height=16).pack(side="left")
         ctk.CTkButton(row, text="Forgot password?",
                       fg_color="transparent", hover_color=_IN_BG, text_color=_LABEL,
-                      font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                      corner_radius=6, height=22, width=0,
+                      font=ctk.CTkFont(family="Times New Roman", size=11, weight="bold"),
+                      corner_radius=6, height=24, width=0,
                       command=self._open_forgot_password).pack(side="right")
 
         # Sign In
         self.login_btn = ctk.CTkButton(
-            f, text="SIGN IN  →", height=50,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            f, text="SIGN IN  →", height=54,
+            font=ctk.CTkFont(family="Times New Roman", size=16, weight="bold"),
             fg_color=_BTN, hover_color=_BTN_H,
             text_color=_BTN_TXT, corner_radius=12,
             command=self.login)
-        self.login_btn.pack(fill="x")
+        self.login_btn.pack(fill="x", pady=(0, 6))
 
         self.username_entry.bind("<Return>", lambda _e: self.login())
         self.password_entry.bind("<Return>", lambda _e: self.login())
@@ -406,28 +406,28 @@ class LoginScreen(ctk.CTkFrame):
 
     def _build_signature(self, parent):
         f = ctk.CTkFrame(parent, fg_color="transparent")
-        f.pack(fill="x", pady=(22, 0))
+        f.pack(fill="x", pady=(24, 8))
 
         # Thin understated divider with a small centered crescent moon
         div_row = ctk.CTkFrame(f, fg_color="transparent")
-        div_row.pack(pady=(0, 10))
+        div_row.pack(pady=(0, 12))
         ctk.CTkFrame(div_row, fg_color=_IN_BDR, height=1, width=64,
                      corner_radius=0).pack(side="left", padx=(0, 8), pady=5)
         ctk.CTkLabel(div_row, text="☾",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                     font=ctk.CTkFont(family="Times New Roman", size=13),
                      text_color=_BRASS, fg_color="transparent").pack(side="left")
         ctk.CTkFrame(div_row, fg_color=_IN_BDR, height=1, width=64,
                      corner_radius=0).pack(side="left", padx=(8, 0), pady=5)
 
         ctk.CTkLabel(f, text="Powered by The Clemons Collective",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                     font=ctk.CTkFont(family="Times New Roman", size=12, weight="bold"),
                      text_color=_BRASS).pack()
         ctk.CTkLabel(f, text="Building Intelligent Community Solutions",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=9),
-                     text_color=_F_DIM).pack(pady=(2, 0))
+                     font=ctk.CTkFont(family="Times New Roman", size=10, weight="bold"),
+                     text_color=_F_DIM).pack(pady=(3, 0))
         ctk.CTkLabel(f, text="© 2026 All Rights Reserved",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=9),
-                     text_color=_F_DIM).pack(pady=(2, 0))
+                     font=ctk.CTkFont(family="Times New Roman", size=10, weight="bold"),
+                     text_color=_F_DIM).pack(pady=(3, 0))
 
     # ── Animations & helpers ──────────────────────────────────────────────────
 
