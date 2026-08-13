@@ -10,20 +10,22 @@ from theme import (
     ACCENT_GREEN, ACCENT_RED, ACCENT_AMBER, ACCENT_BLUE,
     GREEN_DIM, RED_DIM, AMBER_DIM,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
-    FONT_FAMILY, BORDER_COLOR,
+    FONT_FAMILY, BORDER_COLOR, BORDER_SUBTLE,
     BG_PRIMARY, BG_SECONDARY, BG_CARD,
 )
 from toast import Toast
 from chart_widget import ChartWidget
 from tooltip_helper import add_tooltip
+from glass_effects import create_glass_card, create_glass_button
 
 
 def _kpi(parent, title: str, value: str, sub: str = "", color: str = None,
          col: int = 0, row: int = 0):
-    """Render a single KPI card."""
+    """Render a single KPI card with glass effect."""
+    # Glass effect card
     card = ctk.CTkFrame(
         parent, fg_color=BG_ELEVATED, corner_radius=12,
-        border_width=1, border_color=BORDER_COLOR,
+        border_width=1, border_color=BORDER_SUBTLE,
     )
     card.grid(row=row, column=col, sticky="nsew", padx=6, pady=6)
     card.grid_columnconfigure(0, weight=1)
@@ -133,30 +135,47 @@ class AdminDashboard(ctk.CTkFrame):
         bar.grid_columnconfigure(1, weight=1)
         title_col = ctk.CTkFrame(bar, fg_color="transparent")
         title_col.grid(row=0, column=0, sticky="w")
+        
+        # Title with harvest emoji
+        title_row = ctk.CTkFrame(title_col, fg_color="transparent")
+        title_row.pack(anchor="w")
         ctk.CTkLabel(
-            title_col, text="Command Center",
+            title_row, text="🌾",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=24),
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(
+            title_row, text="Command Center",
             font=ctk.CTkFont(family=FONT_FAMILY, size=26, weight="bold"),
             text_color=TEXT_PRIMARY,
-        ).pack(anchor="w")
+        ).pack(side="left")
+        
+        # Greeting and date
+        ctk.CTkLabel(
+            title_col, text=f"{greet}, {name}",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=TEXT_SECONDARY,
+        ).pack(anchor="w", pady=(4, 0))
         ctk.CTkLabel(
             title_col, text=today,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=TEXT_MUTED,
         ).pack(anchor="w")
-        ctk.CTkButton(
-            bar, text="\u21bb Refresh", width=90, height=32,
-            fg_color=BG_ELEVATED, hover_color=BG_HOVER,
-            text_color=TEXT_SECONDARY, corner_radius=8,
-            border_width=1, border_color=BORDER_COLOR,
+        # Glass effect refresh button
+        create_glass_button(
+            bar, text="🔄 Refresh", width=90,
             command=self.on_shown,
+            fg_color=BG_ELEVATED,
+            hover_color=BG_HOVER,
+            text_color=TEXT_SECONDARY,
+            border_color=BORDER_SUBTLE,
         ).grid(row=0, column=2, sticky="e")
 
-        # ── AI Greeting Card ──
+        # ── AI Greeting Card with glass effect ──
         ai_card = ctk.CTkFrame(
             hdr_wrap, fg_color=BG_ELEVATED, corner_radius=14,
-            border_width=1, border_color=ACCENT,
+            border_width=1, border_color=BORDER_SUBTLE,
         )
-        ai_card.grid(row=1, column=0, sticky="ew")
+        ai_card.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         ai_card.grid_columnconfigure(0, weight=1)
 
         body = ctk.CTkFrame(ai_card, fg_color="transparent")
