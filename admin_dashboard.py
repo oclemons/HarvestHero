@@ -77,8 +77,11 @@ class AdminDashboard(ctk.CTkFrame):
         wrap.grid(row=0, column=0, sticky="ew", padx=40, pady=28)
         wrap.grid_columnconfigure(0, weight=1)
 
+        # Track row number for proper layout
+        self._row = 0
+        
         self._build_header(wrap)
-        self._build_quick_actions(wrap)  # Moved to top, near AI widget
+        self._build_quick_actions(wrap)  # At top, right after header
         self._build_alerts(wrap)
         self._build_ava_insights(wrap)
         self._build_activity(wrap)
@@ -225,7 +228,7 @@ class AdminDashboard(ctk.CTkFrame):
             p, text="ALERTS",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
             text_color=TEXT_MUTED, anchor="w",
-        ).grid(row=3, column=0, sticky="w", pady=(0, 4))
+        ).grid(row=3, column=0, sticky="w", pady=(20, 4))
 
         row = ctk.CTkFrame(p, fg_color="transparent")
         row.grid(row=4, column=0, sticky="ew", pady=(0, 20))
@@ -465,10 +468,10 @@ class AdminDashboard(ctk.CTkFrame):
             p, text="QUICK ACTIONS",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
             text_color=TEXT_MUTED, anchor="w",
-        ).grid(row=9, column=0, sticky="w", pady=(0, 4))
+        ).grid(row=1, column=0, sticky="w", pady=(20, 4))
 
         qa = ctk.CTkFrame(p, fg_color="transparent")
-        qa.grid(row=10, column=0, sticky="ew", pady=(0, 28))
+        qa.grid(row=2, column=0, sticky="ew", pady=(0, 28))
 
         actions = [
             ("Add Item",        ACCENT,       self._qa_add_item),
