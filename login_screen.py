@@ -10,7 +10,7 @@ import customtkinter as ctk
 from auth import verify_password
 from theme import FONT_FAMILY
 from glass_effects import create_glass_entry, create_glass_button
-from glass_effects_premium import GlassEffectManager, create_hero_mirror_card
+from glass_effects_premium import GlassEffectManager
 from theme_environments import get_theme_environment, get_glass_reflection_color
 
 # ── Palette (Theme-Aware) ────────────────────────────────────────────────────
