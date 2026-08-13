@@ -15,6 +15,7 @@ from theme import (
 )
 from toast import Toast
 from chart_widget import ChartWidget
+from tooltip_helper import add_tooltip
 
 
 def _kpi(parent, title: str, value: str, sub: str = "", color: str = None,
@@ -231,29 +232,21 @@ class AdminDashboard(ctk.CTkFrame):
             w.destroy()
 
         s = self.db.get_stats()
-        from ai_assistant import _LocalAI
-        health = _LocalAI(self.db).health_score()
 
+        # Show only essential metrics (6 cards instead of 15)
         kpi_data = [
-            ("TOTAL ITEMS",          str(s["total_items"]),          "inventory items",     None,         0, 0),
-            ("TOTAL UNITS",          str(s["total_units"]),           "units on hand",       None,         0, 1),
-            ("LOW STOCK",            str(s["low_stock"]),             "need attention",      ACCENT_AMBER, 0, 2),
-            ("OUT OF STOCK",         str(s["out_of_stock"]),          "items depleted",      ACCENT_RED,   0, 3),
-            ("SCAN-INS TODAY",       str(s["today_in_count"]),        f"+{s['today_in_qty']} units",  ACCENT_GREEN, 1, 0),
-            ("SCAN-OUTS TODAY",      str(s["today_out_count"]),       f"-{s['today_out_qty']} units", ACCENT_RED,   1, 1),
-            ("TOTAL TXN TODAY",      str(s["today_total"]),           "transactions",        None,         1, 2),
-            ("HEALTH SCORE",         f"{health}/100",                 "inventory health",    ACCENT_GREEN if health >= 75 else ACCENT_AMBER if health >= 50 else ACCENT_RED, 1, 3),
-            ("TXN THIS WEEK",        str(s["week_txns"]),             "this week",           None,         2, 0),
-            ("TXN THIS MONTH",       str(s["month_txns"]),            "this month",          None,         2, 1),
-            ("ACTIVE USERS",         str(s["active_users"]),          "can log in",          ACCENT_GREEN, 2, 2),
-            ("DISABLED USERS",       str(s["disabled_users"]),        "blocked from login",  ACCENT_RED if s["disabled_users"] else TEXT_MUTED, 2, 3),
-            ("NEW USERS (WEEK)",     str(s["new_users_week"]),        "accounts created",    None,         3, 0),
-            ("MOST ACTIVE TODAY",    s["most_active_user"],           "top scanner",         ACCENT,       3, 1),
-            ("TOP ITEM TODAY",       s["most_scanned_item"],          "most scanned",        ACCENT,       3, 2),
+            ("TOTAL ITEMS",          str(s["total_items"]),          "items in inventory",     None,         0, 0, "Total number of unique items in the pantry"),
+            ("TOTAL UNITS",          str(s["total_units"]),           "units on hand",          None,         0, 1, "Total quantity of all items combined"),
+            ("LOW STOCK",            str(s["low_stock"]),             "need restocking",        ACCENT_AMBER, 0, 2, "Items below their low-stock threshold"),
+            ("OUT OF STOCK",         str(s["out_of_stock"]),          "items depleted",         ACCENT_RED,   0, 3, "Items with zero quantity"),
+            ("TODAY'S ACTIVITY",     str(s["today_total"]),           "scans in/out",           None,         1, 0, "Total inventory transactions today"),
+            ("ACTIVE USERS",         str(s["active_users"]),          "can log in",             ACCENT_GREEN, 1, 1, "Users with active accounts"),
         ]
 
-        for title, value, sub, color, row, col in kpi_data:
-            _kpi(self._kpi_grid, title, value, sub, color, col=col, row=row)
+        for title, value, sub, color, row, col, tooltip_text in kpi_data:
+            card = _kpi(self._kpi_grid, title, value, sub, color, col=col, row=row)
+            # Add tooltip to the card
+            add_tooltip(card, tooltip_text)
 
     def _build_alerts(self, p):
         ctk.CTkLabel(
