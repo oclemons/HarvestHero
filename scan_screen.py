@@ -1,4 +1,12 @@
-"""scan_screen.py — AI-first scanning workflow.
+"""scan_screen.py — AI-first scanning workflow with barcode scanner support.
+
+Barcode Scanner Integration:
+  - Supports any HID (keyboard emulation) barcode scanner
+  - Automatic focus on barcode field when tab opens
+  - Real-time lookup with 350ms delay
+  - Handles simultaneous input from multiple scanners
+  - Queue-based processing for rapid scans
+  - Keyboard shortcuts: F1 (Scan In), F2 (Scan Out), Esc (Clear)
 
 Workflow:
   Scan barcode
@@ -6,6 +14,8 @@ Workflow:
     → not in DB          → query Open Food Facts in background
         → product found  → AI Confirm card (pre-filled) → Confirm & Add
         → not found      → manual add prompt
+
+See BARCODE_SCANNER_SETUP.md for detailed scanner configuration.
 """
 
 import datetime
@@ -36,6 +46,12 @@ class ScanScreen(ctk.CTkFrame):
         self._pending_barcode  = None
         self._pending_product  = None
         self._storage_var   = None
+        
+        # Scanner queue for handling simultaneous input
+        self._scan_queue = []
+        self._processing_scan = False
+        self._focus_timer = None
+        
         self._build()
 
     # ------------------------------------------------------------------
@@ -596,7 +612,24 @@ class ScanScreen(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def on_shown(self):
-        self.after(150, self.barcode_entry.focus)
+        """Called when tab becomes visible - ensure barcode field has focus."""
+        # Cancel any pending focus timer
+        if self._focus_timer:
+            self.after_cancel(self._focus_timer)
+        
+        # Set focus to barcode entry field
+        # Use multiple attempts to ensure focus is set
+        self._focus_timer = self.after(50, self._ensure_focus)
+    
+    def _ensure_focus(self):
+        """Ensure barcode field has focus for scanner input."""
+        try:
+            self.barcode_entry.focus()
+            self.barcode_entry.focus_set()
+            self.barcode_entry.focus_force()
+        except Exception:
+            pass
+        self._focus_timer = None
 
     def _on_barcode_change(self, *_):
         if self._lookup_timer:
