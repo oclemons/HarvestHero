@@ -337,10 +337,9 @@ class InventoryList(ctk.CTkFrame):
 
         # Create pantry view if needed
         if not self._pantry_view:
-            from pantry_view import PantryView
-            self._pantry_view = PantryView(
+            from interactive_pantry_ui import InteractivePantryUI
+            self._pantry_view = InteractivePantryUI(
                 self.content_container, self.db, self.user,
-                on_item_click=self._on_pantry_item_click,
             )
 
         self._pantry_view.grid(row=0, column=0, sticky="nsew")
