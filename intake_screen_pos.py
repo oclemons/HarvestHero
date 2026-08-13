@@ -1,0 +1,472 @@
+"""
+intake_screen_pos.py — POS-style intake screen with shopping cart.
+
+Features:
+- Client selection at top
+- Barcode scanner input
+- Real-time cart display
+- Quantity adjustment
+- Item removal
+- Transaction complete/cancel
+- Receipt generation
+"""
+
+import customtkinter as ctk
+import tkinter as tk
+from typing import Optional, Callable
+from datetime import datetime
+
+from intake_cart import IntakeCart
+from theme import (
+    BG_BASE, BG_SURFACE, BG_ELEVATED, BG_OVERLAY, BG_HOVER,
+    ACCENT, ACCENT_GREEN, ACCENT_RED, ACCENT_AMBER,
+    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
+    FONT_FAMILY, BORDER_COLOR, BORDER_SUBTLE,
+)
+from font_config import FONT_LABEL_MEDIUM, FONT_BODY_MEDIUM, FONT_BUTTON_MEDIUM
+from toast import Toast
+
+
+class IntakeScreenPOS(ctk.CTkFrame):
+    """POS-style intake screen with shopping cart."""
+
+    def __init__(self, parent, db, user):
+        super().__init__(parent, fg_color=BG_SURFACE)
+        self.db = db
+        self.user = user
+        self.cart = IntakeCart(db)
+        self._lookup_timer = None
+        
+        self._build()
+
+    def _build(self):
+        """Build the POS layout."""
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        # Main container
+        main = ctk.CTkFrame(self, fg_color="transparent")
+        main.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_columnconfigure(1, weight=0)
+        main.grid_rowconfigure(1, weight=1)
+
+        # Left side: Scanner and client
+        left = ctk.CTkFrame(main, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="ew", padx=(0, 20))
+        left.grid_columnconfigure(0, weight=1)
+
+        self._build_client_selector(left)
+        self._build_barcode_input(left)
+
+        # Right side: Cart
+        right = ctk.CTkFrame(main, fg_color="transparent")
+        right.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(20, 0))
+        right.grid_rowconfigure(1, weight=1)
+
+        self._build_cart_header(right)
+        self._build_cart_display(right)
+        self._build_cart_footer(right)
+
+        # Bottom: Actions
+        bottom = ctk.CTkFrame(main, fg_color="transparent")
+        bottom.grid(row=1, column=0, sticky="ew", pady=(20, 0))
+        bottom.grid_columnconfigure(0, weight=1)
+
+        self._build_actions(bottom)
+
+    def _build_client_selector(self, parent):
+        """Build client selection dropdown."""
+        frame = ctk.CTkFrame(parent, fg_color=BG_ELEVATED, corner_radius=12,
+                            border_width=1, border_color=BORDER_SUBTLE)
+        frame.pack(fill="x", pady=(0, 16))
+        frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(frame, text="CLIENT",
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+                    text_color=TEXT_MUTED).pack(anchor="w", padx=16, pady=(12, 4))
+
+        # Get all clients
+        try:
+            clients = self.db.get_all_clients() or []
+        except:
+            clients = []
+
+        client_names = [f"{c.get('id', '')} - {c.get('name', 'Unknown')}" for c in clients]
+        self.client_var = tk.StringVar(value="Select a client...")
+        self.clients_data = clients
+
+        self.client_combo = ctk.CTkComboBox(
+            frame,
+            variable=self.client_var,
+            values=client_names,
+            height=44,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            fg_color=BG_OVERLAY,
+            border_color=ACCENT,
+            border_width=2,
+            text_color=TEXT_PRIMARY,
+            dropdown_font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=self._on_client_selected
+        )
+        self.client_combo.pack(fill="x", padx=16, pady=(0, 12))
+
+    def _on_client_selected(self, choice):
+        """Handle client selection."""
+        if choice == "Select a client...":
+            self.cart.cancel_transaction()
+            self._update_cart_display()
+            return
+
+        # Extract client ID from choice
+        try:
+            client_id = int(choice.split(" - ")[0])
+            client_name = choice.split(" - ")[1]
+
+            success, msg = self.cart.start_transaction(client_id, client_name)
+            if success:
+                Toast.show(self, msg, "success")
+                self._update_cart_display()
+                self.barcode_entry.focus()
+            else:
+                Toast.show(self, msg, "error")
+        except Exception as e:
+            Toast.show(self, f"Error: {str(e)}", "error")
+
+    def _build_barcode_input(self, parent):
+        """Build barcode input field."""
+        frame = ctk.CTkFrame(parent, fg_color=BG_ELEVATED, corner_radius=12,
+                            border_width=1, border_color=BORDER_SUBTLE)
+        frame.pack(fill="x", pady=(0, 16))
+        frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(frame, text="BARCODE",
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+                    text_color=TEXT_MUTED).pack(anchor="w", padx=16, pady=(12, 4))
+
+        self.barcode_var = tk.StringVar()
+        self.barcode_var.trace_add("write", self._on_barcode_change)
+
+        self.barcode_entry = ctk.CTkEntry(
+            frame,
+            textvariable=self.barcode_var,
+            placeholder_text="Scan or type barcode...",
+            height=44,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
+            fg_color=BG_OVERLAY,
+            border_color=ACCENT,
+            border_width=2,
+            text_color=TEXT_PRIMARY,
+            placeholder_text_color=TEXT_MUTED,
+            corner_radius=8,
+        )
+        self.barcode_entry.pack(fill="x", padx=16, pady=(0, 12))
+        self.barcode_entry.bind("<Return>", lambda _: self._on_barcode_scanned())
+
+    def _on_barcode_change(self, *args):
+        """Handle barcode input change."""
+        # Clear any pending timer
+        if self._lookup_timer:
+            self.after_cancel(self._lookup_timer)
+
+        # Set new timer for lookup
+        self._lookup_timer = self.after(350, self._lookup_barcode)
+
+    def _lookup_barcode(self):
+        """Look up barcode in database."""
+        barcode = self.barcode_var.get().strip()
+        if not barcode:
+            return
+
+        try:
+            item = self.db.get_item_by_barcode(barcode)
+            if item:
+                self._show_item_preview(item)
+        except Exception as e:
+            print(f"Lookup error: {e}")
+
+    def _show_item_preview(self, item):
+        """Show item preview before adding."""
+        # This could show a preview dialog or just add directly
+        # For now, we'll add directly on Enter
+        pass
+
+    def _on_barcode_scanned(self):
+        """Handle barcode scan (Enter pressed)."""
+        if not self.cart.is_transaction_active():
+            Toast.show(self, "Please select a client first", "warning")
+            self.barcode_entry.delete(0, "end")
+            return
+
+        barcode = self.barcode_var.get().strip()
+        if not barcode:
+            return
+
+        try:
+            item = self.db.get_item_by_barcode(barcode)
+            if not item:
+                Toast.show(self, f"Item not found: {barcode}", "error")
+                self.barcode_entry.delete(0, "end")
+                return
+
+            # Add to cart
+            success, msg = self.cart.add_item(
+                item_id=item.get("id"),
+                barcode=item.get("barcode"),
+                item_name=item.get("item_name"),
+                quantity=1,
+                category=item.get("category", ""),
+                storage_location=item.get("storage_location", "")
+            )
+
+            if success:
+                Toast.show(self, msg, "success")
+                self._update_cart_display()
+                self.barcode_entry.delete(0, "end")
+                self.barcode_entry.focus()
+            else:
+                Toast.show(self, msg, "error")
+        except Exception as e:
+            Toast.show(self, f"Error: {str(e)}", "error")
+            self.barcode_entry.delete(0, "end")
+
+    def _build_cart_header(self, parent):
+        """Build cart header."""
+        header = ctk.CTkFrame(parent, fg_color="transparent")
+        header.pack(fill="x", pady=(0, 12))
+        header.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(header, text="CART",
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+                    text_color=TEXT_PRIMARY).pack(anchor="w")
+
+        self.cart_info_label = ctk.CTkLabel(
+            header, text="0 items • 0 units",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=TEXT_SECONDARY
+        )
+        self.cart_info_label.pack(anchor="w", pady=(2, 0))
+
+    def _build_cart_display(self, parent):
+        """Build cart items display."""
+        self.cart_frame = ctk.CTkScrollableFrame(
+            parent, fg_color=BG_ELEVATED, corner_radius=12,
+            border_width=1, border_color=BORDER_SUBTLE
+        )
+        self.cart_frame.pack(fill="both", expand=True, pady=(0, 12))
+        self.cart_frame.grid_columnconfigure(0, weight=1)
+
+        self.cart_items_frame = ctk.CTkFrame(self.cart_frame, fg_color="transparent")
+        self.cart_items_frame.pack(fill="both", expand=True, padx=12, pady=12)
+        self.cart_items_frame.grid_columnconfigure(0, weight=1)
+
+        self._update_cart_display()
+
+    def _update_cart_display(self):
+        """Update cart display with current items."""
+        # Clear existing items
+        for widget in self.cart_items_frame.winfo_children():
+            widget.destroy()
+
+        summary = self.cart.get_cart_summary()
+
+        if "error" in summary:
+            ctk.CTkLabel(
+                self.cart_items_frame,
+                text="No transaction active",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=TEXT_MUTED
+            ).pack(pady=20)
+            self.cart_info_label.configure(text="0 items • 0 units")
+            return
+
+        items = summary.get("items", [])
+        if not items:
+            ctk.CTkLabel(
+                self.cart_items_frame,
+                text="Cart is empty",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=TEXT_MUTED
+            ).pack(pady=20)
+            self.cart_info_label.configure(text="0 items • 0 units")
+            return
+
+        # Display each item
+        for item in items:
+            self._add_cart_item_display(item)
+
+        # Update info
+        item_count = len(items)
+        total_units = summary.get("total_units", 0)
+        self.cart_info_label.configure(text=f"{item_count} items • {total_units} units")
+
+    def _add_cart_item_display(self, item):
+        """Add a single cart item display."""
+        item_frame = ctk.CTkFrame(
+            self.cart_items_frame, fg_color=BG_OVERLAY, corner_radius=8,
+            border_width=1, border_color=BORDER_SUBTLE
+        )
+        item_frame.pack(fill="x", pady=6)
+        item_frame.grid_columnconfigure(0, weight=1)
+
+        # Item name and barcode
+        name_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
+        name_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=(8, 4))
+        name_frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            name_frame, text=item["item_name"],
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            text_color=TEXT_PRIMARY
+        ).pack(anchor="w", side="left")
+
+        ctk.CTkLabel(
+            name_frame, text=item["barcode"],
+            font=ctk.CTkFont(family=FONT_FAMILY, size=9),
+            text_color=TEXT_MUTED
+        ).pack(anchor="e", side="right")
+
+        # Quantity controls
+        qty_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
+        qty_frame.grid(row=1, column=0, sticky="ew", padx=12, pady=(4, 8))
+        qty_frame.grid_columnconfigure(1, weight=1)
+
+        # Minus button
+        ctk.CTkButton(
+            qty_frame, text="−", width=30, height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            fg_color=ACCENT_RED, hover_color="#cc0000",
+            command=lambda: self._adjust_quantity(item["barcode"], -1)
+        ).grid(row=0, column=0, padx=(0, 6))
+
+        # Quantity display
+        qty_label = ctk.CTkLabel(
+            qty_frame, text=f"{item['quantity']} units",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            text_color=TEXT_PRIMARY
+        )
+        qty_label.grid(row=0, column=1)
+
+        # Plus button
+        ctk.CTkButton(
+            qty_frame, text="+", width=30, height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            fg_color=ACCENT_GREEN, hover_color="#00aa00",
+            command=lambda: self._adjust_quantity(item["barcode"], 1)
+        ).grid(row=0, column=2, padx=(6, 0))
+
+        # Remove button
+        ctk.CTkButton(
+            qty_frame, text="Remove", width=60, height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=9, weight="bold"),
+            fg_color=ACCENT_RED, hover_color="#cc0000",
+            command=lambda: self._remove_item(item["barcode"])
+        ).grid(row=0, column=3, padx=(12, 0))
+
+    def _adjust_quantity(self, barcode, delta):
+        """Adjust item quantity."""
+        item = self.cart.get_item_in_cart(barcode)
+        if item:
+            new_qty = item.quantity + delta
+            success, msg = self.cart.update_quantity(barcode, new_qty)
+            if success:
+                self._update_cart_display()
+            else:
+                Toast.show(self, msg, "error")
+
+    def _remove_item(self, barcode):
+        """Remove item from cart."""
+        success, msg = self.cart.remove_item(barcode)
+        if success:
+            Toast.show(self, msg, "success")
+            self._update_cart_display()
+        else:
+            Toast.show(self, msg, "error")
+
+    def _build_cart_footer(self, parent):
+        """Build cart footer with total."""
+        footer = ctk.CTkFrame(parent, fg_color="transparent")
+        footer.pack(fill="x", pady=(0, 12))
+        footer.grid_columnconfigure(0, weight=1)
+
+        # Total frame
+        total_frame = ctk.CTkFrame(footer, fg_color=BG_ELEVATED, corner_radius=8,
+                                  border_width=1, border_color=BORDER_SUBTLE)
+        total_frame.pack(fill="x", pady=(0, 12))
+        total_frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            total_frame, text="TOTAL",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+            text_color=TEXT_MUTED
+        ).pack(anchor="w", padx=12, pady=(8, 4))
+
+        self.total_label = ctk.CTkLabel(
+            total_frame, text="0 items",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
+            text_color=TEXT_PRIMARY
+        )
+        self.total_label.pack(anchor="w", padx=12, pady=(0, 8))
+
+    def _build_actions(self, parent):
+        """Build action buttons."""
+        button_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        button_frame.pack(fill="x")
+        button_frame.grid_columnconfigure(0, weight=1)
+        button_frame.grid_columnconfigure(1, weight=1)
+
+        # Complete button
+        ctk.CTkButton(
+            button_frame, text="✓ Complete Transaction", height=50,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            fg_color=ACCENT_GREEN, hover_color="#00aa00",
+            text_color="white",
+            command=self._complete_transaction
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+
+        # Cancel button
+        ctk.CTkButton(
+            button_frame, text="✕ Cancel", height=50,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            fg_color=ACCENT_RED, hover_color="#cc0000",
+            text_color="white",
+            command=self._cancel_transaction
+        ).grid(row=0, column=1, sticky="ew", padx=(8, 0))
+
+    def _complete_transaction(self):
+        """Complete the transaction."""
+        if not self.cart.is_transaction_active():
+            Toast.show(self, "No transaction in progress", "warning")
+            return
+
+        summary = self.cart.get_cart_summary()
+        if "error" in summary or not summary.get("items"):
+            Toast.show(self, "Cart is empty. Add items before completing.", "warning")
+            return
+
+        success, msg, data = self.cart.complete_transaction()
+        if success:
+            Toast.show(self, f"✓ Completed: {data['total_units']} units to {data['client_name']}", "success")
+            self._reset_form()
+        else:
+            Toast.show(self, msg, "error")
+
+    def _cancel_transaction(self):
+        """Cancel the transaction."""
+        if not self.cart.is_transaction_active():
+            Toast.show(self, "No transaction in progress", "warning")
+            return
+
+        success, msg = self.cart.cancel_transaction()
+        if success:
+            Toast.show(self, msg, "success")
+            self._reset_form()
+        else:
+            Toast.show(self, msg, "error")
+
+    def _reset_form(self):
+        """Reset form to initial state."""
+        self.client_var.set("Select a client...")
+        self.barcode_var.set("")
+        self._update_cart_display()
+        self.client_combo.focus()
