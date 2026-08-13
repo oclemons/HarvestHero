@@ -19,6 +19,7 @@ from theme import (
     # legacy aliases kept for other modules
     BG_PRIMARY, BG_SECONDARY, BG_CARD,
 )
+from glass_effects import create_glass_button
 
 # (label, icon, page_key, admin_only, staff_visible)
 _NAV_ITEMS = [
@@ -72,8 +73,10 @@ class _NavButton(ctk.CTkFrame):
     def set_active(self, active: bool):
         self._active = active
         if active:
+            # Active state: glass effect with accent color
             self.configure(fg_color=ACCENT_MUTED,
-                           border_width=0)
+                           border_width=1,
+                           border_color=ACCENT)
             self._icon_lbl.configure(text_color=ACCENT)
             self._text_lbl.configure(
                 text_color=ACCENT,
@@ -89,11 +92,16 @@ class _NavButton(ctk.CTkFrame):
 
     def _on_enter(self, _=None):
         if not self._active:
-            self.configure(fg_color=SECONDARY_ACCENT if False else BG_HOVER)
+            # Hover state: subtle glass effect
+            self.configure(fg_color=BG_HOVER,
+                           border_width=1,
+                           border_color=BORDER_SUBTLE)
+            self._icon_lbl.configure(text_color=TEXT_PRIMARY)
 
     def _on_leave(self, _=None):
         if not self._active:
-            self.configure(fg_color="transparent")
+            self.configure(fg_color="transparent", border_width=0)
+            self._icon_lbl.configure(text_color=TEXT_MUTED)
 
     def _click(self, _e=None):
         self._on_click()
@@ -150,13 +158,14 @@ class AppWindow(ctk.CTkFrame):
         sb.grid(row=0, column=0, sticky="nsew")
 
         # ── Bottom: logout + user chip (packed first = anchors to bottom) ──
-        ctk.CTkButton(
+        # Use glass effect button for logout
+        create_glass_button(
             sb, text="⏻  Log Out",
-            height=36, corner_radius=8,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color="transparent", hover_color=BG_HOVER,
-            text_color=TEXT_MUTED, border_width=1, border_color=BORDER_COLOR,
             command=self._logout,
+            fg_color=BG_ELEVATED,
+            hover_color=BG_HOVER,
+            text_color=TEXT_MUTED,
+            border_color=BORDER_COLOR,
         ).pack(side="bottom", fill="x", padx=14, pady=(4, 18))
 
         ctk.CTkLabel(
@@ -165,7 +174,11 @@ class AppWindow(ctk.CTkFrame):
             text_color=TEXT_MUTED,
         ).pack(side="bottom", pady=(0, 4))
 
-        user_chip = ctk.CTkFrame(sb, fg_color=BG_ELEVATED, corner_radius=8)
+        # Glass effect user chip
+        user_chip = ctk.CTkFrame(
+            sb, fg_color=BG_ELEVATED, corner_radius=8,
+            border_width=1, border_color=BORDER_SUBTLE
+        )
         user_chip.pack(side="bottom", fill="x", padx=14, pady=(0, 6))
         role_tag   = "Admin" if self.user["role"] == "admin" else "Staff"
         role_color = ACCENT_GOLD if self.user["role"] == "admin" else ACCENT_GREEN
@@ -197,13 +210,12 @@ class AppWindow(ctk.CTkFrame):
         # Not packed yet — _show_update_badge() calls .pack() when needed.
         self._update_url: str = ""
 
-        # ── Top: logo ──
+        # ── Top: logo with harvest theme ──
         brand = ctk.CTkFrame(sb, fg_color="transparent")
         brand.pack(side="top", fill="x", padx=18, pady=(26, 10))
         ctk.CTkLabel(
-            brand, text="◈",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=22, weight="bold"),
-            text_color=ACCENT_GOLD,
+            brand, text="🌾",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=20),
         ).pack(side="left", padx=(0, 8))
         logo_txt = ctk.CTkFrame(brand, fg_color="transparent")
         logo_txt.pack(side="left")
@@ -213,8 +225,8 @@ class AppWindow(ctk.CTkFrame):
             text_color=TEXT_PRIMARY,
         ).pack(anchor="w")
         ctk.CTkLabel(
-            logo_txt, text="Pantry Intelligence Platform",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=7),
+            logo_txt, text="Pantry Intelligence",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=8),
             text_color=TEXT_MUTED,
         ).pack(anchor="w")
 
