@@ -208,6 +208,7 @@ class ItemDetailDrawer(ctk.CTkToplevel):
             "low": "#fcd34d",
             "normal": "#86efac",
             "overstock": "#a78bfa",
+            "out": "#fca5a5",
             "not_configured": "#9ca3af",
         }
         return status_colors.get(self.status.status, TEXT_SECONDARY)
@@ -328,13 +329,14 @@ class InteractivePantryUI(ctk.CTkFrame):
         # Summary cards
         summary_frame = ctk.CTkFrame(self, fg_color="transparent")
         summary_frame.grid(row=1, column=0, sticky="ew", padx=24, pady=(0, 12))
-        summary_frame.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        summary_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
 
         self.summary_labels = {}
         for idx, (key, label, color) in enumerate([
             ("total_items", "Total Items", TEXT_PRIMARY),
             ("normal_items", "Normal", ACCENT_GREEN),
             ("low_stock_items", "Low Stock", ACCENT_AMBER),
+            ("out_of_stock_items", "Out of Stock", ACCENT_RED),
             ("overstock_items", "Overstock", ACCENT_BLUE),
             ("not_configured", "Not Configured", TEXT_MUTED),
         ]):
@@ -397,6 +399,7 @@ class InteractivePantryUI(ctk.CTkFrame):
             ("total_items", "Total Items"),
             ("normal_items", "Normal"),
             ("low_stock_items", "Low Stock"),
+            ("out_of_stock_items", "Out of Stock"),
             ("overstock_items", "Overstock"),
             ("not_configured", "Not Configured"),
         ]:
@@ -490,6 +493,7 @@ class InteractivePantryUI(ctk.CTkFrame):
             "low": "#fcd34d",
             "normal": "#86efac",
             "overstock": "#a78bfa",
+            "out": "#fca5a5",
             "not_configured": "#9ca3af",
         }
         return colors.get(status, TEXT_SECONDARY)

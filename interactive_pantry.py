@@ -20,12 +20,13 @@ from dataclasses import dataclass
 @dataclass
 class InventoryStatus:
     """Represents the current inventory status of an item."""
-    status: str  # "low", "normal", "overstock", "not_configured"
+    status: str  # "low", "normal", "overstock", "out", "not_configured"
     quantity: int
     low_threshold: int
     overstock_threshold: int
     is_low: bool
     is_overstock: bool
+    is_out: bool
     is_configured: bool
 
 
@@ -39,7 +40,8 @@ class InteractivePantry:
         """Calculate the inventory status of an item.
         
         Status determination:
-        - "not_configured": quantity not set (None or -1)
+        - "not_configured": quantity not set (None or negative)
+        - "out": quantity == 0
         - "low": 0 < quantity <= low_threshold
         - "overstock": quantity > overstock_threshold (if threshold set)
         - "normal": all other cases
@@ -57,10 +59,25 @@ class InteractivePantry:
                 overstock_threshold=over_thresh,
                 is_low=False,
                 is_overstock=False,
+                is_out=False,
                 is_configured=False,
             )
 
         qty = int(qty)
+
+        # Out of stock: quantity is zero
+        if qty == 0:
+            return InventoryStatus(
+                status="out",
+                quantity=0,
+                low_threshold=low_thresh,
+                overstock_threshold=over_thresh,
+                is_low=False,
+                is_overstock=False,
+                is_out=True,
+                is_configured=True,
+            )
+
         is_low = (0 < qty <= low_thresh) if low_thresh > 0 else False
         is_overstock = (qty > over_thresh) if over_thresh > 0 else False
 
@@ -78,6 +95,7 @@ class InteractivePantry:
             overstock_threshold=over_thresh,
             is_low=is_low,
             is_overstock=is_overstock,
+            is_out=False,
             is_configured=True,
         )
 
@@ -241,6 +259,7 @@ class InteractivePantry:
                 "low_stock_items": int,
                 "normal_items": int,
                 "overstock_items": int,
+                "out_of_stock_items": int,
                 "not_configured": int,
                 "sections": int,
             }
@@ -254,12 +273,15 @@ class InteractivePantry:
             low_count = 0
             normal_count = 0
             overstock_count = 0
+            out_count = 0
             not_configured_count = 0
             
             for item in items:
                 status = self.get_item_status(item)
                 if status.status == "not_configured":
                     not_configured_count += 1
+                elif status.status == "out":
+                    out_count += 1
                 elif status.status == "low":
                     low_count += 1
                 elif status.status == "overstock":
@@ -282,6 +304,7 @@ class InteractivePantry:
                 "low_stock_items": low_count,
                 "normal_items": normal_count,
                 "overstock_items": overstock_count,
+                "out_of_stock_items": out_count,
                 "not_configured": not_configured_count,
                 "sections": len(sections),
             }
@@ -292,6 +315,7 @@ class InteractivePantry:
                 "low_stock_items": 0,
                 "normal_items": 0,
                 "overstock_items": 0,
+                "out_of_stock_items": 0,
                 "not_configured": 0,
                 "sections": 0,
             }
