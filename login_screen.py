@@ -249,7 +249,7 @@ class LoginScreen(ctk.CTkFrame):
         card.pack()
 
         inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(padx=34, pady=(30, 24))
+        inner.pack(padx=34, pady=(30, 36))
 
         self._build_header(inner)
         self._build_form(inner)
