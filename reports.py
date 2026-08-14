@@ -238,7 +238,7 @@ class Reports(ctk.CTkFrame):
         self._setup_cols(hdrs, widths)
         
         try:
-            conn = self.db.conn
+            conn = self.db._connect()
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT pv.visit_date, pc.first_name || ' ' || pc.last_name as client_name,
@@ -248,6 +248,7 @@ class Reports(ctk.CTkFrame):
                 ORDER BY pv.visit_date DESC
             """)
             rows = cursor.fetchall()
+            conn.close()
             
             data = [(r[0], r[1], f"{r[2]:.2f} lbs" if r[2] else "—", r[3] or "—", r[4] or "—")
                     for r in rows]

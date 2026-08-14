@@ -138,7 +138,8 @@ class AdvancedReportsDialog(ctk.CTkToplevel):
 
         try:
             # Get weight data
-            cursor = self.db.conn.cursor()
+            conn = self.db._connect()
+            cursor = conn.cursor()
             cursor.execute("""
                 SELECT i.id, i.item_name, i.category, i.storage_location,
                        i.current_quantity, wh.current_pounds, wh.donated_pounds,
@@ -150,6 +151,7 @@ class AdvancedReportsDialog(ctk.CTkToplevel):
             """, (month,))
 
             rows = cursor.fetchall()
+            conn.close()
             data = []
 
             for row in rows:

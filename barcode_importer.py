@@ -209,12 +209,13 @@ class BarcodeImporterDialog(ctk.CTkToplevel):
                     existing = self.db.get_item_by_barcode(barcode)
                     if existing:
                         # Update existing item
-                        cursor = self.db.conn.cursor()
-                        cursor.execute(
+                        conn = self.db._connect()
+                        conn.execute(
                             "UPDATE inventory_items SET barcode_out = ? WHERE barcode = ?",
                             (barcode_out, barcode)
                         )
-                        self.db.conn.commit()
+                        conn.commit()
+                        conn.close()
                         updated += 1
                     else:
                         # Create new item with barcode
