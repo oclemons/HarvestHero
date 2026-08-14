@@ -250,6 +250,8 @@ class ShelfManagerDialog(ctk.CTkToplevel):
             # Create a placeholder item to establish the shelf in the system
             try:
                 placeholder_barcode = f"SHELF_{section.replace(' ', '_')}_{shelf.replace(' ', '_')}"
+                print(f"[DEBUG] Creating shelf marker with barcode: {placeholder_barcode}")
+                
                 ok, msg = self.db.add_item(
                     barcode=placeholder_barcode,
                     item_name=f"[Shelf Marker] {storage_location}",
@@ -260,8 +262,11 @@ class ShelfManagerDialog(ctk.CTkToplevel):
                     barcode_out=""
                 )
                 
+                print(f"[DEBUG] add_item returned: ok={ok}, msg={msg}")
+                
                 if ok:
                     # Update the placeholder item with the storage location
+                    print(f"[DEBUG] Updating storage location to: {storage_location}")
                     conn = self.db._connect()
                     conn.execute(
                         "UPDATE inventory_items SET storage_location = ? WHERE barcode = ?",
@@ -269,13 +274,18 @@ class ShelfManagerDialog(ctk.CTkToplevel):
                     )
                     conn.commit()
                     conn.close()
+                    print(f"[DEBUG] Shelf created successfully")
                     
                     messagebox.showinfo("Success", f"Shelf '{shelf}' added to {section}.\nYou can now add items to this shelf.")
                     add_dialog.destroy()
                     self._load_shelves()
                 else:
+                    print(f"[DEBUG] add_item failed: {msg}")
                     messagebox.showerror("Error", f"Failed to create shelf: {msg}")
             except Exception as e:
+                print(f"[DEBUG] Exception: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 messagebox.showerror("Error", f"Error creating shelf: {str(e)}")
 
         ctk.CTkButton(
