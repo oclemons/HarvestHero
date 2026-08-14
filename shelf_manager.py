@@ -251,31 +251,24 @@ class ShelfManagerDialog(ctk.CTkToplevel):
             try:
                 placeholder_barcode = f"SHELF_{section.replace(' ', '_')}_{shelf.replace(' ', '_')}"
                 print(f"[DEBUG] Creating shelf marker with barcode: {placeholder_barcode}")
+                print(f"[DEBUG] Storage location: {storage_location}")
                 
+                # Pass storage_location directly to add_item
                 ok, msg = self.db.add_item(
                     barcode=placeholder_barcode,
                     item_name=f"[Shelf Marker] {storage_location}",
                     category="System",
                     quantity=0,
-                    min_stock=0,
+                    minimum_stock=0,
                     notes="This is a shelf marker item. Do not distribute.",
-                    barcode_out=""
+                    barcode_out="",
+                    storage_location=storage_location  # Pass it here!
                 )
                 
                 print(f"[DEBUG] add_item returned: ok={ok}, msg={msg}")
                 
                 if ok:
-                    # Update the placeholder item with the storage location
-                    print(f"[DEBUG] Updating storage location to: {storage_location}")
-                    conn = self.db._connect()
-                    conn.execute(
-                        "UPDATE inventory_items SET storage_location = ? WHERE barcode = ?",
-                        (storage_location, placeholder_barcode)
-                    )
-                    conn.commit()
-                    conn.close()
                     print(f"[DEBUG] Shelf created successfully")
-                    
                     messagebox.showinfo("Success", f"Shelf '{shelf}' added to {section}.\nYou can now add items to this shelf.")
                     add_dialog.destroy()
                     self._load_shelves()
