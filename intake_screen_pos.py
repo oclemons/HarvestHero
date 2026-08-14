@@ -123,7 +123,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
     def _refresh_client_list(self):
         """Refresh the client dropdown list."""
         try:
-            clients = self.db.get_all_clients() or []
+            clients = self.db.get_all_pantry_clients() or []
             self.clients_data = clients
             
             # Build client names list
@@ -135,7 +135,8 @@ class IntakeScreenPOS(ctk.CTkFrame):
             
             # Reset selection
             self.client_var.set("Select a client...")
-            self.cart.cancel_transaction()
+            if self.cart.is_transaction_active():
+                self.cart.cancel_transaction()
             self._update_cart_display()
         except Exception as e:
             print(f"Error refreshing clients: {e}")
