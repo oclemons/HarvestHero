@@ -133,13 +133,10 @@ class IntakeScreenPOS(ctk.CTkFrame):
         
         # Only reset if actually switching modes
         if current_type != trans_type:
-            print(f"DEBUG: Switching from {current_type} to {trans_type}")
             # Clear cart and client when switching modes
             self.client_search_var.set("")
             self.cart.cancel_transaction()
             self._update_cart_display()
-        else:
-            print(f"DEBUG: Already in {trans_type} mode, not resetting")
         
         self.transaction_type.set(trans_type)
         
@@ -265,12 +262,10 @@ class IntakeScreenPOS(ctk.CTkFrame):
         self.client_buttons = []
 
         search_text = self.client_search_var.get().lower().strip()
-        print(f"DEBUG: _update_client_dropdown called with search_text='{search_text}'")
 
         # If no search text, show all clients
         if not search_text:
             filtered = self.clients_data
-            print(f"DEBUG: No search text, showing all {len(self.clients_data)} clients")
         else:
             # Filter clients based on search
             filtered = []
@@ -286,11 +281,9 @@ class IntakeScreenPOS(ctk.CTkFrame):
                     search_text in full_name or 
                     search_text in student_id):
                     filtered.append(client)
-            print(f"DEBUG: Found {len(filtered)} matching clients")
 
         # Show message if no results
         if not filtered:
-            print(f"DEBUG: No clients found, showing message")
             msg_label = ctk.CTkLabel(
                 self.client_dropdown_frame,
                 text="No clients found",
@@ -302,7 +295,6 @@ class IntakeScreenPOS(ctk.CTkFrame):
             return
 
         # Create buttons for each client
-        print(f"DEBUG: Creating {len(filtered[:20])} client buttons")
         for client in filtered[:20]:  # Limit to 20 results
             first_name = client.get('first_name', '').strip()
             last_name = client.get('last_name', '').strip()
@@ -314,12 +306,10 @@ class IntakeScreenPOS(ctk.CTkFrame):
             if student_id:
                 btn_text += f" ({student_id})"
 
-            print(f"DEBUG: Creating button for client: {btn_text} (ID: {client_id})")
             
             def make_click_handler(c):
                 """Create a click handler that logs when clicked."""
                 def handler():
-                    print(f"DEBUG: CLIENT BUTTON CLICKED: {c.get('first_name')} {c.get('last_name')}")
                     self._select_client(c)
                 return handler
             
@@ -336,31 +326,25 @@ class IntakeScreenPOS(ctk.CTkFrame):
             )
             btn.pack(fill="x", padx=8, pady=4)
             self.client_buttons.append(btn)
-            print(f"DEBUG: Button created and packed")
 
     def _select_client(self, client):
         """Select a client from the dropdown."""
         client_id = client.get('id')
         client_name = f"{client.get('first_name', '')} {client.get('last_name', '')}"
 
-        print(f"DEBUG: Selecting client: {client_name} (ID: {client_id})")
         
         # Cancel any existing transaction first
         if self.cart.is_transaction_active():
-            print(f"DEBUG: Cancelling existing transaction before starting new one")
             self.cart.cancel_transaction()
         
         success, msg = self.cart.start_transaction(client_id, client_name)
-        print(f"DEBUG: start_transaction result: success={success}, msg={msg}")
         
         if success:
-            print(f"DEBUG: Transaction started successfully")
             Toast.show(self, msg, "success")
             self.client_search_var.set(client_name)
             self._update_cart_display()
             self.barcode_entry.focus()
         else:
-            print(f"DEBUG: Transaction failed: {msg}")
             Toast.show(self, msg, "error")
 
     def _build_barcode_input(self, parent):
@@ -424,31 +408,25 @@ class IntakeScreenPOS(ctk.CTkFrame):
     def _on_barcode_scanned(self):
         """Handle barcode scan (Enter pressed)."""
         trans_type = self.transaction_type.get()
-        print(f"DEBUG: Barcode scan - trans_type={trans_type}")
         
         # For SCAN OUT, require client selection
         if trans_type == "OUT":
             is_active = self.cart.is_transaction_active()
-            print(f"DEBUG: SCAN OUT mode - transaction active: {is_active}")
             if not is_active:
-                print(f"DEBUG: No transaction active, showing warning")
                 Toast.show(self, "Please select a client first", "warning")
                 self.barcode_entry.delete(0, "end")
                 return
         else:  # SCAN IN
             # For SCAN IN, start transaction if not already active
             if not self.cart.is_transaction_active():
-                print(f"DEBUG: SCAN IN mode - starting transaction")
                 self.cart.start_transaction(0, "Receiving Items")
 
         barcode = self.barcode_var.get().strip().upper()  # Normalize to uppercase
-        print(f"DEBUG: Looking up barcode: {barcode}")
         if not barcode:
             return
 
         try:
             item = self.db.get_item_by_barcode(barcode)
-            print(f"DEBUG: Barcode lookup result: {item}")
             if not item:
                 Toast.show(self, f"Item not found: {barcode}", "error")
                 self.barcode_entry.delete(0, "end")
