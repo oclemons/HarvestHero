@@ -400,7 +400,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
             if not self.cart.is_transaction_active():
                 self.cart.start_transaction(0, "Receiving Items")
 
-        barcode = self.barcode_var.get().strip()
+        barcode = self.barcode_var.get().strip().upper()  # Normalize to uppercase
         if not barcode:
             return
 
