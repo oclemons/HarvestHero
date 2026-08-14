@@ -82,9 +82,18 @@ class IntakeScreenPOS(ctk.CTkFrame):
         frame.pack(fill="x", pady=(0, 16))
         frame.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(frame, text="CLIENT",
+        # Header with label and help text
+        header = ctk.CTkFrame(frame, fg_color="transparent")
+        header.pack(fill="x", padx=16, pady=(12, 8))
+        header.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(header, text="CLIENT",
                     font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
-                    text_color=TEXT_MUTED).pack(anchor="w", padx=16, pady=(12, 4))
+                    text_color=TEXT_MUTED).pack(anchor="w", side="left")
+
+        ctk.CTkLabel(header, text="Search by name or student ID",
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=9),
+                    text_color=TEXT_MUTED).pack(anchor="e", side="right")
 
         # Search/input frame
         input_frame = ctk.CTkFrame(frame, fg_color="transparent")
@@ -97,7 +106,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
         self.client_entry = ctk.CTkEntry(
             input_frame,
             textvariable=self.client_search_var,
-            placeholder_text="Search or select client...",
+            placeholder_text="Type name or student ID...",
             height=44,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=BG_OVERLAY,
@@ -108,6 +117,15 @@ class IntakeScreenPOS(ctk.CTkFrame):
             corner_radius=8,
         )
         self.client_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.client_entry.bind("<Escape>", lambda e: self.client_search_var.set(""))
+
+        # Clear button
+        ctk.CTkButton(
+            input_frame, text="✕", width=40, height=44,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            fg_color=ACCENT_RED, hover_color="#cc0000",
+            command=lambda: self.client_search_var.set("")
+        ).grid(row=0, column=1, padx=(0, 8))
 
         # Refresh button
         ctk.CTkButton(
@@ -115,7 +133,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             fg_color=ACCENT, hover_color="#FF9500",
             command=self._refresh_client_list
-        ).grid(row=0, column=1)
+        ).grid(row=0, column=2)
 
         # Dropdown frame (scrollable list)
         self.client_dropdown_frame = ctk.CTkScrollableFrame(
@@ -155,30 +173,45 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
         search_text = self.client_search_var.get().lower().strip()
 
-        # Filter clients based on search
-        filtered = []
-        for client in self.clients_data:
-            first = client.get('first_name', '').lower()
-            last = client.get('last_name', '').lower()
-            student_id = client.get('student_id', '').lower()
-            
-            if not search_text or search_text in first or search_text in last or search_text in student_id:
-                filtered.append(client)
+        # If no search text, show all clients
+        if not search_text:
+            filtered = self.clients_data
+        else:
+            # Filter clients based on search
+            filtered = []
+            for client in self.clients_data:
+                first = client.get('first_name', '').lower()
+                last = client.get('last_name', '').lower()
+                full_name = f"{first} {last}".strip()
+                student_id = client.get('student_id', '').lower()
+                
+                # Check if search text matches any field
+                if (search_text in first or 
+                    search_text in last or 
+                    search_text in full_name or 
+                    search_text in student_id):
+                    filtered.append(client)
 
         # Show message if no results
         if not filtered:
-            ctk.CTkLabel(
+            msg_label = ctk.CTkLabel(
                 self.client_dropdown_frame,
                 text="No clients found",
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                 text_color=TEXT_MUTED
-            ).pack(pady=8)
+            )
+            msg_label.pack(pady=8)
+            self.client_buttons.append(msg_label)
             return
 
         # Create buttons for each client
         for client in filtered[:20]:  # Limit to 20 results
-            btn_text = f"{client.get('first_name', '')} {client.get('last_name', '')}"
-            student_id = client.get('student_id', '')
+            first_name = client.get('first_name', '').strip()
+            last_name = client.get('last_name', '').strip()
+            student_id = client.get('student_id', '').strip()
+            
+            # Build display text
+            btn_text = f"{first_name} {last_name}".strip()
             if student_id:
                 btn_text += f" ({student_id})"
 
