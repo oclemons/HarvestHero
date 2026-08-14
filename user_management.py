@@ -600,21 +600,17 @@ class UserManagement(ctk.CTkFrame):
         u = self._selected_user()
         if not u:
             return
-        dlg = ctk.CTkInputDialog(
-            text=f"New password for '{u['username']}'  (min 6 chars):",
-            title="Reset Password",
+        # Use the new password reset dialog
+        from password_reset_dialog import AdminPasswordResetDialog
+        dlg = AdminPasswordResetDialog(
+            self.winfo_toplevel(),
+            self.db,
+            u["username"],
+            on_reset=self._load
         )
-        new_pass = dlg.get_input()
-        if new_pass is None:
-            return
-        from auth import validate_password_strength
-        ok, msg = validate_password_strength(new_pass)
-        if not ok:
-            Toast.show(self, msg, kind="warning")
-            return
-        ph, salt = hash_password(new_pass)
-        self.db.update_user_password(u["id"], ph, salt)
-        Toast.show(self, f"Password reset for '{u['username']}'.", kind="success")
+        dlg.wait_window()
+        # Reload after reset
+        self._load()
 
     def _delete_user(self):
         u = self._selected_user()

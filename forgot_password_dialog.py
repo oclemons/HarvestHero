@@ -53,7 +53,8 @@ class ForgotPasswordDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             inner,
-            text="An admin must authorize this reset.",
+            text="An admin must authorize this reset.\n"
+                 "Contact your administrator for password reset.",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=TEXT_MUTED, anchor="w",
         ).grid(row=1, column=0, sticky="w", pady=(4, 20))
