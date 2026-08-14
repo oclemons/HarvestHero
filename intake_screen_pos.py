@@ -316,16 +316,23 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
             print(f"DEBUG: Creating button for client: {btn_text} (ID: {client_id})")
             
+            def make_click_handler(c):
+                """Create a click handler that logs when clicked."""
+                def handler():
+                    print(f"DEBUG: CLIENT BUTTON CLICKED: {c.get('first_name')} {c.get('last_name')}")
+                    self._select_client(c)
+                return handler
+            
             btn = ctk.CTkButton(
                 self.client_dropdown_frame,
                 text=btn_text,
                 height=36,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
                 fg_color=BG_ELEVATED,
-                hover_color=BG_HOVER,
+                hover_color=ACCENT,  # More visible hover color
                 text_color=TEXT_PRIMARY,
                 anchor="w",
-                command=lambda c=client: self._select_client(c)
+                command=make_click_handler(client)
             )
             btn.pack(fill="x", padx=8, pady=4)
             self.client_buttons.append(btn)
