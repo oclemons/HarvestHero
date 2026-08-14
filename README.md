@@ -5,17 +5,37 @@ No internet connection required. All data is stored in `data/inventory.db` on th
 
 ---
 
+## 🚀 Quick Download & Install
+
+### For Windows Users (Easiest)
+1. **Download**: https://github.com/oclemons/HarvestHero/releases
+2. Download the latest `.exe` file
+3. Double-click to run
+4. **Done!** No installation needed.
+
+### For Mac/Linux Users
+1. **Download**: https://github.com/oclemons/HarvestHero/releases
+2. Download the source code ZIP
+3. Extract and follow "Quick Start" below
+
+**📖 Full Installation Guide**: See [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md)
+
+---
+
 ## Table of Contents
 
-1. [Requirements](#requirements)
-2. [Quick Start](#quick-start)
-3. [Default Login](#default-login)
-4. [Using a USB Barcode Scanner](#using-a-usb-barcode-scanner)
-5. [Feature Guide](#feature-guide)
-6. [Packaging into a Windows .exe](#packaging-into-a-windows-exe)
-7. [Sending the App to Someone](#sending-the-app-to-someone)
-8. [File Structure](#file-structure)
-9. [Troubleshooting](#troubleshooting)
+1. [Quick Download & Install](#-quick-download--install)
+2. [Requirements](#requirements)
+3. [Quick Start](#quick-start)
+4. [Default Login](#default-login)
+5. [Automatic Updates](#automatic-updates)
+6. [Using a USB Barcode Scanner](#using-a-usb-barcode-scanner)
+7. [Feature Guide](#feature-guide)
+8. [Packaging into a Windows .exe](#packaging-into-a-windows-exe)
+9. [Sending the App to Someone](#sending-the-app-to-someone)
+10. [File Structure](#file-structure)
+11. [Troubleshooting](#troubleshooting)
+12. [Documentation](#documentation)
 
 ---
 
@@ -61,6 +81,23 @@ python main.py
 **Change this password immediately** after your first login via *Manage Users → Reset Password*.
 
 Passwords are hashed with PBKDF2-HMAC-SHA256 and are never stored in plain text.
+
+---
+
+## Automatic Updates
+
+The app automatically checks for updates on startup:
+
+1. **Check**: App connects to GitHub and checks for new releases
+2. **Notify**: If update available, notification dialog appears
+3. **Install**: User clicks "Install Update"
+4. **Download**: Files download with progress bar
+5. **Apply**: Files extracted and installed
+6. **Restart**: App restarts automatically with new version
+
+**No manual intervention needed!** Updates are completely automatic.
+
+See [UPDATE_SYSTEM.md](UPDATE_SYSTEM.md) for technical details.
 
 ---
 
@@ -252,6 +289,36 @@ inventory_tracker/
 ### The .exe can't find the database / crashes on startup
 - Make sure `inventory.db` is in the **same folder** as the `.exe`.
 - Do not move the `.exe` without also moving `inventory.db`.
+
+---
+
+## 📚 Documentation
+
+### For Users
+- **[QUICK_START.md](QUICK_START.md)** - 30-second setup and first steps
+- **[INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md)** - Detailed installation for all platforms
+- **[UPDATE_SYSTEM.md](UPDATE_SYSTEM.md)** - How automatic updates work
+
+### For Developers
+- **[PHASE_8_IMPLEMENTATION_SUMMARY.md](PHASE_8_IMPLEMENTATION_SUMMARY.md)** - Weight tracking system
+- **[PHASE_9_UPDATE_SYSTEM_SUMMARY.md](PHASE_9_UPDATE_SYSTEM_SUMMARY.md)** - Update system implementation
+
+### Getting Help
+1. Check the relevant documentation above
+2. Search [GitHub Issues](https://github.com/oclemons/HarvestHero/issues)
+3. Create a new issue with details about your problem
+
+---
+
+## 🔄 Automatic Updates
+
+The app automatically checks for updates on startup. If a new version is available:
+1. A notification appears
+2. Click "Install Update"
+3. Download and installation happen automatically
+4. App restarts with new version
+
+See [UPDATE_SYSTEM.md](UPDATE_SYSTEM.md) for details.
 
 ---
 

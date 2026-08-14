@@ -1,185 +1,306 @@
 # Harvest Hero - Quick Start Guide
 
-**Status:** ✅ READY TO RUN
+## 30-Second Setup
+
+### Windows Users (Easiest)
+
+1. **Download**: https://github.com/oclemons/HarvestHero/releases
+2. **Download** the latest `.exe` file
+3. **Double-click** to run
+4. **Login** with `admin` / (password shown)
+5. **Done!** 🎉
+
+### Mac/Linux Users
+
+1. **Download**: https://github.com/oclemons/HarvestHero/releases
+2. **Download** the source code ZIP
+3. **Extract** the ZIP file
+4. **Open Terminal** in the folder
+5. **Run**: `pip install -r requirements.txt && python main.py`
+6. **Login** with `admin` / (password shown)
+7. **Done!** 🎉
 
 ---
 
-## 🚀 **START THE APPLICATION**
+## First Login
 
-### **macOS/Linux:**
-```bash
-cd /Users/octayviaclemons/CascadeProjects/inventory_tracker
-python main.py
+```
+Username: admin
+Password: (shown in popup on first launch)
 ```
 
-### **Windows:**
-```bash
-cd C:\Users\octayviaclemons\CascadeProjects\inventory_tracker
-python main.py
-```
-
-Or use the batch file:
-```bash
-run.bat
-```
+**IMPORTANT**: Change this password immediately!
 
 ---
 
-## ✅ **WHAT'S BEEN FIXED**
+## First Steps
 
-### **Import Error Fixed** ✅
-- Fixed: `ImportError: cannot import name 'create_hero_mirror_card'`
-- Solution: Removed incorrect import, kept GlassEffectManager
-- Status: Application now starts successfully
+### 1. Change Admin Password
+- Click **Admin** → **User Management**
+- Click **Edit** on admin user
+- Enter new password
+- Click **Save**
 
-### **All Critical Issues Fixed** ✅
-- ✅ Visual design insufficient → Dramatic transformation
-- ✅ Glass effects minimal → Premium 3-level system
-- ✅ Conversational AI incomplete → Multi-turn support
-- ✅ Virtual Pantry not immersive → Visual redesign
-- ✅ Themes are color-swaps → Distinct environments
+### 2. Create Staff Accounts
+- Click **Admin** → **User Management**
+- Click **+ Add User**
+- Enter username and password
+- Select role: **Staff** (for intake workers)
+- Click **Create User**
 
-### **All Improvement Areas Enhanced** ✅
-- ✅ Virtual Pantry (visual immersion)
-- ✅ OpenAI Integration (conversational features)
-- ✅ Theme System (distinct environments)
-- ✅ Glass Effects (premium appearance)
-- ✅ Animations (framework in place)
-- ✅ Navigation UI (harvest-themed)
-- ✅ Dashboard (harvest-themed)
-- ✅ Login Screen (immersive)
-- ✅ Settings (enhanced UI)
-- ✅ Accessibility (UI controls)
+### 3. Set Organization Name
+- Click **Settings**
+- Enter your organization name
+- Click **Save**
 
----
+### 4. Add Inventory Items
+- Click **Inventory**
+- Click **+ Add Item**
+- Enter item details
+- Click **Add Item**
 
-## 📊 **WHAT YOU'LL SEE**
-
-### **Login Screen**
-- Immersive farm background
-- Level 3 Hero Mirror glass effect
-- Professional appearance
-- Responsive layout
-
-### **Dashboard**
-- Harvest-themed design
-- Glass effects throughout
-- Professional styling
-- Clear visual hierarchy
-
-### **Navigation**
-- Enhanced with glass effects
-- Better visual feedback
-- Harvest-themed styling
-- Responsive layout
-
-### **Virtual Pantry**
-- Graphical shelf visualization
-- Item cards with status indicators
-- Color-coded status
-- Search and filtering
-
-### **Settings**
-- Visual theme selection
-- Accessibility controls
-- Animation settings
-- Notification preferences
-
-### **AI Assistant**
-- Multi-turn conversations
-- Suggested prompts
-- Professional interface
-- Context-aware responses
+### 5. Start Using!
+- Click **Intake** to scan items
+- Click **Inventory** to manage stock
+- Click **Reports** for analytics
 
 ---
 
-## 🌾 **AVAILABLE THEMES**
+## Key Features
 
-1. **Harvest Day** - Bright daytime farm (default)
-2. **Autumn Harvest** - Fall farm with pumpkins
-3. **Orchard Bloom** - Orchard and garden
-4. **Moonlit Farm** - Night farm (dark theme)
-5. **Cozy Pantry** - Indoor wooden pantry
-6. **Farmers Market** - Community market
-7. **Garden Morning** - Garden beds
+### 📊 Dashboard
+- Overview of inventory status
+- Quick statistics
+- Recent activity
 
-Change themes in Settings → Theme
+### 📥 Intake
+- Scan items in/out
+- Track donations
+- Record client visits
 
----
+### 📦 Inventory
+- Manage all items
+- Edit quantities
+- Track storage locations
+- Manage barcodes
 
-## 📁 **KEY FILES**
+### 👥 Clients
+- Register pantry clients
+- Track visits
+- Record distribution
 
-### **Enhanced Files**
-- `login_screen.py` - Immersive login with glass effects
-- `app_window.py` - Enhanced navigation
-- `ai_assistant_enhanced.py` - Premium AI interface
+### 📋 Shopping List
+- Auto-populated from low stock
+- Manual additions
+- Export for ordering
 
-### **New Visual Files**
-- `glass_effects_premium.py` - 3-level glass effects
-- `theme_environments.py` - Theme definitions
-- `theme_visual_environments.py` - Visual rendering
-- `interactive_pantry_ui_enhanced.py` - Visual pantry
+### ⚖️ Weights
+- Track pounds in/out
+- Monthly reports
+- Export data
 
-### **New AI Files**
-- `ai_conversation_manager.py` - Multi-turn conversations
+### 📊 Reports
+- Customizable reports
+- Multiple export formats
+- Historical data
 
-### **New Settings Files**
-- `settings_ui_enhanced.py` - Enhanced settings UI
-
----
-
-## 🔧 **TROUBLESHOOTING**
-
-### **If the application won't start:**
-
-1. **Check Python version:**
-   ```bash
-   python --version
-   ```
-   (Requires Python 3.8+)
-
-2. **Check dependencies:**
-   ```bash
-   pip install customtkinter pillow requests
-   ```
-
-3. **Check imports:**
-   ```bash
-   python -c "from login_screen import LoginScreen; print('OK')"
-   ```
-
-4. **Check database:**
-   - The app will create a database on first run
-   - No setup required
+### ⚙️ Settings
+- Organization info
+- Appearance
+- Backup & export
+- Advanced settings
 
 ---
 
-## 📖 **DOCUMENTATION**
+## Common Tasks
 
-For detailed information, see:
-- `REDESIGN_COMPLETE.md` - Complete redesign overview
-- `CRITICAL_FIXES_COMPLETE.md` - All fixes applied
-- `PHASE_7_TESTING_VERIFICATION.md` - Testing details
-- `COMPREHENSIVE_AUDIT_REPORT.md` - Full audit
+### Add an Item
+
+1. Click **Inventory**
+2. Click **+ Add Item**
+3. Enter:
+   - Scan-In Barcode
+   - Item Name
+   - Category
+   - Starting Quantity
+   - Minimum Stock
+4. Click **Add Item**
+
+### Scan Items In
+
+1. Click **Intake**
+2. Scan barcode (or type manually)
+3. Enter quantity
+4. Click **Add to Cart**
+5. Repeat for more items
+6. Click **Complete Transaction**
+
+### Scan Items Out (Distribution)
+
+1. Click **Intake**
+2. Select **SCAN_OUT** mode
+3. Select client
+4. Scan items
+5. Enter total pounds (optional)
+6. Click **Complete Transaction**
+
+### Generate Report
+
+1. Click **Reports**
+2. Select report type
+3. Click **Export CSV** or **Export Excel**
+4. Save file
+
+### Update Weights
+
+1. Click **Weights**
+2. Select item
+3. Click **Edit**
+4. Enter current, donated, discarded pounds
+5. Click **Save**
+
+### Backup Data
+
+1. Click **Settings**
+2. Click **Backup Database Now**
+3. Save file to safe location
 
 ---
 
-## ✅ **VERIFICATION**
+## User Roles
 
-All updates are:
-- ✅ Committed to GitHub
-- ✅ Pushed to main branch
-- ✅ Tested and verified
-- ✅ Ready to run
-- ✅ Fully documented
+### Admin
+- Full access to all features
+- Manage users
+- Edit inventory
+- View all reports
+- Configure settings
+
+### Staff
+- Scan items in only
+- View intake workspace
+- No access to:
+  - Inventory editing
+  - Client information
+  - Transaction history
+  - Settings
 
 ---
 
-## 🎉 **YOU'RE READY TO GO!**
+## Keyboard Shortcuts
 
-```bash
-python main.py
-```
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Q` | Quit app |
+| `Ctrl+S` | Save |
+| `Ctrl+Z` | Undo |
+| `Ctrl+F` | Search |
+| `Enter` | Submit form |
+| `Esc` | Cancel/Close |
 
-Enjoy your redesigned Harvest Hero application! 🌾
+---
 
+## Tips & Tricks
+
+### � Barcode Scanning
+- Use USB barcode scanner
+- Or type manually
+- Supports Code 128 format
+
+### 💡 Keyboard Navigation
+- Use Tab to move between fields
+- Use Enter to submit
+- Use Esc to cancel
+
+### 💡 Bulk Operations
+- Use Bulk Import for barcodes
+- Use CSV import for inventory
+- Use Shelf Manager for locations
+
+### 💡 Auto-Updates
+- App checks for updates on startup
+- Click "Install Update" when prompted
+- App restarts automatically
+
+### 💡 Data Backup
+- Backup daily
+- Store in multiple locations
+- Test restore occasionally
+
+---
+
+## Troubleshooting
+
+### App Won't Start
+- Try running as administrator
+- Restart computer
+- Check antivirus isn't blocking
+
+### Can't Login
+- Check username/password
+- Reset password in Settings
+- Check database permissions
+
+### Barcode Won't Scan
+- Check barcode format
+- Verify barcode in database
+- Try typing manually
+
+### Data Not Saving
+- Check disk space
+- Check folder permissions
+- Restart app
+
+### Update Won't Install
+- Check internet connection
+- Check disk space
+- Try manual download
+
+---
+
+## Getting Help
+
+### Documentation
+- **Installation**: INSTALLATION_GUIDE.md
+- **Updates**: UPDATE_SYSTEM.md
+- **Features**: README.md
+
+### Online Resources
+- GitHub: https://github.com/oclemons/HarvestHero
+- Issues: https://github.com/oclemons/HarvestHero/issues
+
+### Contact Support
+- Email: (your email)
+- Phone: (your phone)
+- Hours: (your hours)
+
+---
+
+## Next Steps
+
+1. ✅ Download and install
+2. ✅ Change admin password
+3. ✅ Create user accounts
+4. ✅ Add inventory items
+5. ✅ Start scanning
+6. ✅ Generate reports
+7. ✅ Backup data regularly
+
+---
+
+## Video Tutorials (Coming Soon)
+
+- Installation
+- First-time setup
+- Scanning items
+- Managing inventory
+- Generating reports
+- Backup & recovery
+
+---
+
+**Ready to get started?** Download now: https://github.com/oclemons/HarvestHero/releases
+
+**Questions?** Check INSTALLATION_GUIDE.md or contact support.
+
+**Last Updated**: 2024-01-20
