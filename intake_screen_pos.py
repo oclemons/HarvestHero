@@ -318,13 +318,19 @@ class IntakeScreenPOS(ctk.CTkFrame):
         client_id = client.get('id')
         client_name = f"{client.get('first_name', '')} {client.get('last_name', '')}"
 
+        print(f"DEBUG: Selecting client: {client_name} (ID: {client_id})")
+        
         success, msg = self.cart.start_transaction(client_id, client_name)
+        print(f"DEBUG: start_transaction result: success={success}, msg={msg}")
+        
         if success:
+            print(f"DEBUG: Transaction started successfully")
             Toast.show(self, msg, "success")
             self.client_search_var.set(client_name)
             self._update_cart_display()
             self.barcode_entry.focus()
         else:
+            print(f"DEBUG: Transaction failed: {msg}")
             Toast.show(self, msg, "error")
 
     def _build_barcode_input(self, parent):
@@ -388,24 +394,31 @@ class IntakeScreenPOS(ctk.CTkFrame):
     def _on_barcode_scanned(self):
         """Handle barcode scan (Enter pressed)."""
         trans_type = self.transaction_type.get()
+        print(f"DEBUG: Barcode scan - trans_type={trans_type}")
         
         # For SCAN OUT, require client selection
         if trans_type == "OUT":
-            if not self.cart.is_transaction_active():
+            is_active = self.cart.is_transaction_active()
+            print(f"DEBUG: SCAN OUT mode - transaction active: {is_active}")
+            if not is_active:
+                print(f"DEBUG: No transaction active, showing warning")
                 Toast.show(self, "Please select a client first", "warning")
                 self.barcode_entry.delete(0, "end")
                 return
         else:  # SCAN IN
             # For SCAN IN, start transaction if not already active
             if not self.cart.is_transaction_active():
+                print(f"DEBUG: SCAN IN mode - starting transaction")
                 self.cart.start_transaction(0, "Receiving Items")
 
         barcode = self.barcode_var.get().strip().upper()  # Normalize to uppercase
+        print(f"DEBUG: Looking up barcode: {barcode}")
         if not barcode:
             return
 
         try:
             item = self.db.get_item_by_barcode(barcode)
+            print(f"DEBUG: Barcode lookup result: {item}")
             if not item:
                 Toast.show(self, f"Item not found: {barcode}", "error")
                 self.barcode_entry.delete(0, "end")
