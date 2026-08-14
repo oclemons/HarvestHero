@@ -103,11 +103,13 @@ class EditItemDialog(ctk.CTkToplevel):
     def _load_storage_locations(self):
         """Load available storage locations from database."""
         try:
-            cursor = self.db.conn.cursor()
-            cursor.execute(
-                "SELECT DISTINCT storage_location FROM inventory_items WHERE storage_location != '' ORDER BY storage_location"
-            )
-            locations = [row[0] for row in cursor.fetchall()]
+            # Get all items and extract unique storage locations
+            all_items = self.db.get_all_items()
+            locations = sorted(set(
+                item["storage_location"] 
+                for item in all_items 
+                if item.get("storage_location")
+            ))
             # Update the storage_location field if it's a dropdown
             if "storage_location" in self._vars and hasattr(self, 'storage_menu'):
                 self.storage_menu.configure(values=locations)
@@ -144,12 +146,13 @@ class EditItemDialog(ctk.CTkToplevel):
                 return
             # Update barcode in database
             try:
-                cursor = self.db.conn.cursor()
-                cursor.execute(
+                conn = self.db._connect()
+                conn.execute(
                     "UPDATE inventory_items SET barcode = ? WHERE id = ?",
                     (new_barcode, self.item["id"])
                 )
-                self.db.conn.commit()
+                conn.commit()
+                conn.close()
             except Exception as e:
                 self.status_lbl.configure(text=f"Error updating barcode: {str(e)}")
                 return
@@ -162,6 +165,21 @@ class EditItemDialog(ctk.CTkToplevel):
             self._vars["barcode_out"].get().strip(),
         )
         self.db.set_stock(self.item["id"], current_qty)
+        
+        # Update storage location if provided
+        storage_location = self._vars.get("storage_location", tk.StringVar()).get().strip()
+        if storage_location:
+            try:
+                conn = self.db._connect()
+                conn.execute(
+                    "UPDATE inventory_items SET storage_location = ? WHERE id = ?",
+                    (storage_location, self.item["id"])
+                )
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                self.status_lbl.configure(text=f"Error updating storage location: {str(e)}")
+                return
 
         messagebox.showinfo("Saved", f"'{item_name}' updated successfully.")
         if self.on_complete:
