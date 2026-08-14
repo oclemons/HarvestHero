@@ -86,20 +86,18 @@ class IntakeScreenPOS(ctk.CTkFrame):
                     font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
                     text_color=TEXT_MUTED).pack(anchor="w", padx=16, pady=(12, 4))
 
-        # Get all clients
-        try:
-            clients = self.db.get_all_clients() or []
-        except:
-            clients = []
+        # Client selector frame with refresh button
+        selector_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        selector_frame.pack(fill="x", padx=16, pady=(0, 12))
+        selector_frame.grid_columnconfigure(0, weight=1)
 
-        client_names = [f"{c.get('id', '')} - {c.get('name', 'Unknown')}" for c in clients]
         self.client_var = tk.StringVar(value="Select a client...")
-        self.clients_data = clients
+        self.clients_data = []
 
         self.client_combo = ctk.CTkComboBox(
-            frame,
+            selector_frame,
             variable=self.client_var,
-            values=client_names,
+            values=[],
             height=44,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=BG_OVERLAY,
@@ -109,7 +107,38 @@ class IntakeScreenPOS(ctk.CTkFrame):
             dropdown_font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             command=self._on_client_selected
         )
-        self.client_combo.pack(fill="x", padx=16, pady=(0, 12))
+        self.client_combo.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+
+        # Refresh button
+        ctk.CTkButton(
+            selector_frame, text="↻", width=40, height=44,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            fg_color=ACCENT, hover_color="#FF9500",
+            command=self._refresh_client_list
+        ).grid(row=0, column=1)
+
+        # Load clients on startup
+        self._refresh_client_list()
+
+    def _refresh_client_list(self):
+        """Refresh the client dropdown list."""
+        try:
+            clients = self.db.get_all_clients() or []
+            self.clients_data = clients
+            
+            # Build client names list
+            client_names = [f"{c.get('id', '')} - {c.get('first_name', '')} {c.get('last_name', '')}" 
+                           for c in clients]
+            
+            # Update combo box values
+            self.client_combo.configure(values=client_names)
+            
+            # Reset selection
+            self.client_var.set("Select a client...")
+            self.cart.cancel_transaction()
+            self._update_cart_display()
+        except Exception as e:
+            print(f"Error refreshing clients: {e}")
 
     def _on_client_selected(self, choice):
         """Handle client selection."""
