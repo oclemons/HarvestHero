@@ -766,10 +766,33 @@ class Database:
             barcode, item_name, category,
             quantity if transaction_type == "SCAN_OUT" else -quantity,
         )
+        
+        # After transaction, check if item is now below minimum stock
+        # and add to shopping list if needed
+        if transaction_type == "SCAN_OUT":
+            self._check_and_add_low_stock_item(barcode, item_name, category)
 
     # ------------------------------------------------------------------
     # Shopping list
     # ------------------------------------------------------------------
+
+    def _check_and_add_low_stock_item(self, barcode: str, item_name: str, category: str) -> None:
+        """Check if item is below minimum stock and add to shopping list if needed."""
+        try:
+            conn = self._connect()
+            # Get current quantity and minimum stock
+            item = conn.execute(
+                "SELECT current_quantity, minimum_stock FROM inventory_items WHERE barcode=?",
+                (barcode,)
+            ).fetchone()
+            conn.close()
+            
+            if item and item["minimum_stock"] > 0 and item["current_quantity"] < item["minimum_stock"]:
+                # Item is below minimum, add to shopping list
+                qty_needed = item["minimum_stock"] - item["current_quantity"]
+                self._apply_shopping_list_delta(barcode, item_name, category, qty_needed)
+        except Exception:
+            pass  # Silently fail if check doesn't work
 
     def _apply_shopping_list_delta(self, barcode: str, item_name: str,
                                    category: str, delta: int) -> None:
