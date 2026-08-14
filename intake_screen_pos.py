@@ -496,6 +496,86 @@ class IntakeScreenPOS(ctk.CTkFrame):
         # Default category
         return "Uncategorized"
 
+    def _estimate_item_weight(self, item_name: str, category: str) -> float:
+        """Estimate weight per unit for an item based on category and name.
+        
+        Returns weight in pounds per unit.
+        """
+        if not item_name:
+            return 0.0
+        
+        item_lower = item_name.lower()
+        
+        # Weight estimates by category (in pounds per unit)
+        weight_estimates = {
+            "Canned Item": {
+                "soup": 0.5,
+                "stew": 0.6,
+                "chili": 0.6,
+                "beans": 0.5,
+                "vegetables": 0.5,
+                "fruit": 0.5,
+                "default": 0.5
+            },
+            "Boxed Item": {
+                "mac & cheese": 0.3,
+                "helper": 0.3,
+                "meal": 0.4,
+                "ramen": 0.2,
+                "cereal": 0.5,
+                "default": 0.4
+            },
+            "Bagged Item": {
+                "cereal": 0.5,
+                "chips": 0.2,
+                "crackers": 0.3,
+                "snack": 0.2,
+                "rice": 1.0,
+                "flour": 1.5,
+                "default": 0.5
+            },
+            "Jarred Item": {
+                "peanut butter": 1.0,
+                "jelly": 0.8,
+                "sauce": 0.6,
+                "default": 0.8
+            },
+            "Bottled Item": {
+                "juice": 2.0,
+                "milk": 2.0,
+                "drink": 1.5,
+                "water": 2.0,
+                "default": 1.5
+            },
+            "Dry Item": {
+                "bean": 1.0,
+                "lentil": 1.0,
+                "rice": 1.0,
+                "grain": 1.0,
+                "oatmeal": 1.0,
+                "pasta": 0.5,
+                "noodle": 0.3,
+                "default": 1.0
+            },
+            "Fresh Item": {
+                "produce": 0.5,
+                "vegetable": 0.5,
+                "fruit": 0.5,
+                "default": 0.5
+            }
+        }
+        
+        # Get category weights
+        category_weights = weight_estimates.get(category, {})
+        
+        # Try to match specific keywords
+        for keyword, weight in category_weights.items():
+            if keyword != "default" and keyword in item_lower:
+                return weight
+        
+        # Return default for category
+        return category_weights.get("default", 0.5)
+
     def _build_cart_header(self, parent):
         """Build cart header."""
         header = ctk.CTkFrame(parent, fg_color="transparent")
@@ -718,8 +798,8 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
         success, msg, data = self.cart.complete_transaction()
         if success:
-            # Show checkout summary dialog
-            CheckoutSummaryDialog(self, data)
+            # Show checkout summary dialog with database reference
+            CheckoutSummaryDialog(self, data, self.db)
             self._reset_form()
         else:
             Toast.show(self, msg, "error")
@@ -748,11 +828,12 @@ class IntakeScreenPOS(ctk.CTkFrame):
 class CheckoutSummaryDialog(ctk.CTkToplevel):
     """Checkout summary dialog showing transaction details."""
 
-    def __init__(self, parent, transaction_data):
+    def __init__(self, parent, transaction_data, db=None):
         super().__init__(parent)
         self.transaction_data = transaction_data
+        self.db = db
         self.title("Checkout Summary")
-        self.geometry("600x500")
+        self.geometry("600x550")
         self.resizable(False, False)
         
         # Center on parent
@@ -834,11 +915,20 @@ class CheckoutSummaryDialog(ctk.CTkToplevel):
 
         total_items = self.transaction_data.get("total_items", 0)
         total_units = self.transaction_data.get("total_units", 0)
+        
+        # Calculate total pounds
+        total_pounds = self._calculate_total_pounds()
 
         ctk.CTkLabel(
             totals_frame, text=f"Items: {total_items} | Units: {total_units}",
             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             text_color=TEXT_PRIMARY
+        ).pack(anchor="w", padx=12, pady=(0, 4))
+        
+        ctk.CTkLabel(
+            totals_frame, text=f"Total Weight: {total_pounds:.1f} lbs",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=ACCENT_GREEN
         ).pack(anchor="w", padx=12, pady=(0, 12))
 
         # Close button
@@ -849,3 +939,74 @@ class CheckoutSummaryDialog(ctk.CTkToplevel):
             text_color="white",
             command=self.destroy
         ).pack(fill="x")
+
+    def _calculate_total_pounds(self) -> float:
+        """Calculate total weight in pounds from transaction items."""
+        total_pounds = 0.0
+        
+        for item in self.transaction_data.get("items", []):
+            # Try to get weight from database
+            weight_per_unit = 0.0
+            
+            if self.db:
+                try:
+                    db_item = self.db.get_item_by_barcode(item.get("barcode", ""))
+                    if db_item:
+                        weight_per_unit = db_item.get("weight_per_unit", 0.0)
+                except Exception as e:
+                    print(f"Error getting item weight: {e}")
+            
+            # If no weight in database, estimate based on category
+            if weight_per_unit == 0.0:
+                weight_per_unit = self._estimate_weight(item.get("item_name", ""))
+            
+            # Add to total
+            total_pounds += weight_per_unit * item.get("quantity", 1)
+        
+        return total_pounds
+
+    def _estimate_weight(self, item_name: str) -> float:
+        """Estimate weight per unit for an item based on name.
+        
+        Returns weight in pounds per unit.
+        """
+        if not item_name:
+            return 0.5
+        
+        item_lower = item_name.lower()
+        
+        # Weight estimates by item type (in pounds per unit)
+        weight_estimates = {
+            # Canned items
+            "soup": 0.5, "stew": 0.6, "chili": 0.6, "beans": 0.5,
+            "vegetables": 0.5, "fruit": 0.5, "corn": 0.5, "peas": 0.5,
+            
+            # Boxed items
+            "mac & cheese": 0.3, "helper": 0.3, "meal": 0.4, "ramen": 0.2,
+            "cereal": 0.5, "crackers": 0.3,
+            
+            # Bagged items
+            "chips": 0.2, "snack": 0.2, "rice": 1.0, "flour": 1.5,
+            "sugar": 1.0, "salt": 0.5,
+            
+            # Jarred items
+            "peanut butter": 1.0, "jelly": 0.8, "sauce": 0.6,
+            
+            # Bottled items
+            "juice": 2.0, "milk": 2.0, "drink": 1.5, "water": 2.0,
+            
+            # Dry items
+            "lentil": 1.0, "grain": 1.0, "oatmeal": 1.0, "pasta": 0.5,
+            "noodle": 0.3,
+            
+            # Fresh items
+            "produce": 0.5, "vegetable": 0.5, "fruit": 0.5,
+        }
+        
+        # Try to match keywords
+        for keyword, weight in weight_estimates.items():
+            if keyword in item_lower:
+                return weight
+        
+        # Default estimate
+        return 0.5

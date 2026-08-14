@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     shelf_life_days  INTEGER DEFAULT 0,
     expiration_date  TEXT    DEFAULT '',
     nutrition_data   TEXT    DEFAULT '{}',
+    weight_per_unit  REAL    DEFAULT 0.0,
     notes            TEXT    DEFAULT '',
     created_at       TEXT    DEFAULT (datetime('now', 'localtime')),
     updated_at       TEXT    DEFAULT (datetime('now', 'localtime'))
@@ -232,6 +233,7 @@ class Database:
             "ALTER TABLE inventory_items ADD COLUMN expiration_date TEXT DEFAULT ''",
             "ALTER TABLE inventory_items ADD COLUMN nutrition_data TEXT DEFAULT '{}'",
             "ALTER TABLE inventory_items ADD COLUMN overstock_threshold INTEGER DEFAULT 0",
+            "ALTER TABLE inventory_items ADD COLUMN weight_per_unit REAL DEFAULT 0.0",
             "ALTER TABLE users ADD COLUMN has_completed_tour INTEGER DEFAULT 0",
             "ALTER TABLE users ADD COLUMN full_name TEXT DEFAULT ''",
             "ALTER TABLE users ADD COLUMN last_login TEXT DEFAULT ''",
