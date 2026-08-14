@@ -16,9 +16,11 @@ from toast import Toast
 
 
 class SettingsScreen(ctk.CTkFrame):
-    def __init__(self, parent, db):
+    def __init__(self, parent, db, user: dict = None):
         super().__init__(parent, fg_color=BG_SURFACE)
         self.db = db
+        self.user = user or {}
+        self.is_admin = self.user.get("role") == "admin"
         self._vars: dict = {}
         self._adv_visible = False
         self._build()
@@ -128,133 +130,143 @@ class SettingsScreen(ctk.CTkFrame):
             text_color=TEXT_PRIMARY,
         ).pack(side="left")
 
+        # Show limited settings message for staff
+        if not self.is_admin:
+            ctk.CTkLabel(
+                scroll, text="Limited settings available for staff accounts",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=TEXT_MUTED,
+            ).grid(row=0, column=0, sticky="w", padx=40, pady=(0, 20))
+
         r = 1  # rolling row counter
 
-        # ── 1. Organization Profile ─────────────────────────────────
-        self._section_header(scroll, "Organization Profile",
-                              "Your organization's identity within the app.", r)
-        r += 1
-        org = self._card(scroll, r); r += 1
-        self._field_row(org, "Organization Name", "org_name", 0,
-                        "e.g. Acme Corp")
+        # ── Admin-only sections ─────────────────────────────────────
+        if self.is_admin:
+            # ── 1. Organization Profile ─────────────────────────────────
+            self._section_header(scroll, "Organization Profile",
+                                  "Your organization's identity within the app.", r)
+            r += 1
+            org = self._card(scroll, r); r += 1
+            self._field_row(org, "Organization Name", "org_name", 0,
+                            "e.g. Acme Corp")
 
-        # ── 2. AI Assistant ─────────────────────────────────────────
-        self._section_header(scroll, "AI Assistant — Ava",
-                              "Ava is your built-in inventory intelligence assistant.", r)
-        r += 1
-        ai = self._card(scroll, r); r += 1
-        self._info_row(ai, "Status",  "Enabled",            0, ACCENT_GREEN)
-        self._divider(ai, 1)
-        self._info_row(ai, "Mode",    "Built-in Local AI",  2, ACCENT)
-        self._divider(ai, 3)
+            # ── 2. AI Assistant ─────────────────────────────────────────
+            self._section_header(scroll, "AI Assistant — Ava",
+                                  "Ava is your built-in inventory intelligence assistant.", r)
+            r += 1
+            ai = self._card(scroll, r); r += 1
+            self._info_row(ai, "Status",  "Enabled",            0, ACCENT_GREEN)
+            self._divider(ai, 1)
+            self._info_row(ai, "Mode",    "Built-in Local AI",  2, ACCENT)
+            self._divider(ai, 3)
 
-        ctk.CTkLabel(
-            ai,
-            text="Ava provides local inventory insights, onboarding help, low-stock\n"
-                 "recommendations, and trend summaries — no API key required.",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=TEXT_MUTED, anchor="w", justify="left",
-        ).grid(row=4, column=0, columnspan=2, padx=20, pady=(12, 16), sticky="w")
+            ctk.CTkLabel(
+                ai,
+                text="Ava provides local inventory insights, onboarding help, low-stock\n"
+                     "recommendations, and trend summaries — no API key required.",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=TEXT_MUTED, anchor="w", justify="left",
+            ).grid(row=4, column=0, columnspan=2, padx=20, pady=(12, 16), sticky="w")
 
-        # ── 3. Onboarding Tour ──────────────────────────────────────
-        self._section_header(scroll, "Onboarding Tour",
-                              "Guide new users through the app on first login.", r)
-        r += 1
-        tour = self._card(scroll, r); r += 1
-        self._select_row(tour, "Show tour for new users", "tour_enabled",
-                         0, ["Yes", "No"], "Yes")
-        self._divider(tour, 1)
-        btn_row = ctk.CTkFrame(tour, fg_color="transparent")
-        btn_row.grid(row=2, column=0, columnspan=2, padx=20, pady=(8, 16), sticky="w")
-        ctk.CTkButton(
-            btn_row, text="Reset Tour for All Users",
-            height=36, corner_radius=8,
-            fg_color=SECONDARY_ACCENT, hover_color=SECONDARY_ACCENT_HOVER,
-            text_color=TEXT_PRIMARY,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            command=self._reset_all_tours,
-        ).pack(side="left")
+            # ── 3. Onboarding Tour ──────────────────────────────────────
+            self._section_header(scroll, "Onboarding Tour",
+                                  "Guide new users through the app on first login.", r)
+            r += 1
+            tour = self._card(scroll, r); r += 1
+            self._select_row(tour, "Show tour for new users", "tour_enabled",
+                             0, ["Yes", "No"], "Yes")
+            self._divider(tour, 1)
+            btn_row = ctk.CTkFrame(tour, fg_color="transparent")
+            btn_row.grid(row=2, column=0, columnspan=2, padx=20, pady=(8, 16), sticky="w")
+            ctk.CTkButton(
+                btn_row, text="Reset Tour for All Users",
+                height=36, corner_radius=8,
+                fg_color=SECONDARY_ACCENT, hover_color=SECONDARY_ACCENT_HOVER,
+                text_color=TEXT_PRIMARY,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                command=self._reset_all_tours,
+            ).pack(side="left")
 
-        # ── 4. Appearance ───────────────────────────────────────────
+            # ── 5. Data Import ───────────────────────────────────────────
+            self._section_header(scroll, "Data Import",
+                                  "Drop CSV files into the input/ folder, then import here.", r)
+            r += 1
+            imp = self._card(scroll, r); r += 1
+            self._build_import_section(imp)
+
+            # ── 5b. Backup & Export ──────────────────────────────────────
+            self._section_header(scroll, "Backup & Export",
+                                  "Keep your data safe and portable.", r)
+            r += 1
+            bk = self._card(scroll, r); r += 1
+            bk_btns = ctk.CTkFrame(bk, fg_color="transparent")
+            bk_btns.grid(row=0, column=0, columnspan=2, padx=20, pady=16, sticky="w")
+            ctk.CTkButton(
+                bk_btns, text="Backup Database Now",
+                height=38, corner_radius=8,
+                fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                text_color=BG_BASE,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                command=self._backup_now,
+            ).pack(side="left", padx=(0, 10))
+            ctk.CTkButton(
+                bk_btns, text="Export Transactions (CSV)",
+                height=38, corner_radius=8,
+                fg_color=BG_ELEVATED, hover_color=BG_HOVER,
+                text_color=TEXT_SECONDARY,
+                border_width=1, border_color=BORDER_COLOR,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                command=self._export_csv,
+            ).pack(side="left")
+            self._last_backup_lbl = ctk.CTkLabel(
+                bk, text="Last backup: —",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=TEXT_MUTED, anchor="w",
+            )
+            self._last_backup_lbl.grid(
+                row=1, column=0, columnspan=2, padx=20, pady=(0, 14), sticky="w")
+
+            # ── 6. Advanced Developer Settings ──────────────────────
+            self._section_header(scroll, "Advanced Developer Settings",
+                                  "OpenAI / external AI provider, API keys, model selection.", r)
+            r += 1
+
+            # Toggle button for advanced section
+            self._adv_toggle_btn = ctk.CTkButton(
+                scroll, text="Show Advanced Settings",
+                height=34, corner_radius=8, width=200,
+                fg_color=BG_ELEVATED, hover_color=BG_HOVER,
+                text_color=TEXT_MUTED,
+                border_width=1, border_color=BORDER_COLOR,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                command=self._toggle_advanced,
+            )
+            self._adv_toggle_btn.grid(
+                row=r, column=0, padx=40, pady=(0, 8), sticky="w")
+            r += 1
+
+            self._adv_frame = ctk.CTkFrame(
+                scroll, fg_color=BG_ELEVATED, corner_radius=12,
+                border_width=1, border_color=BORDER_COLOR,
+            )
+            self._adv_frame.grid(row=r, column=0, sticky="ew", padx=40)
+            self._adv_frame.grid_columnconfigure(1, weight=1)
+            r += 1
+
+            self._select_row(self._adv_frame, "AI Provider", "ai_provider",
+                             0, ["Local (Built-in)", "OpenAI", "Ollama"], "Local (Built-in)")
+            self._divider(self._adv_frame, 1)
+            self._field_row(self._adv_frame, "API Key", "ai_api_key",
+                            2, "sk-… (OpenAI only)", show="●")
+            self._field_row(self._adv_frame, "Model",   "ai_model",
+                            3, "gpt-4o-mini")
+
+        # ── 4. Appearance (available to all) ───────────────────────────────────────────
         self._section_header(scroll, "Appearance",
                               "Choose a color theme — restart the app to apply.", r)
         r += 1
         app = self._card(scroll, r); r += 1
         self._build_theme_picker(app)
-
-        # ── 5. Data Import ───────────────────────────────────────────
-        self._section_header(scroll, "Data Import",
-                              "Drop CSV files into the input/ folder, then import here.", r)
-        r += 1
-        imp = self._card(scroll, r); r += 1
-        self._build_import_section(imp)
-
-        # ── 5b. Backup & Export ──────────────────────────────────────
-        self._section_header(scroll, "Backup & Export",
-                              "Keep your data safe and portable.", r)
-        r += 1
-        bk = self._card(scroll, r); r += 1
-        bk_btns = ctk.CTkFrame(bk, fg_color="transparent")
-        bk_btns.grid(row=0, column=0, columnspan=2, padx=20, pady=16, sticky="w")
-        ctk.CTkButton(
-            bk_btns, text="Backup Database Now",
-            height=38, corner_radius=8,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color=BG_BASE,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-            command=self._backup_now,
-        ).pack(side="left", padx=(0, 10))
-        ctk.CTkButton(
-            bk_btns, text="Export Transactions (CSV)",
-            height=38, corner_radius=8,
-            fg_color=BG_ELEVATED, hover_color=BG_HOVER,
-            text_color=TEXT_SECONDARY,
-            border_width=1, border_color=BORDER_COLOR,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            command=self._export_csv,
-        ).pack(side="left")
-        self._last_backup_lbl = ctk.CTkLabel(
-            bk, text="Last backup: —",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            text_color=TEXT_MUTED, anchor="w",
-        )
-        self._last_backup_lbl.grid(
-            row=1, column=0, columnspan=2, padx=20, pady=(0, 14), sticky="w")
-
-        # ── 6. Advanced Developer Settings ──────────────────────
-        self._section_header(scroll, "Advanced Developer Settings",
-                              "OpenAI / external AI provider, API keys, model selection.", r)
-        r += 1
-
-        # Toggle button for advanced section
-        self._adv_toggle_btn = ctk.CTkButton(
-            scroll, text="Show Advanced Settings",
-            height=34, corner_radius=8, width=200,
-            fg_color=BG_ELEVATED, hover_color=BG_HOVER,
-            text_color=TEXT_MUTED,
-            border_width=1, border_color=BORDER_COLOR,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            command=self._toggle_advanced,
-        )
-        self._adv_toggle_btn.grid(
-            row=r, column=0, padx=40, pady=(0, 8), sticky="w")
-        r += 1
-
-        self._adv_frame = ctk.CTkFrame(
-            scroll, fg_color=BG_ELEVATED, corner_radius=12,
-            border_width=1, border_color=BORDER_COLOR,
-        )
-        self._adv_frame.grid(row=r, column=0, sticky="ew", padx=40)
-        self._adv_frame.grid_columnconfigure(1, weight=1)
-        r += 1
-
-        self._select_row(self._adv_frame, "AI Provider", "ai_provider",
-                         0, ["Local (Built-in)", "OpenAI", "Ollama"], "Local (Built-in)")
-        self._divider(self._adv_frame, 1)
-        self._field_row(self._adv_frame, "API Key", "ai_api_key",
-                        2, "sk-… (OpenAI only)", show="●")
-        self._field_row(self._adv_frame, "Model",   "ai_model",
-                        3, "gpt-4o-mini")
 
         ctk.CTkLabel(
             self._adv_frame,

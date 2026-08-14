@@ -364,7 +364,7 @@ class AppWindow(ctk.CTkFrame):
                 return BarcodeReviewFrame(self._content)
             if key == "settings":
                 from settings_screen import SettingsScreen
-                return SettingsScreen(self._content, self.db)
+                return SettingsScreen(self._content, self.db, self.user)
         except Exception as exc:
             return self._placeholder(key, str(exc))
 
