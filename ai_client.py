@@ -104,6 +104,7 @@ def _call_openai(messages: List[Dict[str, str]], model: str, temperature: float 
                  max_tokens: int = 800) -> str | None:
     key = _load_api_key()
     if not key:
+        print("[AI] No OpenAI API key found. Using fallback insights.")
         return None
     try:
         resp = requests.post(
@@ -122,7 +123,8 @@ def _call_openai(messages: List[Dict[str, str]], model: str, temperature: float 
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
-    except Exception:
+    except Exception as e:
+        print(f"[AI] OpenAI API call failed: {str(e)}")
         return None
 
 
@@ -283,6 +285,7 @@ def answer_with_tools(db, question: str, conversation_history: Optional[List[Dic
     # Call OpenAI with tools
     key = _load_api_key()
     if not key:
+        print("[AI] No OpenAI API key found. Using fallback answer.")
         return _fallback_answer(db, question)
     
     try:
@@ -304,8 +307,8 @@ def answer_with_tools(db, question: str, conversation_history: Optional[List[Dic
         content = resp.json()["choices"][0]["message"]["content"]
         if content:
             return content
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[AI] OpenAI API call failed in answer_with_tools: {str(e)}")
     
     return _fallback_answer(db, question)
 
