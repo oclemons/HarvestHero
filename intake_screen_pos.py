@@ -798,6 +798,24 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
         success, msg, data = self.cart.complete_transaction()
         if success:
+            # Calculate total pounds for the transaction
+            total_pounds = self._calculate_transaction_pounds(data)
+            
+            # Record visit in database for SCAN OUT transactions
+            trans_type = self.transaction_type.get()
+            if trans_type == "OUT":
+                try:
+                    client_id = data.get("client_id")
+                    username = self.user.get("username", "unknown") if self.user else "unknown"
+                    self.db.record_pantry_visit(
+                        client_id=client_id,
+                        pounds_received=total_pounds,
+                        recorded_by=username,
+                        notes=data.get("notes", "")
+                    )
+                except Exception as e:
+                    print(f"Error recording visit: {e}")
+            
             # Show checkout summary dialog with database reference
             CheckoutSummaryDialog(self, data, self.db)
             self._reset_form()
@@ -823,6 +841,37 @@ class IntakeScreenPOS(ctk.CTkFrame):
         self.barcode_var.set("")
         self._update_cart_display()
         self.client_entry.focus()
+
+    def _calculate_transaction_pounds(self, transaction_data: dict) -> float:
+        """Calculate total weight in pounds from transaction data.
+        
+        Args:
+            transaction_data: Transaction data from complete_transaction
+            
+        Returns:
+            Total pounds for the transaction
+        """
+        total_pounds = 0.0
+        
+        for item in transaction_data.get("items", []):
+            # Try to get weight from database
+            weight_per_unit = 0.0
+            
+            try:
+                db_item = self.db.get_item_by_barcode(item.get("barcode", ""))
+                if db_item:
+                    weight_per_unit = db_item.get("weight_per_unit", 0.0)
+            except Exception as e:
+                print(f"Error getting item weight: {e}")
+            
+            # If no weight in database, estimate based on name
+            if weight_per_unit == 0.0:
+                weight_per_unit = self._estimate_item_weight(item.get("item_name", ""), "")
+            
+            # Add to total
+            total_pounds += weight_per_unit * item.get("quantity", 1)
+        
+        return total_pounds
 
 
 class CheckoutSummaryDialog(ctk.CTkToplevel):
