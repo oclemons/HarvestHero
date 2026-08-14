@@ -337,7 +337,9 @@ class IntakeScreenPOS(ctk.CTkFrame):
         if self.cart.is_transaction_active():
             self.cart.cancel_transaction()
         
-        success, msg = self.cart.start_transaction(client_id, client_name)
+        # Get current transaction type
+        trans_type = self.transaction_type.get()
+        success, msg = self.cart.start_transaction(client_id, client_name, trans_type)
         
         if success:
             Toast.show(self, msg, "success")
@@ -419,7 +421,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
         else:  # SCAN IN
             # For SCAN IN, start transaction if not already active
             if not self.cart.is_transaction_active():
-                self.cart.start_transaction(0, "Receiving Items")
+                self.cart.start_transaction(0, "Receiving Items", "IN")
 
         barcode = self.barcode_var.get().strip().upper()  # Normalize to uppercase
         if not barcode:

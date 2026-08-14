@@ -31,6 +31,7 @@ class IntakeTransaction:
     """Represents a complete intake transaction."""
     client_id: int
     client_name: str
+    trans_type: str = "OUT"  # "IN" for receiving, "OUT" for distribution
     items: List[CartItem] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None
@@ -51,12 +52,13 @@ class IntakeCart:
         self.current_transaction: Optional[IntakeTransaction] = None
         self.cart_items: Dict[str, CartItem] = {}  # barcode -> CartItem
 
-    def start_transaction(self, client_id: int, client_name: str) -> Tuple[bool, str]:
+    def start_transaction(self, client_id: int, client_name: str, trans_type: str = "OUT") -> Tuple[bool, str]:
         """Start a new intake transaction.
         
         Args:
             client_id: Client ID
             client_name: Client name
+            trans_type: Transaction type ("IN" for receiving, "OUT" for distribution)
             
         Returns:
             (success, message)
@@ -71,6 +73,7 @@ class IntakeCart:
             client_id=client_id,
             client_name=client_name
         )
+        self.current_transaction.trans_type = trans_type  # Store transaction type
         self.cart_items = {}
         
         return (True, f"Transaction started for {client_name}")
@@ -216,8 +219,13 @@ class IntakeCart:
             # Update inventory for each item
             for barcode, cart_item in self.cart_items.items():
                 try:
-                    # Add to inventory (increase quantity)
-                    self.db.adjust_stock(barcode, cart_item.quantity)
+                    # Determine quantity change based on transaction type
+                    # SCAN IN (receiving): increase inventory (+)
+                    # SCAN OUT (distribution): decrease inventory (-)
+                    trans_type = self.current_transaction.trans_type
+                    quantity_change = cart_item.quantity if trans_type == "IN" else -cart_item.quantity
+                    
+                    self.db.adjust_stock(barcode, quantity_change)
                 except Exception as e:
                     print(f"Error updating {cart_item.item_name}: {e}")
             
