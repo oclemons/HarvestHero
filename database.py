@@ -674,11 +674,11 @@ class Database:
         return count
 
     def get_low_stock_items(self):
-        """Items with 0 < current_quantity <= minimum_stock."""
+        """Items with current_quantity < minimum_stock (including out of stock items with minimum set)."""
         conn = self._connect()
         rows = conn.execute(
             """SELECT * FROM inventory_items
-               WHERE current_quantity > 0 AND current_quantity <= minimum_stock
+               WHERE minimum_stock > 0 AND current_quantity < minimum_stock
                ORDER BY item_name"""
         ).fetchall()
         conn.close()
