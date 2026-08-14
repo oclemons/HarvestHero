@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0",
+  "app_name": "Harvest Hero Inventory Tracker",
+  "last_updated": "2024-01-15T00:00:00",
+  "features": [
+    "Role-based access control",
+    "Weight/pounds tracking with monthly cadence",
+    "Customizable reporting and exports",
+    "Barcode management with bulk import",
+    "Shelf and overflow management",
+    "Shopping list auto-population",
+    "Automatic update system"
+  ]
+}

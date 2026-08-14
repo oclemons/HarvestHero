@@ -10,6 +10,8 @@ from auth import hash_password
 from database import Database
 from login_screen import LoginScreen
 from theme import apply_theme, BG_PRIMARY
+from update_manager import get_update_manager
+from update_dialog import show_update_notification
 
 # Number of days of activity-log history to retain automatically.
 ACTIVITY_LOG_RETENTION_DAYS = 30
@@ -81,11 +83,17 @@ class App(ctk.CTk):
 
         self.current_user = None
         self._frame = None
+        self.update_manager = get_update_manager(
+            os.path.dirname(os.path.abspath(__file__))
+        )
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
         self.show_login()
+        
+        # Check for updates after showing login screen
+        self.after(2000, self._check_for_updates)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -149,6 +157,14 @@ class App(ctk.CTk):
     def show_login(self) -> None:
         self.current_user = None
         self._swap_frame(LoginScreen(self, self._on_login_success))
+
+    def _check_for_updates(self) -> None:
+        """Check for updates in background."""
+        def on_check_complete(has_update, version, notes):
+            if has_update:
+                show_update_notification(self, self.update_manager)
+        
+        self.update_manager.check_for_updates_async(on_check_complete)
 
     def _on_login_success(self, user: dict) -> None:
         self.current_user = user
