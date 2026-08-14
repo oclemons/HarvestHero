@@ -121,7 +121,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
         # Status label
         self.transaction_status_label = ctk.CTkLabel(
-            frame, text="📤 Distribution Mode: Scanning items to give to client",
+            frame, text="📤 Distribution Mode: Select client to scan items for",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=ACCENT_RED
         )
@@ -306,7 +306,6 @@ class IntakeScreenPOS(ctk.CTkFrame):
             if student_id:
                 btn_text += f" ({student_id})"
 
-            
             def make_click_handler(c):
                 """Create a click handler that logs when clicked."""
                 def handler():
@@ -457,7 +456,6 @@ class IntakeScreenPOS(ctk.CTkFrame):
             else:
                 Toast.show(self, msg, "error")
         except Exception as e:
-            print(f"Barcode scan error: {e}")
             Toast.show(self, f"Error: {str(e)}", "error")
             self.barcode_entry.delete(0, "end")
 
@@ -590,33 +588,33 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
         ctk.CTkLabel(
             name_frame, text=item["item_name"],
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             text_color=TEXT_PRIMARY
-        ).pack(anchor="w", side="left")
+        ).pack(anchor="w")
 
         ctk.CTkLabel(
             name_frame, text=item["barcode"],
             font=ctk.CTkFont(family=FONT_FAMILY, size=9),
-            text_color=TEXT_MUTED
-        ).pack(anchor="e", side="right")
+            text_color=TEXT_SECONDARY
+        ).pack(anchor="w", pady=(2, 0))
 
         # Quantity controls
         qty_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
-        qty_frame.grid(row=1, column=0, sticky="ew", padx=12, pady=(4, 8))
-        qty_frame.grid_columnconfigure(1, weight=1)
+        qty_frame.grid(row=0, column=1, sticky="e", padx=12, pady=8)
+        qty_frame.grid_columnconfigure(0, weight=1)
 
         # Minus button
         ctk.CTkButton(
-            qty_frame, text="−", width=30, height=28,
+            qty_frame, text="-", width=30, height=28,
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             fg_color=ACCENT_RED, hover_color="#cc0000",
             command=lambda: self._adjust_quantity(item["barcode"], -1)
         ).grid(row=0, column=0, padx=(0, 6))
 
-        # Quantity display
+        # Quantity label
         qty_label = ctk.CTkLabel(
-            qty_frame, text=f"{item['quantity']} units",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            qty_frame, text=str(item["quantity"]),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             text_color=TEXT_PRIMARY
         )
         qty_label.grid(row=0, column=1)
@@ -720,7 +718,8 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
         success, msg, data = self.cart.complete_transaction()
         if success:
-            Toast.show(self, f"✓ Completed: {data['total_units']} units to {data['client_name']}", "success")
+            # Show checkout summary dialog
+            CheckoutSummaryDialog(self, data)
             self._reset_form()
         else:
             Toast.show(self, msg, "error")
@@ -744,3 +743,109 @@ class IntakeScreenPOS(ctk.CTkFrame):
         self.barcode_var.set("")
         self._update_cart_display()
         self.client_entry.focus()
+
+
+class CheckoutSummaryDialog(ctk.CTkToplevel):
+    """Checkout summary dialog showing transaction details."""
+
+    def __init__(self, parent, transaction_data):
+        super().__init__(parent)
+        self.transaction_data = transaction_data
+        self.title("Checkout Summary")
+        self.geometry("600x500")
+        self.resizable(False, False)
+        
+        # Center on parent
+        self.transient(parent)
+        self.grab_set()
+        
+        self._build()
+
+    def _build(self):
+        """Build the checkout summary dialog."""
+        # Main frame
+        main = ctk.CTkFrame(self, fg_color=BG_SURFACE)
+        main.pack(fill="both", expand=True, padx=20, pady=20)
+        main.grid_columnconfigure(0, weight=1)
+
+        # Header
+        header = ctk.CTkFrame(main, fg_color="transparent")
+        header.pack(fill="x", pady=(0, 20))
+
+        ctk.CTkLabel(
+            header, text="✓ Transaction Complete",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
+            text_color=ACCENT_GREEN
+        ).pack(anchor="w")
+
+        # Client info
+        client_frame = ctk.CTkFrame(main, fg_color=BG_ELEVATED, corner_radius=8,
+                                   border_width=1, border_color=BORDER_SUBTLE)
+        client_frame.pack(fill="x", pady=(0, 16))
+
+        ctk.CTkLabel(
+            client_frame, text="CLIENT",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+            text_color=TEXT_MUTED
+        ).pack(anchor="w", padx=12, pady=(8, 4))
+
+        ctk.CTkLabel(
+            client_frame, text=self.transaction_data.get("client_name", "Unknown"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            text_color=TEXT_PRIMARY
+        ).pack(anchor="w", padx=12, pady=(0, 12))
+
+        # Items summary
+        items_frame = ctk.CTkFrame(main, fg_color=BG_ELEVATED, corner_radius=8,
+                                  border_width=1, border_color=BORDER_SUBTLE)
+        items_frame.pack(fill="both", expand=True, pady=(0, 16))
+        items_frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            items_frame, text="ITEMS",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+            text_color=TEXT_MUTED
+        ).pack(anchor="w", padx=12, pady=(8, 4))
+
+        # Items list
+        items_list = ctk.CTkScrollableFrame(items_frame, fg_color="transparent")
+        items_list.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        for item in self.transaction_data.get("items", []):
+            item_label = ctk.CTkLabel(
+                items_list,
+                text=f"{item['item_name']} × {item['quantity']}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=TEXT_PRIMARY
+            )
+            item_label.pack(anchor="w", pady=4)
+
+        # Totals
+        totals_frame = ctk.CTkFrame(main, fg_color=BG_ELEVATED, corner_radius=8,
+                                   border_width=1, border_color=BORDER_SUBTLE)
+        totals_frame.pack(fill="x", pady=(0, 16))
+        totals_frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            totals_frame, text="SUMMARY",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+            text_color=TEXT_MUTED
+        ).pack(anchor="w", padx=12, pady=(8, 4))
+
+        total_items = self.transaction_data.get("total_items", 0)
+        total_units = self.transaction_data.get("total_units", 0)
+
+        ctk.CTkLabel(
+            totals_frame, text=f"Items: {total_items} | Units: {total_units}",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=TEXT_PRIMARY
+        ).pack(anchor="w", padx=12, pady=(0, 12))
+
+        # Close button
+        ctk.CTkButton(
+            main, text="✓ Done", height=44,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            fg_color=ACCENT_GREEN, hover_color="#00aa00",
+            text_color="white",
+            command=self.destroy
+        ).pack(fill="x")
