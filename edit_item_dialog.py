@@ -13,11 +13,12 @@ class EditItemDialog(ctk.CTkToplevel):
         self.on_complete = on_complete
         self.is_admin = self.user.get("role") == "admin"
         self.title(f"Edit Item – {item['item_name']}")
-        self.geometry("460x480")
+        self.geometry("460x520")
         self.resizable(False, False)
         self.grab_set()
         self._build()
         self.after(100, self.lift)
+        self._load_storage_locations()
 
     # ------------------------------------------------------------------
 
@@ -60,6 +61,7 @@ class EditItemDialog(ctk.CTkToplevel):
             ("Minimum Stock",   "min_stock",   str(self.item["minimum_stock"])),
             ("Current Stock",   "current_qty", str(self.item["current_quantity"])),
             ("Notes",           "notes",       self.item["notes"]),
+            ("Storage Location","storage_location", self.item.get("storage_location") or ""),
         ]
 
         for i, (label, key, value) in enumerate(fields, start=1):
@@ -97,6 +99,20 @@ class EditItemDialog(ctk.CTkToplevel):
         ).pack(side="left", padx=10)
 
     # ------------------------------------------------------------------
+
+    def _load_storage_locations(self):
+        """Load available storage locations from database."""
+        try:
+            cursor = self.db.conn.cursor()
+            cursor.execute(
+                "SELECT DISTINCT storage_location FROM inventory_items WHERE storage_location != '' ORDER BY storage_location"
+            )
+            locations = [row[0] for row in cursor.fetchall()]
+            # Update the storage_location field if it's a dropdown
+            if "storage_location" in self._vars and hasattr(self, 'storage_menu'):
+                self.storage_menu.configure(values=locations)
+        except Exception:
+            pass
 
     def _save(self):
         if not self.is_admin:

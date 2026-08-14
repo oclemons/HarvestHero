@@ -108,6 +108,12 @@ class InventoryList(ctk.CTkFrame):
                 command=self._bulk_import_barcodes,
             ).pack(side="right", padx=4)
             ctk.CTkButton(
+                top, text="🏠 Manage Shelves", width=140, height=36,
+                fg_color=ACCENT_GOLD, hover_color=BG_HOVER,
+                text_color="#1B1F24", corner_radius=8,
+                command=self._manage_shelves,
+            ).pack(side="right", padx=4)
+            ctk.CTkButton(
                 top, text="Archive", width=90, height=36,
                 fg_color=ACCENT_RED, hover_color="#b91c1c",
                 text_color="white", corner_radius=8,
@@ -275,6 +281,10 @@ class InventoryList(ctk.CTkFrame):
     def _bulk_import_barcodes(self):
         from barcode_importer import BarcodeImporterDialog
         BarcodeImporterDialog(self, self.db, on_complete=self.load_items)
+
+    def _manage_shelves(self):
+        from shelf_manager import ShelfManagerDialog
+        ShelfManagerDialog(self, self.db, on_complete=self.load_items)
 
     def _selected_item(self):
         sel = self.tree.selection()

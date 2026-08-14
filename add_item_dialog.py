@@ -10,11 +10,12 @@ class AddItemDialog(ctk.CTkToplevel):
         self.db = db
         self.on_complete = on_complete
         self.title("Add New Inventory Item")
-        self.geometry("500x530")
+        self.geometry("500x600")
         self.resizable(False, False)
         self.grab_set()
         self._build()
         self.after(100, self.lift)
+        self._load_storage_locations()
 
     # ------------------------------------------------------------------
 
@@ -50,6 +51,13 @@ class AddItemDialog(ctk.CTkToplevel):
                          placeholder_text=placeholder).grid(
                 row=i, column=1, padx=(0, 16), pady=8, sticky="ew")
 
+        # Storage location dropdown
+        ctk.CTkLabel(form, text="Storage Location", anchor="w").grid(
+            row=len(fields), column=0, padx=16, pady=8, sticky="w")
+        self.storage_var = tk.StringVar(value="")
+        self.storage_menu = ctk.CTkOptionMenu(form, variable=self.storage_var, values=[])
+        self.storage_menu.grid(row=len(fields), column=1, padx=(0, 16), pady=8, sticky="ew")
+
         self.status_lbl = ctk.CTkLabel(self, text="", text_color="#e74c3c")
         self.status_lbl.pack(pady=(4, 0))
 
@@ -69,6 +77,20 @@ class AddItemDialog(ctk.CTkToplevel):
         ).pack(side="left", padx=10)
 
     # ------------------------------------------------------------------
+
+    def _load_storage_locations(self):
+        """Load available storage locations from database."""
+        try:
+            cursor = self.db.conn.cursor()
+            cursor.execute(
+                "SELECT DISTINCT storage_location FROM inventory_items WHERE storage_location != '' ORDER BY storage_location"
+            )
+            locations = [row[0] for row in cursor.fetchall()]
+            self.storage_menu.configure(values=locations)
+            if locations:
+                self.storage_var.set(locations[0])
+        except Exception:
+            pass
 
     def _submit(self):
         barcode   = self._vars["barcode"].get().strip()
@@ -94,8 +116,22 @@ class AddItemDialog(ctk.CTkToplevel):
             return
 
         barcode_out = self._vars["barcode_out"].get().strip()
+        storage_location = self.storage_var.get().strip()
+        
         ok, msg = self.db.add_item(barcode, item_name, category, qty, min_stock, notes, barcode_out)
         if ok:
+            # Update storage location if provided
+            if storage_location:
+                try:
+                    cursor = self.db.conn.cursor()
+                    cursor.execute(
+                        "UPDATE inventory_items SET storage_location = ? WHERE barcode = ?",
+                        (storage_location, barcode)
+                    )
+                    self.db.conn.commit()
+                except Exception as e:
+                    print(f"Error updating storage location: {e}")
+            
             messagebox.showinfo("Item Added",
                                 f"'{item_name}' has been added to inventory.")
             if self.on_complete:
