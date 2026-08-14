@@ -88,11 +88,13 @@ class ShelfManagerDialog(ctk.CTkToplevel):
 
         # Get all unique storage locations from database
         try:
-            cursor = self.db.conn.cursor()
-            cursor.execute(
-                "SELECT DISTINCT storage_location FROM inventory_items WHERE storage_location != '' ORDER BY storage_location"
-            )
-            locations = [row[0] for row in cursor.fetchall()]
+            # Get all items and extract unique storage locations
+            all_items = self.db.get_all_items()
+            locations = sorted(set(
+                item["storage_location"] 
+                for item in all_items 
+                if item.get("storage_location")
+            ))
         except Exception as e:
             self.status_lbl.configure(text=f"Error loading shelves: {str(e)}")
             return
@@ -171,12 +173,9 @@ class ShelfManagerDialog(ctk.CTkToplevel):
 
         # Item count
         try:
-            cursor = self.db.conn.cursor()
-            cursor.execute(
-                "SELECT COUNT(*) FROM inventory_items WHERE storage_location = ?",
-                (f"{section}, {shelf}",)
-            )
-            count = cursor.fetchone()[0]
+            all_items = self.db.get_all_items()
+            count = sum(1 for item in all_items 
+                       if item.get("storage_location") == f"{section}, {shelf}")
             ctk.CTkLabel(
                 item_frame, text=f"{count} item(s)",
                 font=ctk.CTkFont(size=10),
@@ -187,12 +186,9 @@ class ShelfManagerDialog(ctk.CTkToplevel):
 
         # Delete button (only if empty)
         try:
-            cursor = self.db.conn.cursor()
-            cursor.execute(
-                "SELECT COUNT(*) FROM inventory_items WHERE storage_location = ?",
-                (f"{section}, {shelf}",)
-            )
-            count = cursor.fetchone()[0]
+            all_items = self.db.get_all_items()
+            count = sum(1 for item in all_items 
+                       if item.get("storage_location") == f"{section}, {shelf}")
             if count == 0:
                 ctk.CTkButton(
                     item_frame, text="Delete", width=70, height=28,
@@ -239,12 +235,10 @@ class ShelfManagerDialog(ctk.CTkToplevel):
 
             # Check if shelf already exists
             try:
-                cursor = self.db.conn.cursor()
-                cursor.execute(
-                    "SELECT COUNT(*) FROM inventory_items WHERE storage_location = ?",
-                    (f"{section}, {shelf}",)
-                )
-                if cursor.fetchone()[0] > 0:
+                all_items = self.db.get_all_items()
+                count = sum(1 for item in all_items 
+                           if item.get("storage_location") == f"{section}, {shelf}")
+                if count > 0:
                     messagebox.showwarning("Exists", f"{section}, {shelf} already exists")
                     return
             except Exception as e:
@@ -274,12 +268,10 @@ class ShelfManagerDialog(ctk.CTkToplevel):
 
         try:
             # Verify shelf is empty
-            cursor = self.db.conn.cursor()
-            cursor.execute(
-                "SELECT COUNT(*) FROM inventory_items WHERE storage_location = ?",
-                (f"{section}, {shelf}",)
-            )
-            if cursor.fetchone()[0] > 0:
+            all_items = self.db.get_all_items()
+            count = sum(1 for item in all_items 
+                       if item.get("storage_location") == f"{section}, {shelf}")
+            if count > 0:
                 messagebox.showwarning("Not Empty", "Cannot delete shelf with items")
                 return
 
