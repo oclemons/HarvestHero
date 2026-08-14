@@ -129,6 +129,12 @@ class ShoppingListScreen(ctk.CTkFrame):
         ).pack(side="left")
 
         ctk.CTkButton(
+            actions, text="Auto-Populate Low Stock", width=180, height=34, corner_radius=8,
+            fg_color=ACCENT_GOLD, hover_color="#FF9500",
+            text_color="white", command=self._auto_populate_low_stock,
+        ).pack(side="right", padx=(0, 6))
+
+        ctk.CTkButton(
             actions, text="Refresh", width=90, height=34, corner_radius=8,
             fg_color="transparent", hover_color=BG_HOVER,
             text_color=TEXT_SECONDARY, border_width=1, border_color=BORDER_COLOR,
@@ -211,3 +217,56 @@ class ShoppingListScreen(ctk.CTkFrame):
         self.db.clear_shopping_list()
         self.load()
         Toast.show(self, "Shopping list cleared", kind="success")
+
+    def _auto_populate_low_stock(self):
+        """Automatically add all low-stock items to the shopping list."""
+        try:
+            # Get all inventory items
+            cursor = self.db.conn.cursor()
+            cursor.execute("""
+                SELECT id, barcode, item_name, category, current_quantity, minimum_stock
+                FROM inventory_items
+                WHERE minimum_stock > 0 AND current_quantity < minimum_stock
+            """)
+            low_stock_items = cursor.fetchall()
+            
+            if not low_stock_items:
+                Toast.show(self, "No low-stock items found", kind="info")
+                return
+            
+            # Add each low-stock item to shopping list
+            added_count = 0
+            for item in low_stock_items:
+                item_id, barcode, item_name, category, current_qty, min_stock = item
+                # Calculate quantity needed
+                qty_needed = min_stock - current_qty
+                
+                # Check if item is already in shopping list
+                cursor.execute(
+                    "SELECT id FROM shopping_list_items WHERE barcode = ?",
+                    (barcode,)
+                )
+                existing = cursor.fetchone()
+                
+                if existing:
+                    # Update quantity if already exists
+                    cursor.execute(
+                        "UPDATE shopping_list_items SET quantity_needed = ? WHERE barcode = ?",
+                        (qty_needed, barcode)
+                    )
+                else:
+                    # Add new item to shopping list
+                    cursor.execute(
+                        """INSERT INTO shopping_list_items 
+                           (barcode, item_name, category, quantity_needed)
+                           VALUES (?, ?, ?, ?)""",
+                        (barcode, item_name, category or "", qty_needed)
+                    )
+                    added_count += 1
+            
+            self.db.conn.commit()
+            self.load()
+            Toast.show(self, f"Added {added_count} low-stock items to shopping list", kind="success")
+        except Exception as e:
+            Toast.show(self, f"Error: {str(e)}", kind="error")
+            print(f"Auto-populate error: {e}")

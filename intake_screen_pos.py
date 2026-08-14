@@ -48,7 +48,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
         main.grid_columnconfigure(0, weight=1)
-        main.grid_columnconfigure(1, weight=0)
+        main.grid_columnconfigure(1, weight=1)  # Give cart more width
         main.grid_rowconfigure(2, weight=1)
 
         # Top: Transaction type selector
@@ -98,8 +98,9 @@ class IntakeScreenPOS(ctk.CTkFrame):
         btn_frame.grid_columnconfigure(1, weight=1)
 
         self.transaction_type = tk.StringVar(value="OUT")
+        is_admin = self.user.get("role") == "admin"
 
-        # Scan OUT button (Distribution to client)
+        # Scan OUT button (Distribution to client) - Admin only
         self.btn_scan_out = ctk.CTkButton(
             btn_frame, text="📤 SCAN OUT (Distribution)", height=44,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
@@ -107,7 +108,10 @@ class IntakeScreenPOS(ctk.CTkFrame):
             text_color="white",
             command=lambda: self._set_transaction_type("OUT")
         )
-        self.btn_scan_out.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        if is_admin:
+            self.btn_scan_out.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        else:
+            self.btn_scan_out.grid_remove()  # Hide for staff
 
         # Scan IN button (Receiving items)
         self.btn_scan_in = ctk.CTkButton(
@@ -117,7 +121,12 @@ class IntakeScreenPOS(ctk.CTkFrame):
             text_color="white",
             command=lambda: self._set_transaction_type("IN")
         )
-        self.btn_scan_in.grid(row=0, column=1, sticky="ew")
+        # For staff, make SCAN IN take full width; for admin, share space
+        if is_admin:
+            self.btn_scan_in.grid(row=0, column=1, sticky="ew")
+        else:
+            self.btn_scan_in.grid(row=0, column=0, columnspan=2, sticky="ew")
+            self.transaction_type.set("IN")  # Default to IN for staff
 
         # Status label
         self.transaction_status_label = ctk.CTkLabel(
@@ -163,10 +172,14 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
     def _build_client_selector(self, parent):
         """Build client selection with searchable dropdown (SCAN OUT only)."""
-        # Only show for SCAN OUT (distribution)
+        # Only show for SCAN OUT (distribution) and admin users
+        is_admin = self.user.get("role") == "admin"
         self.client_frame = ctk.CTkFrame(parent, fg_color=BG_ELEVATED, corner_radius=12,
                             border_width=1, border_color=BORDER_SUBTLE)
-        self.client_frame.pack(fill="x", pady=(0, 16))
+        if is_admin:
+            self.client_frame.pack(fill="x", pady=(0, 16))
+        else:
+            self.client_frame.pack_forget()  # Hide for staff
         self.client_frame.grid_columnconfigure(0, weight=1)
         
         # Store reference for show/hide
@@ -781,7 +794,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
             Toast.show(self, msg, "error")
 
     def _build_cart_footer(self, parent):
-        """Build cart footer with total."""
+        """Build cart footer with total and optional weight entry."""
         footer = ctk.CTkFrame(parent, fg_color="transparent")
         footer.pack(fill="x", pady=(0, 12))
         footer.grid_columnconfigure(0, weight=1)
@@ -804,6 +817,39 @@ class IntakeScreenPOS(ctk.CTkFrame):
             text_color=TEXT_PRIMARY
         )
         self.total_label.pack(anchor="w", padx=12, pady=(0, 8))
+
+        # Weight entry frame (optional, for admin to manually enter total pounds)
+        weight_frame = ctk.CTkFrame(footer, fg_color=BG_ELEVATED, corner_radius=8,
+                                   border_width=1, border_color=BORDER_SUBTLE)
+        weight_frame.pack(fill="x", pady=(0, 12))
+        weight_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            weight_frame, text="TOTAL POUNDS (Optional)",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+            text_color=TEXT_MUTED
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 4))
+
+        self.pounds_var = tk.StringVar(value="")
+        self.pounds_entry = ctk.CTkEntry(
+            weight_frame,
+            textvariable=self.pounds_var,
+            placeholder_text="Enter total pounds (optional)...",
+            height=40,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=BG_OVERLAY,
+            border_color=BORDER_COLOR,
+            text_color=TEXT_PRIMARY,
+            placeholder_text_color=TEXT_MUTED,
+            corner_radius=6,
+        )
+        self.pounds_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
+
+        ctk.CTkLabel(
+            weight_frame, text="lbs",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=TEXT_MUTED
+        ).grid(row=1, column=2, sticky="e", padx=(0, 12))
 
     def _build_actions(self, parent):
         """Build action buttons."""
@@ -843,8 +889,17 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
         success, msg, data = self.cart.complete_transaction()
         if success:
-            # Calculate total pounds for the transaction
-            total_pounds = self._calculate_transaction_pounds(data)
+            # Get total pounds - use manually entered value if provided, otherwise calculate
+            pounds_input = self.pounds_var.get().strip()
+            if pounds_input:
+                try:
+                    total_pounds = float(pounds_input)
+                except ValueError:
+                    Toast.show(self, "Invalid pounds value. Please enter a number.", "error")
+                    return
+            else:
+                # Calculate total pounds for the transaction
+                total_pounds = self._calculate_transaction_pounds(data)
             
             # Record visit in database for SCAN OUT transactions
             trans_type = self.transaction_type.get()
@@ -890,6 +945,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
         """Reset form to initial state."""
         self.client_search_var.set("")
         self.barcode_var.set("")
+        self.pounds_var.set("")
         self._update_cart_display()
         self.client_entry.focus()
 

@@ -28,12 +28,12 @@ from theme_environments import get_theme_environment
 _NAV_ITEMS = [
     ("Dashboard",   "⊡", "dashboard",   False, True),
     ("Intake",      "⬡", "scan",         False, True),
-    ("Inventory",   "▤", "inventory",    False, True),
-    ("Clients",     "☺", "clients",      False, True),
-    ("History",     "≡", "history",      False, True),
-    ("Shopping List", "☐", "shopping",   False, True),
-    ("Reports",     "◫", "reports",      False, False),  # admin only view
-    ("AI Command",  "◉", "ai",           False, False),
+    ("Inventory",   "▤", "inventory",    False, False),  # admin only
+    ("Clients",     "☺", "clients",      False, False),  # admin only
+    ("History",     "≡", "history",      False, False),  # admin only
+    ("Shopping List", "☐", "shopping",   False, False),  # admin only
+    ("Reports",     "◫", "reports",      False, False),  # admin only
+    ("AI Command",  "◉", "ai",           False, False),  # admin only
     ("Admin",       "⊞", "users",        True,  False),
     ("Environment", "▦", "environment",  True,  False),
     ("Settings",    "⚙", "settings",     False, True),
