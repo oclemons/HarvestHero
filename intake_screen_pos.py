@@ -734,7 +734,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
     def _reset_form(self):
         """Reset form to initial state."""
-        self.client_var.set("Select a client...")
+        self.client_search_var.set("")
         self.barcode_var.set("")
         self._update_cart_display()
-        self.client_combo.focus()
+        self.client_entry.focus()
