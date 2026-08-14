@@ -140,6 +140,8 @@ class IntakeScreenPOS(ctk.CTkFrame):
             )
             # SHOW client selector for SCAN OUT
             self.client_frame.pack(fill="x", pady=(0, 16))
+            # Focus on client search field
+            self.after(100, lambda: self.client_entry.focus())
         else:  # IN
             self.btn_scan_in.configure(fg_color=ACCENT_GREEN, hover_color="#00aa00")
             self.btn_scan_out.configure(fg_color=BG_ELEVATED, hover_color=BG_HOVER)
