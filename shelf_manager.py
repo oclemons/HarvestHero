@@ -30,6 +30,10 @@ class ShelfManagerDialog(ctk.CTkToplevel):
         self._build()
         self.after(100, self.lift)
         self._load_shelves()
+        
+        # Set up auto-refresh every 2 seconds to sync with add item dialog
+        self._refresh_id = None
+        self._start_auto_refresh()
 
     def _build(self):
         """Build the shelf manager UI."""
@@ -70,6 +74,12 @@ class ShelfManagerDialog(ctk.CTkToplevel):
         ).pack(side="right", padx=(10, 0))
 
         ctk.CTkButton(
+            btn_frame, text="Refresh", width=110, height=40,
+            fg_color="#3498db", hover_color="#2980b9",
+            command=self._load_shelves,
+        ).pack(side="right", padx=(10, 0))
+
+        ctk.CTkButton(
             btn_frame, text="Close", width=110, height=40,
             fg_color="#7f8c8d", hover_color="#626567",
             command=self.destroy,
@@ -79,6 +89,30 @@ class ShelfManagerDialog(ctk.CTkToplevel):
             self, text="", text_color="#e74c3c", font=ctk.CTkFont(size=10)
         )
         self.status_lbl.pack(pady=(0, 10))
+
+    def _start_auto_refresh(self):
+        """Start auto-refresh to sync with add item dialog."""
+        self._refresh_id = self.after(2000, self._auto_refresh)
+    
+    def _auto_refresh(self):
+        """Auto-refresh shelves periodically."""
+        try:
+            self._load_shelves()
+        except Exception:
+            pass
+        # Schedule next refresh
+        self._refresh_id = self.after(2000, self._auto_refresh)
+    
+    def _stop_auto_refresh(self):
+        """Stop auto-refresh when dialog closes."""
+        if self._refresh_id:
+            self.after_cancel(self._refresh_id)
+            self._refresh_id = None
+    
+    def destroy(self):
+        """Clean up when dialog closes."""
+        self._stop_auto_refresh()
+        super().destroy()
 
     def _load_shelves(self):
         """Load and display all shelves from database."""
