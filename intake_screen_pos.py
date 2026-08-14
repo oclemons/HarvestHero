@@ -49,11 +49,14 @@ class IntakeScreenPOS(ctk.CTkFrame):
         main.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
         main.grid_columnconfigure(0, weight=1)
         main.grid_columnconfigure(1, weight=0)
-        main.grid_rowconfigure(1, weight=1)
+        main.grid_rowconfigure(2, weight=1)
+
+        # Top: Transaction type selector
+        self._build_transaction_type(main)
 
         # Left side: Scanner and client
         left = ctk.CTkFrame(main, fg_color="transparent")
-        left.grid(row=0, column=0, sticky="ew", padx=(0, 20))
+        left.grid(row=1, column=0, sticky="ew", padx=(0, 20))
         left.grid_columnconfigure(0, weight=1)
 
         self._build_client_selector(left)
@@ -61,7 +64,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
         # Right side: Cart
         right = ctk.CTkFrame(main, fg_color="transparent")
-        right.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(20, 0))
+        right.grid(row=1, column=1, rowspan=2, sticky="nsew", padx=(20, 0))
         right.grid_rowconfigure(1, weight=1)
 
         self._build_cart_header(right)
@@ -70,20 +73,94 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
         # Bottom: Actions
         bottom = ctk.CTkFrame(main, fg_color="transparent")
-        bottom.grid(row=1, column=0, sticky="ew", pady=(20, 0))
+        bottom.grid(row=2, column=0, sticky="ew", pady=(20, 0))
         bottom.grid_columnconfigure(0, weight=1)
 
         self._build_actions(bottom)
 
-    def _build_client_selector(self, parent):
-        """Build client selection with searchable dropdown."""
-        frame = ctk.CTkFrame(parent, fg_color=BG_ELEVATED, corner_radius=12,
-                            border_width=1, border_color=BORDER_SUBTLE)
-        frame.pack(fill="x", pady=(0, 16))
+    def _build_transaction_type(self, parent):
+        """Build transaction type selector (IN or OUT)."""
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 20))
         frame.grid_columnconfigure(0, weight=1)
 
+        # Label
+        ctk.CTkLabel(
+            frame, text="TRANSACTION TYPE",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+            text_color=TEXT_MUTED
+        ).pack(anchor="w", pady=(0, 8))
+
+        # Button frame
+        btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        btn_frame.pack(fill="x")
+        btn_frame.grid_columnconfigure(0, weight=1)
+        btn_frame.grid_columnconfigure(1, weight=1)
+
+        self.transaction_type = tk.StringVar(value="OUT")
+
+        # Scan OUT button (Distribution to client)
+        self.btn_scan_out = ctk.CTkButton(
+            btn_frame, text="📤 SCAN OUT (Distribution)", height=44,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            fg_color=ACCENT_RED, hover_color="#cc0000",
+            text_color="white",
+            command=lambda: self._set_transaction_type("OUT")
+        )
+        self.btn_scan_out.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+
+        # Scan IN button (Receiving items)
+        self.btn_scan_in = ctk.CTkButton(
+            btn_frame, text="📥 SCAN IN (Receiving)", height=44,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            fg_color=ACCENT_GREEN, hover_color="#00aa00",
+            text_color="white",
+            command=lambda: self._set_transaction_type("IN")
+        )
+        self.btn_scan_in.grid(row=0, column=1, sticky="ew")
+
+        # Status label
+        self.transaction_status_label = ctk.CTkLabel(
+            frame, text="📤 Distribution Mode: Scanning items to give to client",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=ACCENT_RED
+        )
+        self.transaction_status_label.pack(anchor="w", pady=(8, 0))
+
+    def _set_transaction_type(self, trans_type):
+        """Set transaction type (IN or OUT)."""
+        self.transaction_type.set(trans_type)
+        
+        if trans_type == "OUT":
+            self.btn_scan_out.configure(fg_color=ACCENT_RED, hover_color="#cc0000")
+            self.btn_scan_in.configure(fg_color=BG_ELEVATED, hover_color=BG_HOVER)
+            self.transaction_status_label.configure(
+                text="📤 Distribution Mode: Scanning items to give to client",
+                text_color=ACCENT_RED
+            )
+        else:  # IN
+            self.btn_scan_in.configure(fg_color=ACCENT_GREEN, hover_color="#00aa00")
+            self.btn_scan_out.configure(fg_color=BG_ELEVATED, hover_color=BG_HOVER)
+            self.transaction_status_label.configure(
+                text="📥 Receiving Mode: Scanning items coming into pantry",
+                text_color=ACCENT_GREEN
+            )
+        
+        # Clear cart and client when switching modes
+        self.client_search_var.set("")
+        self.cart.cancel_transaction()
+        self._update_cart_display()
+
+    def _build_client_selector(self, parent):
+        """Build client selection with searchable dropdown."""
+        # Only show for SCAN OUT (distribution)
+        self.client_frame = ctk.CTkFrame(parent, fg_color=BG_ELEVATED, corner_radius=12,
+                            border_width=1, border_color=BORDER_SUBTLE)
+        self.client_frame.pack(fill="x", pady=(0, 16))
+        self.client_frame.grid_columnconfigure(0, weight=1)
+
         # Header with label and help text
-        header = ctk.CTkFrame(frame, fg_color="transparent")
+        header = ctk.CTkFrame(self.client_frame, fg_color="transparent")
         header.pack(fill="x", padx=16, pady=(12, 8))
         header.grid_columnconfigure(0, weight=1)
 
@@ -96,7 +173,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
                     text_color=TEXT_MUTED).pack(anchor="e", side="right")
 
         # Search/input frame
-        input_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        input_frame = ctk.CTkFrame(self.client_frame, fg_color="transparent")
         input_frame.pack(fill="x", padx=16, pady=(0, 8))
         input_frame.grid_columnconfigure(0, weight=1)
 
@@ -137,7 +214,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
         # Dropdown frame (scrollable list)
         self.client_dropdown_frame = ctk.CTkScrollableFrame(
-            frame, fg_color=BG_OVERLAY, corner_radius=8,
+            self.client_frame, fg_color=BG_OVERLAY, corner_radius=8,
             border_width=1, border_color=BORDER_SUBTLE,
             height=150
         )
