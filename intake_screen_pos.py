@@ -135,16 +135,20 @@ class IntakeScreenPOS(ctk.CTkFrame):
             self.btn_scan_out.configure(fg_color=ACCENT_RED, hover_color="#cc0000")
             self.btn_scan_in.configure(fg_color=BG_ELEVATED, hover_color=BG_HOVER)
             self.transaction_status_label.configure(
-                text="📤 Distribution Mode: Scanning items to give to client",
+                text="📤 Distribution Mode: Select client to scan items for",
                 text_color=ACCENT_RED
             )
+            # SHOW client selector for SCAN OUT
+            self.client_frame.pack(fill="x", pady=(0, 16))
         else:  # IN
             self.btn_scan_in.configure(fg_color=ACCENT_GREEN, hover_color="#00aa00")
             self.btn_scan_out.configure(fg_color=BG_ELEVATED, hover_color=BG_HOVER)
             self.transaction_status_label.configure(
-                text="📥 Receiving Mode: Scanning items coming into pantry",
+                text="📥 Receiving Mode: Scanning items coming into pantry (no client needed)",
                 text_color=ACCENT_GREEN
             )
+            # HIDE client selector for SCAN IN
+            self.client_frame.pack_forget()
         
         # Clear cart and client when switching modes
         self.client_search_var.set("")
@@ -152,12 +156,15 @@ class IntakeScreenPOS(ctk.CTkFrame):
         self._update_cart_display()
 
     def _build_client_selector(self, parent):
-        """Build client selection with searchable dropdown."""
+        """Build client selection with searchable dropdown (SCAN OUT only)."""
         # Only show for SCAN OUT (distribution)
         self.client_frame = ctk.CTkFrame(parent, fg_color=BG_ELEVATED, corner_radius=12,
                             border_width=1, border_color=BORDER_SUBTLE)
         self.client_frame.pack(fill="x", pady=(0, 16))
         self.client_frame.grid_columnconfigure(0, weight=1)
+        
+        # Store reference for show/hide
+        self._client_frame_widget = self.client_frame
 
         # Header with label and help text
         header = ctk.CTkFrame(self.client_frame, fg_color="transparent")
@@ -380,10 +387,18 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
     def _on_barcode_scanned(self):
         """Handle barcode scan (Enter pressed)."""
-        if not self.cart.is_transaction_active():
-            Toast.show(self, "Please select a client first", "warning")
-            self.barcode_entry.delete(0, "end")
-            return
+        trans_type = self.transaction_type.get()
+        
+        # For SCAN OUT, require client selection
+        if trans_type == "OUT":
+            if not self.cart.is_transaction_active():
+                Toast.show(self, "Please select a client first", "warning")
+                self.barcode_entry.delete(0, "end")
+                return
+        else:  # SCAN IN
+            # For SCAN IN, start transaction if not already active
+            if not self.cart.is_transaction_active():
+                self.cart.start_transaction(0, "Receiving Items")
 
         barcode = self.barcode_var.get().strip()
         if not barcode:
