@@ -163,12 +163,12 @@ _PRESETS: dict = {
 # ---------------------------------------------------------------------------
 
 def get_active_theme_name() -> str:
-    """Return the stored theme name, defaulting to 'Harvest Hero'."""
+    """Return the stored theme name, defaulting to 'Harvest Green'."""
     try:
         with open(_CFG) as f:
-            return json.load(f).get("theme", "Harvest Hero")
+            return json.load(f).get("theme", "Harvest Green")
     except Exception:
-        return "Harvest Hero"
+        return "Harvest Green"
 
 
 def set_theme_name(name: str) -> None:
@@ -194,14 +194,14 @@ def get_preset_names() -> list:
 
 
 def get_preset_swatches(name: str) -> list:
-    return _PRESETS.get(name, _PRESETS["Luxury Dark"]).get("swatches", [])
+    return _PRESETS.get(name, _PRESETS["Harvest Green"]).get("swatches", [])
 
 
 # ---------------------------------------------------------------------------
 # Apply active preset at import time
 # ---------------------------------------------------------------------------
 
-_t = _PRESETS.get(get_active_theme_name(), _PRESETS["Harvest Hero"])
+_t = _PRESETS.get(get_active_theme_name(), _PRESETS["Harvest Green"])
 
 BG_BASE      = _t["BG_BASE"]
 BG_SURFACE   = _t["BG_SURFACE"]
