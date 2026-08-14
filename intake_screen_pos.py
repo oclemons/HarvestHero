@@ -129,6 +129,18 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
     def _set_transaction_type(self, trans_type):
         """Set transaction type (IN or OUT)."""
+        current_type = self.transaction_type.get()
+        
+        # Only reset if actually switching modes
+        if current_type != trans_type:
+            print(f"DEBUG: Switching from {current_type} to {trans_type}")
+            # Clear cart and client when switching modes
+            self.client_search_var.set("")
+            self.cart.cancel_transaction()
+            self._update_cart_display()
+        else:
+            print(f"DEBUG: Already in {trans_type} mode, not resetting")
+        
         self.transaction_type.set(trans_type)
         
         if trans_type == "OUT":
@@ -151,11 +163,6 @@ class IntakeScreenPOS(ctk.CTkFrame):
             )
             # HIDE client selector for SCAN IN
             self.client_frame.pack_forget()
-        
-        # Clear cart and client when switching modes
-        self.client_search_var.set("")
-        self.cart.cancel_transaction()
-        self._update_cart_display()
 
     def _build_client_selector(self, parent):
         """Build client selection with searchable dropdown (SCAN OUT only)."""
