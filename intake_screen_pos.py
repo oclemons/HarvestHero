@@ -439,29 +439,35 @@ class IntakeScreenPOS(ctk.CTkFrame):
             self.barcode_entry.delete(0, "end")
 
     def _get_ai_category(self, item_name: str) -> str:
-        """Use AI to guess category from item name."""
+        """Use AI to guess category from item name based on PACKAGING TYPE.
+        
+        Categories are based on HOW the item is packaged/formatted:
+        - Canned Item: In a can
+        - Boxed Item: In a box
+        - Bagged Item: In a bag
+        - Jarred Item: In a jar
+        - Bottled Item: In a bottle
+        - Dry Item: Dry goods (beans, rice, etc.)
+        - Fresh Item: Fresh produce
+        """
         if not item_name:
             return "Uncategorized"
         
         item_lower = item_name.lower()
         
-        # Category mapping based on keywords
-        category_keywords = {
-            "Grains & Cereals": ["cereal", "oatmeal", "grits", "rice", "grain"],
-            "Canned Vegetables": ["corn", "beans", "peas", "carrots", "vegetable", "green beans"],
-            "Canned Fruits": ["fruit", "apple", "peach", "pear", "berry"],
-            "Canned Proteins": ["fish", "meat", "tuna", "chicken", "beef", "salmon"],
-            "Canned Meals": ["soup", "stew", "chili", "ravioli", "spaghetti", "meal"],
-            "Pasta & Noodles": ["pasta", "noodle", "ramen", "spaghetti"],
-            "Baking Supplies": ["flour", "sugar", "baking", "powder", "soda", "cornstarch"],
-            "Spreads & Condiments": ["peanut butter", "jelly", "butter", "sauce", "oil", "condiment"],
-            "Dry Goods": ["bean", "lentil", "rice", "grain", "dry"],
-            "Snacks": ["snack", "chip", "cracker", "bar", "candy"],
-            "Beverages": ["drink", "juice", "milk", "coffee", "tea"],
+        # Check for packaging type first (highest priority)
+        packaging_keywords = {
+            "Canned Item": ["can", "canned", "tin", "soup", "stew", "chili", "ravioli"],
+            "Boxed Item": ["box", "boxed", "mac & cheese", "helper", "meal", "ramen"],
+            "Bagged Item": ["bag", "bagged", "cereal", "chips", "crackers", "snack", "flakes"],
+            "Jarred Item": ["jar", "jarred", "peanut butter", "jelly", "sauce"],
+            "Bottled Item": ["bottle", "bottled", "drink", "juice", "milk"],
+            "Dry Item": ["dry", "dried", "bean", "lentil", "rice", "grain", "oatmeal", "grits", "pasta", "noodle"],
+            "Fresh Item": ["fresh", "produce", "vegetable", "fruit"],
         }
         
-        # Check each category
-        for category, keywords in category_keywords.items():
+        # Check packaging type
+        for category, keywords in packaging_keywords.items():
             for keyword in keywords:
                 if keyword in item_lower:
                     return category
