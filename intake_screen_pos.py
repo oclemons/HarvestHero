@@ -322,14 +322,28 @@ class IntakeScreenPOS(ctk.CTkFrame):
             if student_id:
                 btn_text += f" ({student_id})"
 
+            # Create a frame for the client button and clear button
+            client_item_frame = ctk.CTkFrame(self.client_dropdown_frame, fg_color="transparent")
+            client_item_frame.pack(fill="x", padx=8, pady=4)
+            client_item_frame.grid_columnconfigure(0, weight=1)
+
             def make_click_handler(c):
                 """Create a click handler that logs when clicked."""
                 def handler():
                     self._select_client(c)
                 return handler
             
+            def make_clear_handler(client_name):
+                """Create a handler to clear this specific client from dropdown."""
+                def handler():
+                    # Just clear the search to hide this client
+                    self.client_search_var.set("")
+                    Toast.show(self, f"Cleared {client_name}", "info")
+                return handler
+            
+            # Client button
             btn = ctk.CTkButton(
-                self.client_dropdown_frame,
+                client_item_frame,
                 text=btn_text,
                 height=36,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
@@ -339,8 +353,23 @@ class IntakeScreenPOS(ctk.CTkFrame):
                 anchor="w",
                 command=make_click_handler(client)
             )
-            btn.pack(fill="x", padx=8, pady=4)
+            btn.grid(row=0, column=0, sticky="ew")
             self.client_buttons.append(btn)
+            
+            # Small clear button next to client name
+            clear_btn = ctk.CTkButton(
+                client_item_frame,
+                text="✕",
+                width=28,
+                height=28,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+                fg_color=ACCENT_RED,
+                hover_color="#cc0000",
+                text_color="white",
+                command=make_clear_handler(btn_text)
+            )
+            clear_btn.grid(row=0, column=1, padx=(4, 0))
+            self.client_buttons.append(clear_btn)
 
     def _select_client(self, client):
         """Select a client from the dropdown."""
