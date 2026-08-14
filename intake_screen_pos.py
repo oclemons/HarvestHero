@@ -546,7 +546,8 @@ class IntakeScreenPOS(ctk.CTkFrame):
                 text_color=TEXT_MUTED
             ).pack(pady=20)
             self.cart_info_label.configure(text="0 items • 0 units")
-            self.total_label.configure(text="0 items")
+            if hasattr(self, 'total_label'):
+                self.total_label.configure(text="0 items")
             return
 
         items = summary.get("items", [])
@@ -558,7 +559,8 @@ class IntakeScreenPOS(ctk.CTkFrame):
                 text_color=TEXT_MUTED
             ).pack(pady=20)
             self.cart_info_label.configure(text="0 items • 0 units")
-            self.total_label.configure(text="0 items")
+            if hasattr(self, 'total_label'):
+                self.total_label.configure(text="0 items")
             return
 
         # Display each item
@@ -569,7 +571,8 @@ class IntakeScreenPOS(ctk.CTkFrame):
         item_count = len(items)
         total_units = summary.get("total_units", 0)
         self.cart_info_label.configure(text=f"{item_count} items • {total_units} units")
-        self.total_label.configure(text=f"{item_count} items")
+        if hasattr(self, 'total_label'):
+            self.total_label.configure(text=f"{item_count} items")
 
     def _add_cart_item_display(self, item):
         """Add a single cart item display."""
