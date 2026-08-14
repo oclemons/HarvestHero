@@ -1,9 +1,9 @@
 """generate_barcodes.py — Render printable Code 128 barcodes for the pantry.
 
-For every item in seed_inventory.ITEMS, this script produces a Scan-In
-and a Scan-Out barcode (as Code 128, the same format a USB HID scanner
-speaks by default). All barcodes are laid out on Letter-size pages
-inside a single PDF, ready to print, cut, and stick on the shelves.
+Reads barcodes from the database and produces Scan-In and Scan-Out barcodes
+(as Code 128, the same format a USB HID scanner speaks by default). All barcodes
+are laid out on Letter-size pages inside a single PDF, ready to print, cut, and
+stick on the shelves.
 
 Layout:
   - 4 items per page (each item = one row containing Scan-In + Scan-Out
@@ -24,7 +24,7 @@ from barcode.writer import ImageWriter
 from PIL import Image, ImageDraw, ImageFont
 
 from paths import OUTPUT_DIR
-from seed_inventory import build_rows
+from database import Database
 
 # ---------------------------------------------------------------------------
 # Page + layout constants (US Letter @ 150 DPI)
@@ -211,7 +211,35 @@ def build_pdf(rows: list[dict], out_path: str) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+def get_rows_from_database():
+    """Get barcode rows from the database."""
+    db = Database()
+    items = db.get_all_items()
+    
+    rows = []
+    for item in items:
+        barcode = item.get("barcode", "").strip()
+        barcode_out = item.get("barcode_out", "").strip()
+        item_name = item.get("item_name", "Unknown")
+        storage_location = item.get("storage_location", "")
+        
+        # Only include items with at least a barcode
+        if barcode:
+            rows.append({
+                "barcode": barcode,
+                "barcode_out": barcode_out,
+                "item_name": item_name,
+                "storage_location": storage_location,
+            })
+    
+    return rows
+
+
 if __name__ == "__main__":
-    rows = build_rows()
-    out_pdf = os.path.join(OUT_DIR, "harvest_hero_barcodes.pdf")
-    build_pdf(rows, out_pdf)
+    rows = get_rows_from_database()
+    if not rows:
+        print("No items with barcodes found in database.")
+    else:
+        os.makedirs(OUT_DIR, exist_ok=True)
+        out_pdf = os.path.join(OUT_DIR, "harvest_hero_barcodes.pdf")
+        build_pdf(rows, out_pdf)

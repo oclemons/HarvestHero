@@ -102,6 +102,12 @@ class InventoryList(ctk.CTkFrame):
                 command=self._add_item,
             ).pack(side="right", padx=4)
             ctk.CTkButton(
+                top, text="📥 Bulk Import", width=120, height=36,
+                fg_color=ACCENT_GOLD, hover_color=BG_HOVER,
+                text_color="#1B1F24", corner_radius=8,
+                command=self._bulk_import_barcodes,
+            ).pack(side="right", padx=4)
+            ctk.CTkButton(
                 top, text="Archive", width=90, height=36,
                 fg_color=ACCENT_RED, hover_color="#b91c1c",
                 text_color="white", corner_radius=8,
@@ -266,6 +272,10 @@ class InventoryList(ctk.CTkFrame):
         from add_item_dialog import AddItemDialog
         AddItemDialog(self, self.db, on_complete=self.load_items)
 
+    def _bulk_import_barcodes(self):
+        from barcode_importer import BarcodeImporterDialog
+        BarcodeImporterDialog(self, self.db, on_complete=self.load_items)
+
     def _selected_item(self):
         sel = self.tree.selection()
         if not sel:
@@ -288,7 +298,7 @@ class InventoryList(ctk.CTkFrame):
         if not item:
             return
         from edit_item_dialog import EditItemDialog
-        EditItemDialog(self, self.db, item, self._after_edit)
+        EditItemDialog(self, self.db, item, self.user, self._after_edit)
 
     def _after_edit(self):
         self.load_items()

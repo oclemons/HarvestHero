@@ -5,13 +5,15 @@ import customtkinter as ctk
 
 
 class EditItemDialog(ctk.CTkToplevel):
-    def __init__(self, parent, db, item: dict, on_complete=None):
+    def __init__(self, parent, db, item: dict, user: dict = None, on_complete=None):
         super().__init__(parent)
         self.db = db
         self.item = item
+        self.user = user or {}
         self.on_complete = on_complete
+        self.is_admin = self.user.get("role") == "admin"
         self.title(f"Edit Item – {item['item_name']}")
-        self.geometry("460x460")
+        self.geometry("460x480")
         self.resizable(False, False)
         self.grab_set()
         self._build()
@@ -20,8 +22,12 @@ class EditItemDialog(ctk.CTkToplevel):
     # ------------------------------------------------------------------
 
     def _build(self):
+        title_text = "Edit Item Details"
+        if not self.is_admin:
+            title_text += " (Read-Only)"
+        
         ctk.CTkLabel(
-            self, text="Edit Item Details",
+            self, text=title_text,
             font=ctk.CTkFont(size=17, weight="bold"),
         ).pack(pady=(24, 16))
 
@@ -29,13 +35,23 @@ class EditItemDialog(ctk.CTkToplevel):
         form.pack(fill="both", expand=True, padx=28, pady=(0, 14))
         form.grid_columnconfigure(1, weight=1)
 
-        # Read-only barcode display
-        ctk.CTkLabel(form, text="Barcode:", anchor="w").grid(
+        # Barcode field - editable for admin, read-only for staff
+        ctk.CTkLabel(form, text="Barcode (SCAN_IN):", anchor="w").grid(
             row=0, column=0, padx=14, pady=8, sticky="w")
-        ctk.CTkLabel(
-            form, text=self.item["barcode"],
-            font=ctk.CTkFont(weight="bold"),
-        ).grid(row=0, column=1, padx=14, pady=8, sticky="w")
+        
+        if self.is_admin:
+            # Admin can edit barcode
+            barcode_var = tk.StringVar(value=self.item["barcode"])
+            self._vars = {"barcode": barcode_var}
+            ctk.CTkEntry(form, textvariable=barcode_var).grid(
+                row=0, column=1, padx=(0, 14), pady=8, sticky="ew")
+        else:
+            # Staff sees read-only barcode
+            ctk.CTkLabel(
+                form, text=self.item["barcode"],
+                font=ctk.CTkFont(weight="bold"),
+            ).grid(row=0, column=1, padx=14, pady=8, sticky="w")
+            self._vars = {}
 
         fields = [
             ("Item Name *",     "item_name",   self.item["item_name"]),
@@ -46,14 +62,20 @@ class EditItemDialog(ctk.CTkToplevel):
             ("Notes",           "notes",       self.item["notes"]),
         ]
 
-        self._vars = {}
         for i, (label, key, value) in enumerate(fields, start=1):
             ctk.CTkLabel(form, text=label, anchor="w").grid(
                 row=i, column=0, padx=14, pady=8, sticky="w")
             var = tk.StringVar(value=value)
             self._vars[key] = var
-            ctk.CTkEntry(form, textvariable=var).grid(
-                row=i, column=1, padx=(0, 14), pady=8, sticky="ew")
+            
+            if self.is_admin:
+                # Admin can edit all fields
+                ctk.CTkEntry(form, textvariable=var).grid(
+                    row=i, column=1, padx=(0, 14), pady=8, sticky="ew")
+            else:
+                # Staff sees read-only fields
+                entry = ctk.CTkEntry(form, textvariable=var, state="disabled")
+                entry.grid(row=i, column=1, padx=(0, 14), pady=8, sticky="ew")
 
         self.status_lbl = ctk.CTkLabel(self, text="", text_color="#e74c3c")
         self.status_lbl.pack(pady=(2, 0))
@@ -61,14 +83,15 @@ class EditItemDialog(ctk.CTkToplevel):
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
         btn_row.pack(pady=(8, 22))
 
-        ctk.CTkButton(
-            btn_row, text="Save Changes", width=140, height=40,
-            fg_color="#27ae60", hover_color="#219a52",
-            command=self._save,
-        ).pack(side="left", padx=10)
+        if self.is_admin:
+            ctk.CTkButton(
+                btn_row, text="Save Changes", width=140, height=40,
+                fg_color="#27ae60", hover_color="#219a52",
+                command=self._save,
+            ).pack(side="left", padx=10)
 
         ctk.CTkButton(
-            btn_row, text="Cancel", width=110, height=40,
+            btn_row, text="Close", width=110, height=40,
             fg_color="#7f8c8d", hover_color="#626567",
             command=self.destroy,
         ).pack(side="left", padx=10)
@@ -76,6 +99,10 @@ class EditItemDialog(ctk.CTkToplevel):
     # ------------------------------------------------------------------
 
     def _save(self):
+        if not self.is_admin:
+            messagebox.showwarning("Read-Only", "Staff accounts cannot edit items.")
+            return
+        
         item_name = self._vars["item_name"].get().strip()
         if not item_name:
             self.status_lbl.configure(text="Item Name is required.")
@@ -90,6 +117,26 @@ class EditItemDialog(ctk.CTkToplevel):
             self.status_lbl.configure(
                 text="Stock values must be non-negative whole numbers.")
             return
+
+        # Check if barcode was changed and validate uniqueness
+        new_barcode = self._vars.get("barcode", tk.StringVar()).get().strip()
+        if new_barcode and new_barcode != self.item["barcode"]:
+            # Check if new barcode already exists
+            existing = self.db.get_item_by_barcode(new_barcode)
+            if existing and existing["id"] != self.item["id"]:
+                self.status_lbl.configure(text="Barcode already exists.")
+                return
+            # Update barcode in database
+            try:
+                cursor = self.db.conn.cursor()
+                cursor.execute(
+                    "UPDATE inventory_items SET barcode = ? WHERE id = ?",
+                    (new_barcode, self.item["id"])
+                )
+                self.db.conn.commit()
+            except Exception as e:
+                self.status_lbl.configure(text=f"Error updating barcode: {str(e)}")
+                return
 
         self.db.update_item(
             self.item["id"], item_name,
