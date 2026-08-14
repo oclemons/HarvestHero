@@ -76,7 +76,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
         self._build_actions(bottom)
 
     def _build_client_selector(self, parent):
-        """Build client selection dropdown."""
+        """Build client selection with searchable dropdown."""
         frame = ctk.CTkFrame(parent, fg_color=BG_ELEVATED, corner_radius=12,
                             border_width=1, border_color=BORDER_SUBTLE)
         frame.pack(fill="x", pady=(0, 16))
@@ -86,36 +86,48 @@ class IntakeScreenPOS(ctk.CTkFrame):
                     font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
                     text_color=TEXT_MUTED).pack(anchor="w", padx=16, pady=(12, 4))
 
-        # Client selector frame with refresh button
-        selector_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        selector_frame.pack(fill="x", padx=16, pady=(0, 12))
-        selector_frame.grid_columnconfigure(0, weight=1)
+        # Search/input frame
+        input_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        input_frame.pack(fill="x", padx=16, pady=(0, 8))
+        input_frame.grid_columnconfigure(0, weight=1)
 
-        self.client_var = tk.StringVar(value="Select a client...")
-        self.clients_data = []
+        self.client_search_var = tk.StringVar()
+        self.client_search_var.trace_add("write", self._on_client_search)
 
-        self.client_combo = ctk.CTkComboBox(
-            selector_frame,
-            variable=self.client_var,
-            values=[],
+        self.client_entry = ctk.CTkEntry(
+            input_frame,
+            textvariable=self.client_search_var,
+            placeholder_text="Search or select client...",
             height=44,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=BG_OVERLAY,
             border_color=ACCENT,
             border_width=2,
             text_color=TEXT_PRIMARY,
-            dropdown_font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            command=self._on_client_selected
+            placeholder_text_color=TEXT_MUTED,
+            corner_radius=8,
         )
-        self.client_combo.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.client_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
         # Refresh button
         ctk.CTkButton(
-            selector_frame, text="↻", width=40, height=44,
+            input_frame, text="↻", width=40, height=44,
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             fg_color=ACCENT, hover_color="#FF9500",
             command=self._refresh_client_list
         ).grid(row=0, column=1)
+
+        # Dropdown frame (scrollable list)
+        self.client_dropdown_frame = ctk.CTkScrollableFrame(
+            frame, fg_color=BG_OVERLAY, corner_radius=8,
+            border_width=1, border_color=BORDER_SUBTLE,
+            height=150
+        )
+        self.client_dropdown_frame.pack(fill="both", expand=False, padx=16, pady=(0, 12))
+        self.client_dropdown_frame.grid_columnconfigure(0, weight=1)
+
+        self.clients_data = []
+        self.client_buttons = []
 
         # Load clients on startup
         self._refresh_client_list()
@@ -125,43 +137,78 @@ class IntakeScreenPOS(ctk.CTkFrame):
         try:
             clients = self.db.get_all_pantry_clients() or []
             self.clients_data = clients
-            
-            # Build client names list
-            client_names = [f"{c.get('id', '')} - {c.get('first_name', '')} {c.get('last_name', '')}" 
-                           for c in clients]
-            
-            # Update combo box values
-            self.client_combo.configure(values=client_names)
-            
-            # Reset selection
-            self.client_var.set("Select a client...")
-            if self.cart.is_transaction_active():
-                self.cart.cancel_transaction()
-            self._update_cart_display()
+            self.client_search_var.set("")
+            self._update_client_dropdown()
         except Exception as e:
             print(f"Error refreshing clients: {e}")
 
-    def _on_client_selected(self, choice):
-        """Handle client selection."""
-        if choice == "Select a client...":
-            self.cart.cancel_transaction()
-            self._update_cart_display()
+    def _on_client_search(self, *args):
+        """Handle client search input."""
+        self._update_client_dropdown()
+
+    def _update_client_dropdown(self):
+        """Update the dropdown list based on search."""
+        # Clear existing buttons
+        for btn in self.client_buttons:
+            btn.destroy()
+        self.client_buttons = []
+
+        search_text = self.client_search_var.get().lower().strip()
+
+        # Filter clients based on search
+        filtered = []
+        for client in self.clients_data:
+            first = client.get('first_name', '').lower()
+            last = client.get('last_name', '').lower()
+            student_id = client.get('student_id', '').lower()
+            
+            if not search_text or search_text in first or search_text in last or search_text in student_id:
+                filtered.append(client)
+
+        # Show message if no results
+        if not filtered:
+            ctk.CTkLabel(
+                self.client_dropdown_frame,
+                text="No clients found",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=TEXT_MUTED
+            ).pack(pady=8)
             return
 
-        # Extract client ID from choice
-        try:
-            client_id = int(choice.split(" - ")[0])
-            client_name = choice.split(" - ")[1]
+        # Create buttons for each client
+        for client in filtered[:20]:  # Limit to 20 results
+            btn_text = f"{client.get('first_name', '')} {client.get('last_name', '')}"
+            student_id = client.get('student_id', '')
+            if student_id:
+                btn_text += f" ({student_id})"
 
-            success, msg = self.cart.start_transaction(client_id, client_name)
-            if success:
-                Toast.show(self, msg, "success")
-                self._update_cart_display()
-                self.barcode_entry.focus()
-            else:
-                Toast.show(self, msg, "error")
-        except Exception as e:
-            Toast.show(self, f"Error: {str(e)}", "error")
+            btn = ctk.CTkButton(
+                self.client_dropdown_frame,
+                text=btn_text,
+                height=36,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                fg_color=BG_ELEVATED,
+                hover_color=BG_HOVER,
+                text_color=TEXT_PRIMARY,
+                anchor="w",
+                command=lambda c=client: self._select_client(c)
+            )
+            btn.pack(fill="x", padx=8, pady=4)
+            self.client_buttons.append(btn)
+
+    def _select_client(self, client):
+        """Select a client from the dropdown."""
+        client_id = client.get('id')
+        client_name = f"{client.get('first_name', '')} {client.get('last_name', '')}"
+
+        success, msg = self.cart.start_transaction(client_id, client_name)
+        if success:
+            Toast.show(self, msg, "success")
+            self.client_search_var.set(client_name)
+            self._update_cart_display()
+            self.barcode_entry.focus()
+        else:
+            Toast.show(self, msg, "error")
 
     def _build_barcode_input(self, parent):
         """Build barcode input field."""
