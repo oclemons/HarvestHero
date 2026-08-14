@@ -347,7 +347,7 @@ class AppWindow(ctk.CTkFrame):
                 return ShoppingListScreen(self._content, self.db, embedded=True)
             if key == "weights":
                 from weight_management_screen import WeightManagementScreen
-                return WeightManagementScreen(self._content, self.db, self.user, on_update=self._refresh_current_page)
+                return WeightManagementScreen(self._content, self.db, self.user, on_update=None)
             if key == "reports":
                 from reports import Reports
                 return Reports(self._content, self.db, embedded=True)
