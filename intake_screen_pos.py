@@ -223,7 +223,15 @@ class IntakeScreenPOS(ctk.CTkFrame):
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             fg_color=ACCENT, hover_color="#FF9500",
             command=self._refresh_client_list
-        ).grid(row=0, column=2)
+        ).grid(row=0, column=2, padx=(0, 8))
+        
+        # Clear history button
+        ctk.CTkButton(
+            input_frame, text="🗑", width=40, height=44,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            fg_color="#666666", hover_color="#888888",
+            command=self._clear_client_history
+        ).grid(row=0, column=3)
 
         # Dropdown frame (scrollable list)
         self.client_dropdown_frame = ctk.CTkScrollableFrame(
@@ -247,8 +255,16 @@ class IntakeScreenPOS(ctk.CTkFrame):
             self.clients_data = clients
             self.client_search_var.set("")
             self._update_client_dropdown()
+            Toast.show(self, "Client list refreshed", "success")
         except Exception as e:
             print(f"Error refreshing clients: {e}")
+            Toast.show(self, "Error refreshing clients", "error")
+
+    def _clear_client_history(self):
+        """Clear the search field and reset."""
+        self.client_search_var.set("")
+        self._update_client_dropdown()
+        Toast.show(self, "Search cleared", "info")
 
     def _on_client_search(self, *args):
         """Handle client search input."""
