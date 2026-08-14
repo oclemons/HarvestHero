@@ -126,6 +126,11 @@ class TransactionHistory(ctk.CTkFrame):
         export_box = ctk.CTkFrame(f, fg_color="transparent")
         export_box.pack(side="right", pady=(15, 0))
         ctk.CTkButton(
+            export_box, text="Clear History", width=110, height=36, corner_radius=8,
+            fg_color=ACCENT_RED, hover_color="#cc0000",
+            text_color="white", command=self._clear_history,
+        ).pack(side="right", padx=(4, 0))
+        ctk.CTkButton(
             export_box, text="Export Excel", width=110, height=36, corner_radius=8,
             fg_color=ACCENT_BLUE, hover_color="#1d4ed8",
             text_color="white", command=self.export_excel,
@@ -235,6 +240,27 @@ class TransactionHistory(ctk.CTkFrame):
             var.set("")
         self.type_var.set("All")
         self.load()
+
+    def _clear_history(self):
+        """Clear all transaction history from the database."""
+        # Ask for confirmation
+        from tkinter import messagebox
+        result = messagebox.askyesno(
+            "Clear History",
+            "Are you sure you want to delete ALL transaction history?\n\n"
+            "This action cannot be undone.",
+            icon=messagebox.WARNING
+        )
+        
+        if result:
+            try:
+                # Delete all transactions
+                self.db.clear_all_transactions()
+                Toast.show(self, "Transaction history cleared", "success")
+                self.load()
+            except Exception as e:
+                Toast.show(self, f"Error clearing history: {str(e)}", "error")
+                print(f"Error clearing history: {e}")
 
     # ------------------------------------------------------------------
     # Export

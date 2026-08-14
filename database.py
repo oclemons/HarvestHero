@@ -1714,3 +1714,15 @@ class Database:
         rows = conn.execute(query, params).fetchall()
         conn.close()
         return [dict(r) for r in rows]
+
+    def clear_all_transactions(self) -> None:
+        """Delete all transaction history from the database.
+        
+        WARNING: This action cannot be undone!
+        """
+        conn = self._connect()
+        try:
+            conn.execute("DELETE FROM transactions")
+            conn.commit()
+        finally:
+            conn.close()
