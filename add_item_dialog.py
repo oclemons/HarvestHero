@@ -51,12 +51,13 @@ class AddItemDialog(ctk.CTkToplevel):
                          placeholder_text=placeholder).grid(
                 row=i, column=1, padx=(0, 16), pady=8, sticky="ew")
 
-        # Storage location dropdown
+        # Storage location entry (text field instead of dropdown)
         ctk.CTkLabel(form, text="Storage Location", anchor="w").grid(
             row=len(fields), column=0, padx=16, pady=8, sticky="w")
         self.storage_var = tk.StringVar(value="")
-        self.storage_menu = ctk.CTkOptionMenu(form, variable=self.storage_var, values=[])
-        self.storage_menu.grid(row=len(fields), column=1, padx=(0, 16), pady=8, sticky="ew")
+        ctk.CTkEntry(form, textvariable=self.storage_var,
+                     placeholder_text="e.g. Section 1, Shelf A").grid(
+            row=len(fields), column=1, padx=(0, 16), pady=8, sticky="ew")
 
         self.status_lbl = ctk.CTkLabel(self, text="", text_color="#e74c3c")
         self.status_lbl.pack(pady=(4, 0))
@@ -79,20 +80,10 @@ class AddItemDialog(ctk.CTkToplevel):
     # ------------------------------------------------------------------
 
     def _load_storage_locations(self):
-        """Load available storage locations from database."""
-        try:
-            # Get all items and extract unique storage locations
-            all_items = self.db.get_all_items()
-            locations = sorted(set(
-                item["storage_location"] 
-                for item in all_items 
-                if item.get("storage_location")
-            ))
-            self.storage_menu.configure(values=locations)
-            if locations:
-                self.storage_var.set(locations[0])
-        except Exception:
-            pass
+        """Load available storage locations from database (for reference)."""
+        # This method is kept for compatibility but no longer needed
+        # since storage location is now a text entry field
+        pass
 
     def _submit(self):
         barcode   = self._vars["barcode"].get().strip()
