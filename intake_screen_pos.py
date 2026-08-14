@@ -320,6 +320,11 @@ class IntakeScreenPOS(ctk.CTkFrame):
 
         print(f"DEBUG: Selecting client: {client_name} (ID: {client_id})")
         
+        # Cancel any existing transaction first
+        if self.cart.is_transaction_active():
+            print(f"DEBUG: Cancelling existing transaction before starting new one")
+            self.cart.cancel_transaction()
+        
         success, msg = self.cart.start_transaction(client_id, client_name)
         print(f"DEBUG: start_transaction result: success={success}, msg={msg}")
         
