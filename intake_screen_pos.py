@@ -256,10 +256,12 @@ class IntakeScreenPOS(ctk.CTkFrame):
         self.client_buttons = []
 
         search_text = self.client_search_var.get().lower().strip()
+        print(f"DEBUG: _update_client_dropdown called with search_text='{search_text}'")
 
         # If no search text, show all clients
         if not search_text:
             filtered = self.clients_data
+            print(f"DEBUG: No search text, showing all {len(self.clients_data)} clients")
         else:
             # Filter clients based on search
             filtered = []
@@ -275,9 +277,11 @@ class IntakeScreenPOS(ctk.CTkFrame):
                     search_text in full_name or 
                     search_text in student_id):
                     filtered.append(client)
+            print(f"DEBUG: Found {len(filtered)} matching clients")
 
         # Show message if no results
         if not filtered:
+            print(f"DEBUG: No clients found, showing message")
             msg_label = ctk.CTkLabel(
                 self.client_dropdown_frame,
                 text="No clients found",
@@ -289,16 +293,20 @@ class IntakeScreenPOS(ctk.CTkFrame):
             return
 
         # Create buttons for each client
+        print(f"DEBUG: Creating {len(filtered[:20])} client buttons")
         for client in filtered[:20]:  # Limit to 20 results
             first_name = client.get('first_name', '').strip()
             last_name = client.get('last_name', '').strip()
             student_id = client.get('student_id', '').strip()
+            client_id = client.get('id')
             
             # Build display text
             btn_text = f"{first_name} {last_name}".strip()
             if student_id:
                 btn_text += f" ({student_id})"
 
+            print(f"DEBUG: Creating button for client: {btn_text} (ID: {client_id})")
+            
             btn = ctk.CTkButton(
                 self.client_dropdown_frame,
                 text=btn_text,
@@ -312,6 +320,7 @@ class IntakeScreenPOS(ctk.CTkFrame):
             )
             btn.pack(fill="x", padx=8, pady=4)
             self.client_buttons.append(btn)
+            print(f"DEBUG: Button created and packed")
 
     def _select_client(self, client):
         """Select a client from the dropdown."""
