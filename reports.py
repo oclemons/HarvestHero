@@ -48,6 +48,7 @@ class Reports(ctk.CTkFrame):
             ("↓  Scan In History",    lambda: self._rpt_transactions("SCAN_IN")),
             ("↑  Scan Out History",   lambda: self._rpt_transactions("SCAN_OUT")),
             ("◯  Recipient History",  self._rpt_recipients),
+            ("⚖  Client Distribution", self._rpt_client_distribution),
         ]
         for label, cmd in report_defs:
             ctk.CTkButton(
@@ -228,6 +229,31 @@ class Reports(ctk.CTkFrame):
                  t["category"], t["quantity"], t["username"])
                 for t in txns]
         self._fill(rows)
+
+    def _rpt_client_distribution(self):
+        """Display client distribution history with pounds received."""
+        self.title_lbl.configure(text="Client Distribution History (with Pounds)")
+        hdrs   = ["Visit Date", "Client Name", "Pounds Received", "Recorded By", "Notes"]
+        widths = [140, 200, 150, 120, 200]
+        self._setup_cols(hdrs, widths)
+        
+        try:
+            conn = self.db.conn
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT pv.visit_date, pc.first_name || ' ' || pc.last_name as client_name,
+                       pv.pounds_received, pv.recorded_by, pv.notes
+                FROM pantry_visits pv
+                JOIN pantry_clients pc ON pv.client_id = pc.id
+                ORDER BY pv.visit_date DESC
+            """)
+            rows = cursor.fetchall()
+            
+            data = [(r[0], r[1], f"{r[2]:.2f} lbs" if r[2] else "—", r[3] or "—", r[4] or "—")
+                    for r in rows]
+            self._fill(data)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load client distribution: {str(e)}")
 
     # ------------------------------------------------------------------
     # Export
