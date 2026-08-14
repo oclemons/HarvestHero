@@ -580,8 +580,29 @@ class LoginScreen(ctk.CTkFrame):
         return None
 
     def _open_forgot_password(self) -> None:
-        from forgot_password_dialog import ForgotPasswordDialog
-        ForgotPasswordDialog(self.winfo_toplevel(), self.db)
+        # Check if username entered is an admin
+        username = self.username_entry.get().strip()
+        is_admin = False
+        admin_email = None
+        
+        if username:
+            try:
+                user = self.db.get_user(username)
+                if user and user.get("role") == "admin":
+                    is_admin = True
+                    # Try to get admin email from user data
+                    admin_email = user.get("email")
+            except Exception:
+                pass
+        
+        if is_admin and admin_email:
+            # Admin reset via email
+            from admin_password_reset_dialog import AdminPasswordResetDialog
+            AdminPasswordResetDialog(self.winfo_toplevel(), self.db, username, admin_email)
+        else:
+            # Staff reset via admin authorization
+            from forgot_password_dialog import ForgotPasswordDialog
+            ForgotPasswordDialog(self.winfo_toplevel(), self.db, is_admin=False)
 
     def _set_status(self, msg: str) -> None:
         self.status_label.configure(text=msg)

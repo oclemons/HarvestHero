@@ -17,15 +17,20 @@ class ForgotPasswordDialog(ctk.CTkToplevel):
     """
     Password reset flow that requires an admin to authorize the change.
 
-    Steps:
+    For Staff:
       1. Enter the account username to reset.
       2. Enter new password + confirm.
       3. Provide any active admin's username + password to authorize.
+    
+    For Admins:
+      1. Email-based reset with secure token.
     """
 
-    def __init__(self, parent, db):
+    def __init__(self, parent, db, is_admin: bool = False, admin_email: str = None):
         super().__init__(parent)
         self.db = db
+        self.is_admin = is_admin
+        self.admin_email = admin_email
         self.title("Reset Password")
         self.geometry("460x540")
         self.resizable(False, False)
@@ -51,13 +56,24 @@ class ForgotPasswordDialog(ctk.CTkToplevel):
             text_color=TEXT_PRIMARY, anchor="w",
         ).grid(row=0, column=0, sticky="w")
 
-        ctk.CTkLabel(
-            inner,
-            text="An admin must authorize this reset.\n"
-                 "Contact your administrator for password reset.",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=TEXT_MUTED, anchor="w",
-        ).grid(row=1, column=0, sticky="w", pady=(4, 20))
+        if self.is_admin:
+            # Admin reset via email
+            ctk.CTkLabel(
+                inner,
+                text="For security, admin password resets require email verification.\n"
+                     "A secure reset token will be sent to your email.",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=TEXT_MUTED, anchor="w",
+            ).grid(row=1, column=0, sticky="w", pady=(4, 20))
+        else:
+            # Staff reset via admin authorization
+            ctk.CTkLabel(
+                inner,
+                text="An admin must authorize this reset.\n"
+                     "Contact your administrator for password reset.",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=TEXT_MUTED, anchor="w",
+            ).grid(row=1, column=0, sticky="w", pady=(4, 20))
 
         # ── Section 1: Account to reset ──────────────────────────────
         self._section_label(inner, "ACCOUNT TO RESET", row=2)
