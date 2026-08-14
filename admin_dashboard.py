@@ -84,6 +84,7 @@ class AdminDashboard(ctk.CTkFrame):
         
         self._build_header(wrap)
         self._build_quick_actions(wrap)  # At top, right after header
+        self._build_monthly_weight_stats(wrap)  # Monthly weight statistics
         self._build_alerts(wrap)
         self._build_ava_insights(wrap)
         self._build_activity(wrap)
@@ -242,6 +243,70 @@ class AdminDashboard(ctk.CTkFrame):
     def _populate_kpis(self):
         pass
 
+    def _build_monthly_weight_stats(self, p):
+        """Build monthly weight statistics widgets."""
+        ctk.CTkLabel(
+            p, text="MONTHLY WEIGHT SUMMARY",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+            text_color=TEXT_MUTED, anchor="w",
+        ).grid(row=1, column=0, sticky="w", pady=(20, 4))
+
+        stats_row = ctk.CTkFrame(p, fg_color="transparent")
+        stats_row.grid(row=2, column=0, sticky="ew", pady=(0, 20))
+        stats_row.grid_columnconfigure(0, weight=1)
+        stats_row.grid_columnconfigure(1, weight=1)
+        stats_row.grid_columnconfigure(2, weight=1)
+        stats_row.grid_columnconfigure(3, weight=1)
+
+        try:
+            # Get current month data
+            current_month = self.db.get_current_month_year()
+            
+            # Get client visits for this month
+            conn = self.db._connect()
+            cursor = conn.cursor()
+            
+            # Count visits this month
+            cursor.execute("""
+                SELECT COUNT(*) as visit_count,
+                       SUM(pounds_received) as total_pounds_received
+                FROM pantry_visits
+                WHERE strftime('%Y-%m', visit_date) = strftime('%Y-%m', 'now', 'localtime')
+            """)
+            visit_data = cursor.fetchone()
+            visit_count = visit_data[0] or 0
+            pounds_received = visit_data[1] or 0.0
+            
+            # Get weight summary for current month
+            cursor.execute("""
+                SELECT SUM(current_pounds) as total_current,
+                       SUM(donated_pounds) as total_donated,
+                       SUM(discarded_pounds) as total_discarded
+                FROM inventory_items
+            """)
+            weight_data = cursor.fetchone()
+            current_pounds = weight_data[0] or 0.0
+            donated_pounds = weight_data[1] or 0.0
+            discarded_pounds = weight_data[2] or 0.0
+            
+            conn.close()
+            
+            # Create widgets
+            _kpi(stats_row, "📊 Client Visits", str(visit_count), 
+                 f"this month", ACCENT_BLUE, col=0, row=0)
+            
+            _kpi(stats_row, "📥 Pounds Received", f"{pounds_received:.1f} lbs",
+                 f"from clients", ACCENT_GREEN, col=1, row=0)
+            
+            _kpi(stats_row, "📦 Current Inventory", f"{current_pounds:.1f} lbs",
+                 f"in stock", ACCENT_GOLD, col=2, row=0)
+            
+            _kpi(stats_row, "♻️ Discarded", f"{discarded_pounds:.1f} lbs",
+                 f"removed", ACCENT_RED, col=3, row=0)
+            
+        except Exception as e:
+            print(f"Error building monthly weight stats: {e}")
+
     def _build_alerts(self, p):
         ctk.CTkLabel(
             p, text="ALERTS",
@@ -250,7 +315,7 @@ class AdminDashboard(ctk.CTkFrame):
         ).grid(row=3, column=0, sticky="w", pady=(20, 4))
 
         row = ctk.CTkFrame(p, fg_color="transparent")
-        row.grid(row=4, column=0, sticky="ew", pady=(0, 20))
+        row.grid(row=4, column=0, sticky="ew", pady=(0, 20))  # Updated row number
         row.grid_columnconfigure(0, weight=1)
         row.grid_columnconfigure(1, weight=1)
 
