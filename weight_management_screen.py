@@ -160,40 +160,25 @@ class WeightManagementScreen(ctk.CTkFrame):
 
         # Load weights from database
         try:
-            # For current month, get from inventory_items
-            if self._current_month == self.db.get_current_month_year():
-                cursor = self.db.conn.cursor()
-                cursor.execute("""
-                    SELECT id, item_name, current_pounds, donated_pounds,
-                           discarded_pounds, calculated_remaining
-                    FROM inventory_items
-                    WHERE current_pounds > 0 OR donated_pounds > 0 OR discarded_pounds > 0
-                    ORDER BY item_name
-                """)
-                rows = cursor.fetchall()
-            else:
-                # For past months, get from weight_history
-                cursor = self.db.conn.cursor()
-                cursor.execute("""
-                    SELECT i.id, i.item_name, wh.current_pounds, wh.donated_pounds,
-                           wh.discarded_pounds, wh.calculated_remaining
-                    FROM weight_history wh
-                    JOIN inventory_items i ON wh.item_id = i.id
-                    WHERE wh.month_year = ?
-                    ORDER BY i.item_name
-                """, (self._current_month,))
-                rows = cursor.fetchall()
-
+            # Get all items with weights
+            items = self.db.get_all_items()
+            
             # Add rows to treeview
-            for row in rows:
-                item_id, name, current, donated, discarded, remaining = row
-                self.tree.insert("", "end", iid=str(item_id), values=(
-                    name,
-                    f"{current:.2f}",
-                    f"{donated:.2f}",
-                    f"{discarded:.2f}",
-                    f"{remaining:.2f}",
-                ))
+            for item in items:
+                current = item.get("current_pounds", 0.0)
+                donated = item.get("donated_pounds", 0.0)
+                discarded = item.get("discarded_pounds", 0.0)
+                remaining = item.get("calculated_remaining", 0.0)
+                
+                # Only show items with weight data
+                if current > 0 or donated > 0 or discarded > 0:
+                    self.tree.insert("", "end", iid=str(item["id"]), values=(
+                        item["item_name"],
+                        f"{current:.2f}",
+                        f"{donated:.2f}",
+                        f"{discarded:.2f}",
+                        f"{remaining:.2f}",
+                    ))
 
             # Update summary
             summary = self.db.get_weight_summary(self._current_month)

@@ -1867,25 +1867,41 @@ class Database:
         conn = self._connect()
         try:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT 
-                    SUM(current_pounds) as total_current,
-                    SUM(donated_pounds) as total_donated,
-                    SUM(discarded_pounds) as total_discarded,
-                    SUM(calculated_remaining) as total_remaining,
-                    COUNT(*) as item_count
-                FROM weight_history
-                WHERE month_year = ?
-            """, (month_year,))
+            current_month = self.get_current_month_year()
+            
+            # For current month, get from inventory_items
+            if month_year == current_month:
+                cursor.execute("""
+                    SELECT 
+                        SUM(current_pounds) as total_current,
+                        SUM(donated_pounds) as total_donated,
+                        SUM(discarded_pounds) as total_discarded,
+                        SUM(calculated_remaining) as total_remaining,
+                        COUNT(*) as item_count
+                    FROM inventory_items
+                    WHERE current_pounds > 0 OR donated_pounds > 0 OR discarded_pounds > 0
+                """)
+            else:
+                # For past months, get from weight_history
+                cursor.execute("""
+                    SELECT 
+                        SUM(current_pounds) as total_current,
+                        SUM(donated_pounds) as total_donated,
+                        SUM(discarded_pounds) as total_discarded,
+                        SUM(calculated_remaining) as total_remaining,
+                        COUNT(*) as item_count
+                    FROM weight_history
+                    WHERE month_year = ?
+                """, (month_year,))
             
             row = cursor.fetchone()
-            if row:
+            if row and row[4]:  # Check if item_count > 0
                 return {
-                    "total_current": row[0] or 0.0,
-                    "total_donated": row[1] or 0.0,
-                    "total_discarded": row[2] or 0.0,
-                    "total_remaining": row[3] or 0.0,
-                    "item_count": row[4] or 0
+                    "total_current": float(row[0] or 0.0),
+                    "total_donated": float(row[1] or 0.0),
+                    "total_discarded": float(row[2] or 0.0),
+                    "total_remaining": float(row[3] or 0.0),
+                    "item_count": int(row[4] or 0)
                 }
             return {
                 "total_current": 0.0,
@@ -1894,7 +1910,14 @@ class Database:
                 "total_remaining": 0.0,
                 "item_count": 0
             }
-        except Exception:
-            return {}
+        except Exception as e:
+            print(f"Error getting weight summary: {e}")
+            return {
+                "total_current": 0.0,
+                "total_donated": 0.0,
+                "total_discarded": 0.0,
+                "total_remaining": 0.0,
+                "item_count": 0
+            }
         finally:
             conn.close()
