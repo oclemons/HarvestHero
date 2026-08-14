@@ -328,8 +328,8 @@ class AppWindow(ctk.CTkFrame):
                     return StaffDashboard(self._content, self.db, self.user,
                                          navigate=self.navigate)
             if key == "scan":
-                from scan_screen import ScanScreen
-                return ScanScreen(self._content, self.db, self.user)
+                from intake_screen_pos import IntakeScreenPOS
+                return IntakeScreenPOS(self._content, self.db, self.user)
             if key == "inventory":
                 from inventory_list import InventoryList
                 return InventoryList(self._content, self.db, self.user,
