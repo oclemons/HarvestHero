@@ -396,13 +396,18 @@ class IntakeScreenPOS(ctk.CTkFrame):
                 self.barcode_entry.delete(0, "end")
                 return
 
+            # Get category, with AI auto-fill if missing
+            category = item.get("category", "").strip()
+            if not category:
+                category = self._get_ai_category(item.get("item_name", ""))
+
             # Add to cart
             success, msg = self.cart.add_item(
                 item_id=item.get("id"),
                 barcode=item.get("barcode"),
                 item_name=item.get("item_name"),
                 quantity=1,
-                category=item.get("category", ""),
+                category=category,
                 storage_location=item.get("storage_location", "")
             )
 
@@ -414,8 +419,40 @@ class IntakeScreenPOS(ctk.CTkFrame):
             else:
                 Toast.show(self, msg, "error")
         except Exception as e:
+            print(f"Barcode scan error: {e}")
             Toast.show(self, f"Error: {str(e)}", "error")
             self.barcode_entry.delete(0, "end")
+
+    def _get_ai_category(self, item_name: str) -> str:
+        """Use AI to guess category from item name."""
+        if not item_name:
+            return "Uncategorized"
+        
+        item_lower = item_name.lower()
+        
+        # Category mapping based on keywords
+        category_keywords = {
+            "Grains & Cereals": ["cereal", "oatmeal", "grits", "rice", "grain"],
+            "Canned Vegetables": ["corn", "beans", "peas", "carrots", "vegetable", "green beans"],
+            "Canned Fruits": ["fruit", "apple", "peach", "pear", "berry"],
+            "Canned Proteins": ["fish", "meat", "tuna", "chicken", "beef", "salmon"],
+            "Canned Meals": ["soup", "stew", "chili", "ravioli", "spaghetti", "meal"],
+            "Pasta & Noodles": ["pasta", "noodle", "ramen", "spaghetti"],
+            "Baking Supplies": ["flour", "sugar", "baking", "powder", "soda", "cornstarch"],
+            "Spreads & Condiments": ["peanut butter", "jelly", "butter", "sauce", "oil", "condiment"],
+            "Dry Goods": ["bean", "lentil", "rice", "grain", "dry"],
+            "Snacks": ["snack", "chip", "cracker", "bar", "candy"],
+            "Beverages": ["drink", "juice", "milk", "coffee", "tea"],
+        }
+        
+        # Check each category
+        for category, keywords in category_keywords.items():
+            for keyword in keywords:
+                if keyword in item_lower:
+                    return category
+        
+        # Default category
+        return "Uncategorized"
 
     def _build_cart_header(self, parent):
         """Build cart header."""
