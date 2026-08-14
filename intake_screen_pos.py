@@ -805,13 +805,19 @@ class IntakeScreenPOS(ctk.CTkFrame):
             trans_type = self.transaction_type.get()
             if trans_type == "OUT":
                 try:
+                    import json
                     client_id = data.get("client_id")
                     username = self.user.get("username", "unknown") if self.user else "unknown"
+                    
+                    # Convert items to JSON format for storage
+                    items_json = json.dumps(data.get("items", []))
+                    
                     self.db.record_pantry_visit(
                         client_id=client_id,
                         pounds_received=total_pounds,
                         recorded_by=username,
-                        notes=data.get("notes", "")
+                        notes=data.get("notes", ""),
+                        items_json=items_json
                     )
                 except Exception as e:
                     print(f"Error recording visit: {e}")

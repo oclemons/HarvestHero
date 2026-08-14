@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS pantry_visits (
     client_id      INTEGER NOT NULL,
     visit_date     TEXT    DEFAULT (datetime('now', 'localtime')),
     pounds_received REAL   DEFAULT 0,
+    items_json     TEXT    DEFAULT '[]',
     notes          TEXT    DEFAULT '',
     recorded_by    TEXT    DEFAULT '',
     FOREIGN KEY (client_id) REFERENCES pantry_clients(id) ON DELETE CASCADE
@@ -234,6 +235,7 @@ class Database:
             "ALTER TABLE inventory_items ADD COLUMN nutrition_data TEXT DEFAULT '{}'",
             "ALTER TABLE inventory_items ADD COLUMN overstock_threshold INTEGER DEFAULT 0",
             "ALTER TABLE inventory_items ADD COLUMN weight_per_unit REAL DEFAULT 0.0",
+            "ALTER TABLE pantry_visits ADD COLUMN items_json TEXT DEFAULT '[]'",
             "ALTER TABLE users ADD COLUMN has_completed_tour INTEGER DEFAULT 0",
             "ALTER TABLE users ADD COLUMN full_name TEXT DEFAULT ''",
             "ALTER TABLE users ADD COLUMN last_login TEXT DEFAULT ''",
@@ -288,13 +290,14 @@ class Database:
                     client_id      INTEGER NOT NULL,
                     visit_date     TEXT    DEFAULT (datetime('now', 'localtime')),
                     pounds_received REAL   DEFAULT 0,
+                    items_json     TEXT    DEFAULT '[]',
                     notes          TEXT    DEFAULT '',
                     recorded_by    TEXT    DEFAULT '',
                     FOREIGN KEY (client_id) REFERENCES pantry_clients(id) ON DELETE CASCADE
                 );
                 INSERT INTO pantry_visits_new
-                    (id, client_id, visit_date, pounds_received, notes, recorded_by)
-                SELECT id, client_id, visit_date, pounds_received, notes, recorded_by
+                    (id, client_id, visit_date, pounds_received, items_json, notes, recorded_by)
+                SELECT id, client_id, visit_date, pounds_received, '[]', notes, recorded_by
                 FROM pantry_visits;
                 DROP TABLE pantry_visits;
                 ALTER TABLE pantry_visits_new RENAME TO pantry_visits;
@@ -1372,13 +1375,13 @@ class Database:
     # ------------------------------------------------------------------
 
     def record_pantry_visit(self, client_id: int, pounds_received: float,
-                             recorded_by: str, notes: str = "") -> int:
+                             recorded_by: str, notes: str = "", items_json: str = "[]") -> int:
         conn = self._connect()
         cur = conn.execute(
             """INSERT INTO pantry_visits
-                   (client_id, pounds_received, recorded_by, notes)
-               VALUES (?, ?, ?, ?)""",
-            (client_id, pounds_received, recorded_by, notes),
+                   (client_id, pounds_received, recorded_by, notes, items_json)
+               VALUES (?, ?, ?, ?, ?)""",
+            (client_id, pounds_received, recorded_by, notes, items_json),
         )
         conn.commit()
         new_id = cur.lastrowid
