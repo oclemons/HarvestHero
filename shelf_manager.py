@@ -268,10 +268,21 @@ class ShelfManagerDialog(ctk.CTkToplevel):
                 print(f"[DEBUG] add_item returned: ok={ok}, msg={msg}")
                 
                 if ok:
-                    print(f"[DEBUG] Shelf created successfully")
-                    messagebox.showinfo("Success", f"Shelf '{shelf}' added to {section}.\nYou can now add items to this shelf.")
-                    add_dialog.destroy()
-                    self._load_shelves()
+                    # Verify the shelf was actually created
+                    print(f"[DEBUG] Verifying shelf creation...")
+                    all_items = self.db.get_all_items()
+                    verify_count = sum(1 for item in all_items 
+                                      if item.get("storage_location") == storage_location)
+                    print(f"[DEBUG] Verification: found {verify_count} items with this location")
+                    
+                    if verify_count > 0:
+                        print(f"[DEBUG] Shelf verified successfully")
+                        messagebox.showinfo("Success", f"Shelf '{shelf}' added to {section}.\nYou can now add items to this shelf.")
+                        add_dialog.destroy()
+                        self._load_shelves()
+                    else:
+                        print(f"[DEBUG] Verification failed - shelf not found in database")
+                        messagebox.showerror("Error", "Shelf was created but verification failed. Please try again.")
                 else:
                     print(f"[DEBUG] add_item failed: {msg}")
                     messagebox.showerror("Error", f"Failed to create shelf: {msg}")
