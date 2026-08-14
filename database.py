@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     nutrition_data   TEXT    DEFAULT '{}',
     weight_per_unit  REAL    DEFAULT 0.0,
     notes            TEXT    DEFAULT '',
+    current_pounds   REAL    DEFAULT 0.0,
+    donated_pounds   REAL    DEFAULT 0.0,
+    discarded_pounds REAL    DEFAULT 0.0,
+    calculated_remaining REAL DEFAULT 0.0,
     created_at       TEXT    DEFAULT (datetime('now', 'localtime')),
     updated_at       TEXT    DEFAULT (datetime('now', 'localtime'))
 );
@@ -192,6 +196,31 @@ CREATE TABLE IF NOT EXISTS archived_transactions (
     notes            TEXT    DEFAULT '',
     archived_at      TEXT    DEFAULT (datetime('now', 'localtime')),
     archived_by      TEXT    DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS weight_history (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id             INTEGER NOT NULL,
+    month_year          TEXT    NOT NULL,
+    current_pounds      REAL    DEFAULT 0.0,
+    donated_pounds      REAL    DEFAULT 0.0,
+    discarded_pounds    REAL    DEFAULT 0.0,
+    calculated_remaining REAL   DEFAULT 0.0,
+    recorded_date       TEXT    DEFAULT (datetime('now', 'localtime')),
+    recorded_by         TEXT    DEFAULT '',
+    notes               TEXT    DEFAULT '',
+    FOREIGN KEY (item_id) REFERENCES inventory_items(id) ON DELETE CASCADE,
+    UNIQUE(item_id, month_year)
+);
+
+CREATE TABLE IF NOT EXISTS monthly_reports (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    month_year      TEXT    NOT NULL UNIQUE,
+    report_type     TEXT    DEFAULT 'weights',
+    generated_date  TEXT    DEFAULT (datetime('now', 'localtime')),
+    generated_by    TEXT    DEFAULT '',
+    report_data     TEXT    DEFAULT '{}',
+    export_format   TEXT    DEFAULT 'csv'
 );
 """
 
@@ -1724,5 +1753,148 @@ class Database:
         try:
             conn.execute("DELETE FROM transactions")
             conn.commit()
+        finally:
+            conn.close()
+
+    # ------------------------------------------------------------------
+    # Weight Tracking Methods
+    # ------------------------------------------------------------------
+
+    def get_current_month_year(self) -> str:
+        """Get current month/year string (e.g., 'August 2024')."""
+        from datetime import datetime
+        return datetime.now().strftime("%B %Y")
+
+    def update_item_weights(self, item_id: int, current_pounds: float, 
+                           donated_pounds: float, discarded_pounds: float,
+                           notes: str = "", username: str = ""):
+        """Update weight fields for an item and calculate remaining."""
+        conn = self._connect()
+        try:
+            # Calculate remaining
+            calculated_remaining = current_pounds + donated_pounds - discarded_pounds
+            
+            # Update inventory_items
+            conn.execute("""
+                UPDATE inventory_items 
+                SET current_pounds = ?, donated_pounds = ?, discarded_pounds = ?,
+                    calculated_remaining = ?, updated_at = datetime('now', 'localtime')
+                WHERE id = ?
+            """, (current_pounds, donated_pounds, discarded_pounds, 
+                  calculated_remaining, item_id))
+            
+            conn.commit()
+            return True, "Weights updated successfully"
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def archive_monthly_weights(self, month_year: str, username: str = ""):
+        """Archive all current weights to weight_history for a specific month."""
+        conn = self._connect()
+        try:
+            # Get all items with weights
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, current_pounds, donated_pounds, discarded_pounds,
+                       calculated_remaining FROM inventory_items
+                WHERE current_pounds > 0 OR donated_pounds > 0 OR discarded_pounds > 0
+            """)
+            items = cursor.fetchall()
+            
+            # Archive each item's weights
+            for item_id, curr, donated, discarded, remaining in items:
+                conn.execute("""
+                    INSERT OR REPLACE INTO weight_history
+                    (item_id, month_year, current_pounds, donated_pounds, 
+                     discarded_pounds, calculated_remaining, recorded_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (item_id, month_year, curr, donated, discarded, remaining, username))
+            
+            conn.commit()
+            return True, f"Archived weights for {month_year}"
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def get_monthly_weights(self, month_year: str = None) -> list:
+        """Get all weights for a specific month (or current month if not specified)."""
+        if month_year is None:
+            month_year = self.get_current_month_year()
+        
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT wh.id, wh.item_id, i.item_name, i.category, i.storage_location,
+                       wh.current_pounds, wh.donated_pounds, wh.discarded_pounds,
+                       wh.calculated_remaining, wh.recorded_date, wh.recorded_by
+                FROM weight_history wh
+                JOIN inventory_items i ON wh.item_id = i.id
+                WHERE wh.month_year = ?
+                ORDER BY i.item_name
+            """, (month_year,))
+            
+            rows = cursor.fetchall()
+            return [dict(zip([d[0] for d in cursor.description], row)) for row in rows]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
+    def get_all_months(self) -> list:
+        """Get all months with weight history data."""
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT DISTINCT month_year FROM weight_history
+                ORDER BY month_year DESC
+            """)
+            return [row[0] for row in cursor.fetchall()]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
+    def get_weight_summary(self, month_year: str = None) -> dict:
+        """Get summary statistics for weights in a month."""
+        if month_year is None:
+            month_year = self.get_current_month_year()
+        
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    SUM(current_pounds) as total_current,
+                    SUM(donated_pounds) as total_donated,
+                    SUM(discarded_pounds) as total_discarded,
+                    SUM(calculated_remaining) as total_remaining,
+                    COUNT(*) as item_count
+                FROM weight_history
+                WHERE month_year = ?
+            """, (month_year,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "total_current": row[0] or 0.0,
+                    "total_donated": row[1] or 0.0,
+                    "total_discarded": row[2] or 0.0,
+                    "total_remaining": row[3] or 0.0,
+                    "item_count": row[4] or 0
+                }
+            return {
+                "total_current": 0.0,
+                "total_donated": 0.0,
+                "total_discarded": 0.0,
+                "total_remaining": 0.0,
+                "item_count": 0
+            }
+        except Exception:
+            return {}
         finally:
             conn.close()

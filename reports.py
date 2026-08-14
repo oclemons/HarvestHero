@@ -63,6 +63,15 @@ class Reports(ctk.CTkFrame):
             fill="x", padx=12, pady=16)
 
         ctk.CTkButton(
+            side, text="⚖ Weight Reports", width=186, height=38, corner_radius=8,
+            fg_color="#9b59b6", hover_color="#8e44ad",
+            text_color="white", command=self._open_advanced_reports,
+        ).pack(pady=3, padx=12)
+
+        ctk.CTkFrame(side, height=1, fg_color=BORDER_COLOR).pack(
+            fill="x", padx=12, pady=16)
+
+        ctk.CTkButton(
             side, text="Export CSV", width=186, height=38, corner_radius=8,
             fg_color=ACCENT_GREEN, hover_color="#16a34a",
             text_color="white", command=self.export_csv,
@@ -292,3 +301,8 @@ class Reports(ctk.CTkFrame):
             ws.append(list(row))
         wb.save(path)
         Toast.show(self, f"Excel saved: {path}", kind="success")
+
+    def _open_advanced_reports(self):
+        """Open the advanced reports dialog for weight tracking."""
+        from advanced_reports import AdvancedReportsDialog
+        AdvancedReportsDialog(self, self.db)

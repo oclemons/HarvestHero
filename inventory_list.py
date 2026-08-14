@@ -125,6 +125,12 @@ class InventoryList(ctk.CTkFrame):
                 text_color="white", corner_radius=8,
                 command=self.edit_selected,
             ).pack(side="right", padx=4)
+            ctk.CTkButton(
+                top, text="⚖ Weights", width=100, height=36,
+                fg_color="#9b59b6", hover_color="#8e44ad",
+                text_color="white", corner_radius=8,
+                command=self._edit_weights,
+            ).pack(side="right", padx=4)
 
         # ---- content container ----
         self.content_container = ctk.CTkFrame(self, fg_color=BG_PRIMARY)
@@ -285,6 +291,13 @@ class InventoryList(ctk.CTkFrame):
     def _manage_shelves(self):
         from shelf_manager import ShelfManagerDialog
         ShelfManagerDialog(self, self.db, on_complete=self.load_items)
+
+    def _edit_weights(self):
+        item = self._selected_item()
+        if not item:
+            return
+        from weight_entry_dialog import WeightEntryDialog
+        WeightEntryDialog(self, self.db, item, self.user, on_complete=self.load_items)
 
     def _selected_item(self):
         sel = self.tree.selection()

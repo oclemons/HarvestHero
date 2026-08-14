@@ -32,6 +32,7 @@ _NAV_ITEMS = [
     ("Clients",     "☺", "clients",      False, False),  # admin only
     ("History",     "≡", "history",      False, False),  # admin only
     ("Shopping List", "☐", "shopping",   False, False),  # admin only
+    ("Weights",     "⚖", "weights",      False, False),  # admin only
     ("Reports",     "◫", "reports",      False, False),  # admin only
     ("AI Command",  "◉", "ai",           False, False),  # admin only
     ("Admin",       "⊞", "users",        True,  False),
@@ -344,6 +345,9 @@ class AppWindow(ctk.CTkFrame):
             if key == "shopping":
                 from shopping_list_screen import ShoppingListScreen
                 return ShoppingListScreen(self._content, self.db, embedded=True)
+            if key == "weights":
+                from weight_management_screen import WeightManagementScreen
+                return WeightManagementScreen(self._content, self.db, self.user, on_update=self._refresh_current_page)
             if key == "reports":
                 from reports import Reports
                 return Reports(self._content, self.db, embedded=True)
