@@ -302,50 +302,24 @@ class ShelfManagerDialog(ctk.CTkToplevel):
                 messagebox.showerror("Error", f"Error checking shelf: {str(e)}")
                 return
 
-            # Create a placeholder item to establish the shelf in the system
+            # Shelf is ready to use - just show success message
+            # Shelves are created automatically when items are added to them
             try:
-                placeholder_barcode = f"SHELF_{section.replace(' ', '_')}_{shelf.replace(' ', '_')}"
-                print(f"[DEBUG] Creating shelf marker with barcode: {placeholder_barcode}")
-                
-                # Pass storage_location directly to add_item
-                print(f"[DEBUG] Calling add_item...")
-                ok, msg = self.db.add_item(
-                    barcode=placeholder_barcode,
-                    item_name=f"[Shelf Marker] {storage_location}",
-                    category="System",
-                    quantity=0,
-                    minimum_stock=0,
-                    notes="This is a shelf marker item. Do not distribute.",
-                    barcode_out="",
-                    storage_location=storage_location
-                )
-                
-                print(f"[DEBUG] add_item returned: ok={ok}, msg={msg}")
-                
-                if ok:
-                    # Verify the shelf was actually created
-                    print(f"[DEBUG] Verifying shelf creation...")
-                    all_items = self.db.get_all_items()
-                    verify_count = sum(1 for item in all_items 
-                                      if item.get("storage_location") == storage_location)
-                    print(f"[DEBUG] Verification: found {verify_count} items with this location")
-                    
-                    if verify_count > 0:
-                        print(f"[DEBUG] ✅ SHELF CREATED SUCCESSFULLY!")
-                        messagebox.showinfo("Success", f"Shelf '{shelf}' added to {section}.\nYou can now add items to this shelf.")
-                        add_dialog.destroy()
-                        self._load_shelves()
-                    else:
-                        print(f"[DEBUG] ❌ Verification failed - shelf not found in database")
-                        messagebox.showerror("Error", "Shelf was created but verification failed. Please try again.")
-                else:
-                    print(f"[DEBUG] ❌ add_item failed: {msg}")
-                    messagebox.showerror("Error", f"Failed to create shelf: {msg}")
+                print(f"[DEBUG] ✅ SHELF READY TO USE!")
+                messagebox.showinfo("Success", 
+                    f"Shelf '{shelf}' in {section} is ready.\n\n"
+                    f"To use this shelf:\n"
+                    f"1. Go to 'Add Item'\n"
+                    f"2. Enter storage location: {storage_location}\n"
+                    f"3. Add the item\n\n"
+                    f"The shelf will appear in this list once an item is added to it.")
+                add_dialog.destroy()
+                self._load_shelves()
             except Exception as e:
                 print(f"[DEBUG] ❌ Exception: {str(e)}")
                 import traceback
                 traceback.print_exc()
-                messagebox.showerror("Error", f"Error creating shelf: {str(e)}")
+                messagebox.showerror("Error", f"Error: {str(e)}")
             
             print(f"[DEBUG] ===== ADD SHELF COMPLETE =====\n")
 

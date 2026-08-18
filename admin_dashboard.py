@@ -277,17 +277,24 @@ class AdminDashboard(ctk.CTkFrame):
             visit_count = visit_data[0] or 0
             pounds_received = visit_data[1] or 0.0
             
-            # Get weight summary for current month
-            cursor.execute("""
-                SELECT SUM(current_pounds) as total_current,
-                       SUM(donated_pounds) as total_donated,
-                       SUM(discarded_pounds) as total_discarded
-                FROM inventory_items
-            """)
-            weight_data = cursor.fetchone()
-            current_pounds = weight_data[0] or 0.0
-            donated_pounds = weight_data[1] or 0.0
-            discarded_pounds = weight_data[2] or 0.0
+            # Get weight summary - use COALESCE to handle missing columns
+            try:
+                cursor.execute("""
+                    SELECT SUM(COALESCE(current_pounds, 0)) as total_current,
+                           SUM(COALESCE(donated_pounds, 0)) as total_donated,
+                           SUM(COALESCE(discarded_pounds, 0)) as total_discarded
+                    FROM inventory_items
+                """)
+                weight_data = cursor.fetchone()
+                current_pounds = weight_data[0] or 0.0
+                donated_pounds = weight_data[1] or 0.0
+                discarded_pounds = weight_data[2] or 0.0
+            except Exception as weight_error:
+                print(f"[DEBUG] Weight columns not available: {weight_error}")
+                # Fallback to 0 if columns don't exist
+                current_pounds = 0.0
+                donated_pounds = 0.0
+                discarded_pounds = 0.0
             
             conn.close()
             
