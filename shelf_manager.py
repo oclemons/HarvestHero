@@ -245,28 +245,34 @@ class ShelfManagerDialog(ctk.CTkToplevel):
         """Show dialog to add a new shelf."""
         add_dialog = ctk.CTkToplevel(self)
         add_dialog.title("Add Shelf")
-        add_dialog.geometry("400x250")
+        add_dialog.geometry("450x350")
+        add_dialog.resizable(False, False)
         add_dialog.grab_set()
 
+        # Main frame with padding
+        main_frame = ctk.CTkFrame(add_dialog, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        main_frame.grid_columnconfigure(0, weight=1)
+
         ctk.CTkLabel(
-            add_dialog, text="Add New Shelf",
+            main_frame, text="Add New Shelf",
             font=ctk.CTkFont(size=16, weight="bold"),
-        ).pack(pady=(20, 20))
+        ).grid(row=0, column=0, sticky="w", pady=(0, 20))
 
         # Section selector
-        ctk.CTkLabel(add_dialog, text="Section:").pack(anchor="w", padx=20, pady=(0, 5))
+        ctk.CTkLabel(main_frame, text="Section:").grid(row=1, column=0, sticky="w", pady=(0, 5))
         section_var = tk.StringVar(value="Section 1")
         section_menu = ctk.CTkOptionMenu(
-            add_dialog, variable=section_var,
+            main_frame, variable=section_var,
             values=[f"Section {i}" for i in range(1, 27)]
         )
-        section_menu.pack(fill="x", padx=20, pady=(0, 15))
+        section_menu.grid(row=2, column=0, sticky="ew", pady=(0, 15))
 
         # Shelf name input
-        ctk.CTkLabel(add_dialog, text="Shelf Name:").pack(anchor="w", padx=20, pady=(0, 5))
+        ctk.CTkLabel(main_frame, text="Shelf Name:").grid(row=3, column=0, sticky="w", pady=(0, 5))
         shelf_var = tk.StringVar(value="Shelf 1")
-        shelf_entry = ctk.CTkEntry(add_dialog, textvariable=shelf_var)
-        shelf_entry.pack(fill="x", padx=20, pady=(0, 20))
+        shelf_entry = ctk.CTkEntry(main_frame, textvariable=shelf_var)
+        shelf_entry.grid(row=4, column=0, sticky="ew", pady=(0, 30))
 
         def add_shelf():
             print(f"\n[DEBUG] ===== ADD SHELF CLICKED =====")
@@ -323,17 +329,22 @@ class ShelfManagerDialog(ctk.CTkToplevel):
             
             print(f"[DEBUG] ===== ADD SHELF COMPLETE =====\n")
 
-        ctk.CTkButton(
-            add_dialog, text="Add", width=140, height=40,
-            fg_color="#27ae60", hover_color="#219a52",
-            command=add_shelf,
-        ).pack(side="right", padx=20, pady=20)
+        # Button frame
+        btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        btn_frame.grid(row=5, column=0, sticky="ew", pady=(20, 0))
+        btn_frame.grid_columnconfigure(0, weight=1)
 
         ctk.CTkButton(
-            add_dialog, text="Cancel", width=110, height=40,
+            btn_frame, text="Add", width=140, height=40,
+            fg_color="#27ae60", hover_color="#219a52",
+            command=add_shelf,
+        ).pack(side="right", padx=(10, 0))
+
+        ctk.CTkButton(
+            btn_frame, text="Cancel", width=110, height=40,
             fg_color="#7f8c8d", hover_color="#626567",
             command=add_dialog.destroy,
-        ).pack(side="right", padx=(0, 10), pady=20)
+        ).pack(side="right")
 
     def _show_edit_shelf_dialog(self, section: str, shelf: str):
         """Show dialog to edit an existing shelf."""
