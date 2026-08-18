@@ -218,6 +218,14 @@ class ShelfManagerDialog(ctk.CTkToplevel):
         except Exception:
             pass
 
+        # Edit button
+        ctk.CTkButton(
+            item_frame, text="Edit", width=60, height=28,
+            fg_color="#3498db", hover_color="#2980b9",
+            text_color="white", font=ctk.CTkFont(size=9),
+            command=lambda: self._show_edit_shelf_dialog(section, shelf),
+        ).grid(row=0, column=2, sticky="e", padx=(10, 0))
+
         # Delete button (only if empty)
         try:
             all_items = self.db.get_all_items()
@@ -229,7 +237,7 @@ class ShelfManagerDialog(ctk.CTkToplevel):
                     fg_color="#e74c3c", hover_color="#c0392b",
                     text_color="white", font=ctk.CTkFont(size=9),
                     command=lambda: self._delete_shelf(section, shelf),
-                ).grid(row=0, column=2, sticky="e", padx=(10, 0))
+                ).grid(row=0, column=3, sticky="e", padx=(10, 0))
         except Exception:
             pass
 
@@ -351,6 +359,86 @@ class ShelfManagerDialog(ctk.CTkToplevel):
             add_dialog, text="Cancel", width=110, height=40,
             fg_color="#7f8c8d", hover_color="#626567",
             command=add_dialog.destroy,
+        ).pack(side="right", padx=(0, 10), pady=20)
+
+    def _show_edit_shelf_dialog(self, section: str, shelf: str):
+        """Show dialog to edit an existing shelf."""
+        edit_dialog = ctk.CTkToplevel(self)
+        edit_dialog.title("Edit Shelf")
+        edit_dialog.geometry("400x250")
+        edit_dialog.grab_set()
+
+        ctk.CTkLabel(
+            edit_dialog, text="Edit Shelf",
+            font=ctk.CTkFont(size=16, weight="bold"),
+        ).pack(pady=(20, 20))
+
+        # Current shelf info
+        ctk.CTkLabel(edit_dialog, text=f"Current: {section}, {shelf}").pack(anchor="w", padx=20, pady=(0, 15))
+
+        # New shelf name input
+        ctk.CTkLabel(edit_dialog, text="New Shelf Name:").pack(anchor="w", padx=20, pady=(0, 5))
+        new_shelf_var = tk.StringVar(value=shelf)
+        shelf_entry = ctk.CTkEntry(edit_dialog, textvariable=new_shelf_var)
+        shelf_entry.pack(fill="x", padx=20, pady=(0, 20))
+
+        def save_shelf():
+            new_shelf = new_shelf_var.get().strip()
+            if not new_shelf:
+                messagebox.showwarning("Invalid", "Shelf name cannot be empty")
+                return
+
+            if new_shelf == shelf:
+                messagebox.showinfo("No Changes", "Shelf name is the same")
+                edit_dialog.destroy()
+                return
+
+            old_location = f"{section}, {shelf}"
+            new_location = f"{section}, {new_shelf}"
+
+            try:
+                # Check if new name already exists
+                all_items = self.db.get_all_items()
+                count = sum(1 for item in all_items 
+                           if item.get("storage_location") == new_location)
+                if count > 0:
+                    messagebox.showwarning("Exists", f"{new_location} already exists")
+                    return
+
+                # Update all items with old location to new location
+                print(f"[DEBUG] Updating shelf from '{old_location}' to '{new_location}'")
+                conn = self.db._connect()
+                conn.execute(
+                    "UPDATE inventory_items SET storage_location = ? WHERE storage_location = ?",
+                    (new_location, old_location)
+                )
+                conn.commit()
+                conn.close()
+                print(f"[DEBUG] ✅ Shelf renamed successfully")
+
+                messagebox.showinfo("Success", f"Shelf renamed to '{new_shelf}'.\nAll items updated.")
+                edit_dialog.destroy()
+                self._load_shelves()
+                
+                # Notify parent to refresh
+                if self.on_complete:
+                    self.on_complete()
+            except Exception as e:
+                print(f"[DEBUG] ❌ Error renaming shelf: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                messagebox.showerror("Error", f"Error renaming shelf: {str(e)}")
+
+        ctk.CTkButton(
+            edit_dialog, text="Save", width=140, height=40,
+            fg_color="#27ae60", hover_color="#219a52",
+            command=save_shelf,
+        ).pack(side="right", padx=20, pady=20)
+
+        ctk.CTkButton(
+            edit_dialog, text="Cancel", width=110, height=40,
+            fg_color="#7f8c8d", hover_color="#626567",
+            command=edit_dialog.destroy,
         ).pack(side="right", padx=(0, 10), pady=20)
 
     def _delete_shelf(self, section: str, shelf: str):
