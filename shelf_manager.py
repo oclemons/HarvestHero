@@ -308,25 +308,41 @@ class ShelfManagerDialog(ctk.CTkToplevel):
                 messagebox.showerror("Error", f"Error checking shelf: {str(e)}")
                 return
 
-            # Shelf is ready to use - just show success message
-            # Shelves are created automatically when items are added to them
+            # Create a placeholder item to establish the shelf
             try:
-                print(f"[DEBUG] ✅ SHELF READY TO USE!")
-                messagebox.showinfo("Success", 
-                    f"Shelf '{shelf}' in {section} is ready.\n\n"
-                    f"To use this shelf:\n"
-                    f"1. Go to 'Add Item'\n"
-                    f"2. Enter storage location: {storage_location}\n"
-                    f"3. Add the item\n\n"
-                    f"The shelf will appear in this list once an item is added to it.")
-                add_dialog.destroy()
-                self._load_shelves()
+                print(f"[DEBUG] Creating placeholder item for shelf...")
+                placeholder_barcode = f"SHELF_{section.replace(' ', '_')}_{shelf.replace(' ', '_')}"
                 
-                # Notify parent to refresh inventory and pantry view
-                print(f"[DEBUG] Notifying parent to refresh views...")
-                if self.on_complete:
-                    self.on_complete()
-                print(f"[DEBUG] Parent notified")
+                # Create placeholder item
+                ok, msg = self.db.add_item(
+                    barcode=placeholder_barcode,
+                    item_name=f"[Shelf Marker] {storage_location}",
+                    category="System",
+                    quantity=0,
+                    minimum_stock=0,
+                    notes="Shelf marker - do not distribute",
+                    barcode_out="",
+                    storage_location=storage_location
+                )
+                
+                print(f"[DEBUG] Placeholder creation result: ok={ok}, msg={msg}")
+                
+                if ok:
+                    print(f"[DEBUG] ✅ SHELF CREATED!")
+                    messagebox.showinfo("Success", 
+                        f"Shelf '{shelf}' added to {section}.\n\n"
+                        f"You can now add items to this shelf.")
+                    add_dialog.destroy()
+                    self._load_shelves()
+                    
+                    # Notify parent to refresh inventory and pantry view
+                    print(f"[DEBUG] Notifying parent to refresh views...")
+                    if self.on_complete:
+                        self.on_complete()
+                    print(f"[DEBUG] Parent notified")
+                else:
+                    print(f"[DEBUG] ❌ Failed to create placeholder: {msg}")
+                    messagebox.showerror("Error", f"Failed to create shelf: {msg}")
             except Exception as e:
                 print(f"[DEBUG] ❌ Exception: {str(e)}")
                 import traceback
