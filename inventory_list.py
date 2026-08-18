@@ -255,6 +255,26 @@ class InventoryList(ctk.CTkFrame):
             )
 
         self.count_lbl.configure(text=f"{len(items)} item(s) found")
+        
+        # Refresh pantry view if it's currently displayed
+        if self._view_mode == "pantry" and self._pantry_view:
+            try:
+                print("[DEBUG] Refreshing pantry view...")
+                # Recreate pantry view to show updated shelves
+                self._pantry_view.grid_forget()
+                self._pantry_view.destroy()
+                self._pantry_view = None
+                
+                # Recreate it
+                from interactive_pantry_ui import InteractivePantryUI
+                self._pantry_view = InteractivePantryUI(
+                    self.content_container, self.db, self.user,
+                    on_update=self.load_items
+                )
+                self._pantry_view.grid(row=0, column=0, sticky="nsew")
+                print("[DEBUG] Pantry view refreshed")
+            except Exception as e:
+                print(f"[DEBUG] Error refreshing pantry view: {e}")
 
     # ------------------------------------------------------------------
     # Sort

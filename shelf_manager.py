@@ -321,6 +321,12 @@ class ShelfManagerDialog(ctk.CTkToplevel):
                     f"The shelf will appear in this list once an item is added to it.")
                 add_dialog.destroy()
                 self._load_shelves()
+                
+                # Notify parent to refresh inventory and pantry view
+                print(f"[DEBUG] Notifying parent to refresh views...")
+                if self.on_complete:
+                    self.on_complete()
+                print(f"[DEBUG] Parent notified")
             except Exception as e:
                 print(f"[DEBUG] ❌ Exception: {str(e)}")
                 import traceback
