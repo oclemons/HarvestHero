@@ -261,23 +261,36 @@ class ShelfManagerDialog(ctk.CTkToplevel):
         shelf_entry.pack(fill="x", padx=20, pady=(0, 20))
 
         def add_shelf():
+            print(f"\n[DEBUG] ===== ADD SHELF CLICKED =====")
             section = section_var.get()
             shelf = shelf_var.get().strip()
+            print(f"[DEBUG] Section: {section}")
+            print(f"[DEBUG] Shelf: {shelf}")
+            
             if not shelf:
+                print(f"[DEBUG] Shelf name is empty!")
                 messagebox.showwarning("Invalid", "Shelf name cannot be empty")
                 return
 
             storage_location = f"{section}, {shelf}"
+            print(f"[DEBUG] Storage location: {storage_location}")
             
             # Check if shelf already exists
             try:
+                print(f"[DEBUG] Checking if shelf already exists...")
                 all_items = self.db.get_all_items()
+                print(f"[DEBUG] Got {len(all_items)} items from database")
                 count = sum(1 for item in all_items 
                            if item.get("storage_location") == storage_location)
+                print(f"[DEBUG] Found {count} items with this storage location")
                 if count > 0:
+                    print(f"[DEBUG] Shelf already exists!")
                     messagebox.showwarning("Exists", f"{storage_location} already exists")
                     return
             except Exception as e:
+                print(f"[DEBUG] Error checking shelf: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 messagebox.showerror("Error", f"Error checking shelf: {str(e)}")
                 return
 
@@ -285,9 +298,9 @@ class ShelfManagerDialog(ctk.CTkToplevel):
             try:
                 placeholder_barcode = f"SHELF_{section.replace(' ', '_')}_{shelf.replace(' ', '_')}"
                 print(f"[DEBUG] Creating shelf marker with barcode: {placeholder_barcode}")
-                print(f"[DEBUG] Storage location: {storage_location}")
                 
                 # Pass storage_location directly to add_item
+                print(f"[DEBUG] Calling add_item...")
                 ok, msg = self.db.add_item(
                     barcode=placeholder_barcode,
                     item_name=f"[Shelf Marker] {storage_location}",
@@ -296,7 +309,7 @@ class ShelfManagerDialog(ctk.CTkToplevel):
                     minimum_stock=0,
                     notes="This is a shelf marker item. Do not distribute.",
                     barcode_out="",
-                    storage_location=storage_location  # Pass it here!
+                    storage_location=storage_location
                 )
                 
                 print(f"[DEBUG] add_item returned: ok={ok}, msg={msg}")
@@ -310,21 +323,23 @@ class ShelfManagerDialog(ctk.CTkToplevel):
                     print(f"[DEBUG] Verification: found {verify_count} items with this location")
                     
                     if verify_count > 0:
-                        print(f"[DEBUG] Shelf verified successfully")
+                        print(f"[DEBUG] ✅ SHELF CREATED SUCCESSFULLY!")
                         messagebox.showinfo("Success", f"Shelf '{shelf}' added to {section}.\nYou can now add items to this shelf.")
                         add_dialog.destroy()
                         self._load_shelves()
                     else:
-                        print(f"[DEBUG] Verification failed - shelf not found in database")
+                        print(f"[DEBUG] ❌ Verification failed - shelf not found in database")
                         messagebox.showerror("Error", "Shelf was created but verification failed. Please try again.")
                 else:
-                    print(f"[DEBUG] add_item failed: {msg}")
+                    print(f"[DEBUG] ❌ add_item failed: {msg}")
                     messagebox.showerror("Error", f"Failed to create shelf: {msg}")
             except Exception as e:
-                print(f"[DEBUG] Exception: {str(e)}")
+                print(f"[DEBUG] ❌ Exception: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 messagebox.showerror("Error", f"Error creating shelf: {str(e)}")
+            
+            print(f"[DEBUG] ===== ADD SHELF COMPLETE =====\n")
 
         ctk.CTkButton(
             add_dialog, text="Add", width=140, height=40,
