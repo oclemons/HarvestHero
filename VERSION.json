@@ -1,14 +1,23 @@
 {
-  "version": "2.0.0",
+  "version": "2.0.1",
   "app_name": "Harvest Hero Inventory Tracker",
-  "last_updated": "2024-01-15T00:00:00",
+  "last_updated": "2024-08-14T00:00:00",
   "features": [
     "Role-based access control",
     "Weight/pounds tracking with monthly cadence",
     "Customizable reporting and exports",
     "Barcode management with bulk import",
-    "Shelf and overflow management",
+    "Shelf and overflow management with edit/save",
     "Shopping list auto-population",
-    "Automatic update system"
+    "Automatic update system",
+    "Edit and rename shelves",
+    "Sync storage locations across views"
+  ],
+  "recent_fixes": [
+    "Fixed Add Shelf dialog buttons visibility",
+    "Fixed shelf creation and editing",
+    "Fixed storage location syncing",
+    "Fixed database column errors",
+    "Improved shelf management UI"
   ]
 }
