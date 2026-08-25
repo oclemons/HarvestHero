@@ -1,7 +1,7 @@
 {
-  "version": "2.0.2",
+  "version": "2.0.3",
   "app_name": "Harvest Hero Inventory Tracker",
-  "last_updated": "2024-08-15T00:00:00",
+  "last_updated": "2026-08-25T00:00:00",
   "features": [
     "Role-based access control",
     "Weight/pounds tracking with monthly cadence",
@@ -10,36 +10,28 @@
     "Shelf and overflow management with edit/save",
     "Shopping list auto-population",
     "Automatic wireless update system",
-    "Edit and rename shelves with persistent save",
-    "Real-time sync of storage locations across all views",
-    "Scheduled auto-updates at 2 AM",
-    "Data persistence across updates"
+    "Persistent user data across every install and update"
+  ],
+  "new_in_2_0_3": [
+    "User data now lives in a persistent OS-managed location (~/Library/Application Support/HarvestHero on macOS, %APPDATA%\\HarvestHero on Windows) so passwords and inventory survive every ZIP extract and re-install.",
+    "Automatic one-time migration copies any legacy DB from the old in-code-folder location into the persistent one on first launch.",
+    "Release ZIP no longer contains the developer's inventory database, secret key, .env files, or dev-tool folders.",
+    "New build_source_zip.sh / .bat builds a clean, git-archive-based release ZIP that cannot leak untracked files.",
+    "Auto-updater no longer needs to guess which folders to preserve — user data is physically outside the code folder now."
   ],
   "recent_fixes": [
-    "Fixed Add Shelf dialog buttons visibility",
-    "Fixed shelf creation and editing functionality",
-    "Fixed storage location syncing between Add Item and Manage Shelves",
-    "Fixed database column errors in dashboard",
-    "Improved shelf management UI with Edit/Delete buttons",
-    "Simplified shelf creation process",
-    "Enhanced error handling and logging",
-    "Fixed dashboard weight stats fallback"
-  ],
-  "new_in_2_0_2": [
-    "Automatic wireless updates - no manual downloads needed",
-    "Scheduled updates at 2 AM - updates happen automatically",
-    "Data persistence - user accounts and inventory survive updates",
-    "Edit shelf functionality - rename shelves and update all items",
-    "Real-time storage location sync - changes appear instantly",
-    "Improved dialog layouts - all buttons now visible",
-    "Better error messages - clearer troubleshooting",
-    "Auto-update configuration - customizable update settings"
+    "Users no longer need to reset their password after every update.",
+    "Client inventory data is preserved through manual ZIP re-extract, not just auto-updates.",
+    "Empty shelves persist and display in Manage Shelves, Inventory, and Pantry views.",
+    "Storage location changes sync across all views automatically."
   ],
   "deployment": {
+    "user_data_dir_macos": "~/Library/Application Support/HarvestHero",
+    "user_data_dir_windows": "%APPDATA%\\HarvestHero",
+    "user_data_dir_linux": "~/.local/share/HarvestHero",
     "update_method": "GitHub Releases with automatic detection",
     "update_frequency": "Check on startup and daily at 2 AM",
-    "client_interaction": "Minimal - updates happen automatically",
-    "data_preservation": "All user data persists across updates",
+    "data_preservation": "User data lives outside the code folder; re-extracting or replacing the app never touches it.",
     "offline_capable": true,
     "auto_restart": true
   }

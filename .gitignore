@@ -1,29 +1,45 @@
-# Environment / secrets
+# Environment / secrets — never commit these
 OpenAI.env
 OpenAI.env.bak
 *.env
 .env
+VercelToken/
 VercelToken
+.vercel/
+.devin/
 
 # Python
 __pycache__/
 *.pyc
 .venv/
+venv/
 
-# Build artifacts
+# Build / packaging artifacts
 build/
 dist/
 *.spec
 assets/*.ico
 assets/*.icns
-.vercel/cache
-.vercel/output
+HarvestHero-*.zip
+
+# Auto-updater working directories
+.update_temp/
+.update_extract/
+.backup/
 
 # User data / local config — the data/ directory holds the sqlite DB,
 # the machine-local Fernet key (data/.secret_key), and any test DBs
-# created during development. Ignore the whole thing.
+# created during development. Ignore the whole thing so we can never
+# ship a client the developer's inventory or password hashes.
 data/
 output/
+inventory.db
+*.migrated
 config.json
+license.json
+
+# OS junk
 .DS_Store
+Thumbs.db
 *.docx
+~$*
