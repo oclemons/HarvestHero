@@ -72,6 +72,11 @@ BUILD_CMD = [
     "main.py",
 ]
 
+# CI / non-interactive mode: pass --no-build to skip the prompt entirely.
+if "--no-build" in sys.argv:
+    print("[make_icons] --no-build: skipping executable build.")
+    sys.exit(0)
+
 answer = input("Build the HarvestHero executable now? [Y/n]: ").strip().lower()
 if answer in ("", "y", "yes"):
     try:

@@ -7,18 +7,21 @@ No internet connection required. All data is stored in `data/inventory.db` on th
 
 ## 🚀 Quick Download & Install
 
-### For Windows Users (Easiest)
-1. **Download**: https://github.com/oclemons/HarvestHero/releases
-2. Download the latest `.exe` file
-3. Double-click to run
-4. **Done!** No installation needed.
+### For Windows Users
+1. Go to https://github.com/oclemons/HarvestHero/releases/latest
+2. Download **`HarvestHeroSetup-<version>.exe`**.
+3. Run it. Windows may show a SmartScreen warning the first time; click **More info → Run anyway** (the installer is not code-signed yet).
+4. Launch **Harvest Hero** from the Start menu or the desktop shortcut.
 
-### For Mac/Linux Users
-1. **Download**: https://github.com/oclemons/HarvestHero/releases
-2. Download the source code ZIP
-3. Extract and follow "Quick Start" below
+Future updates are handled by the app itself — open Harvest Hero, click **Install Update** when prompted, and it swaps itself out automatically. No downloads, no CMD, no data loss.
 
-**📖 Full Installation Guide**: See [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md)
+### For Mac / Linux Users (developer / staff mode)
+1. Clone the repo: `git clone https://github.com/oclemons/HarvestHero.git`
+2. `cd HarvestHero`
+3. `pip install -r requirements.txt`
+4. `python main.py`
+
+**📖 Full Installation Guide**: see [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md).
 
 ---
 
@@ -86,18 +89,20 @@ Passwords are hashed with PBKDF2-HMAC-SHA256 and are never stored in plain text.
 
 ## Automatic Updates
 
-The app automatically checks for updates on startup:
+Installed Windows builds update themselves. On every launch the app calls the GitHub Releases API, compares the tag against its own `VERSION.json`, and — if a newer release is available — pops up an **Update Available** dialog.
 
-1. **Check**: App connects to GitHub and checks for new releases
-2. **Notify**: If update available, notification dialog appears
-3. **Install**: User clicks "Install Update"
-4. **Download**: Files download with progress bar
-5. **Apply**: Files extracted and installed
-6. **Restart**: App restarts automatically with new version
+When the user clicks **Install Update**:
 
-**No manual intervention needed!** Updates are completely automatic.
+1. The Windows installer (`HarvestHeroSetup-<new-version>.exe`) is downloaded to `%TEMP%\HarvestHero-update\`.
+2. The SHA-256 of the downloaded file is checked against the `.sha256` sidecar attached to the release. A mismatch aborts before anything is installed.
+3. The installer is launched with `/SILENT /RESTARTAPPLICATIONS /CLOSEAPPLICATIONS`. It closes the running app, replaces it, and relaunches the new version.
+4. User data in `%APPDATA%\HarvestHero` is never touched by the installer.
 
-See [UPDATE_SYSTEM.md](UPDATE_SYSTEM.md) for technical details.
+If the download or checksum fails, the running install is unaffected — the user keeps working on the previous version and can retry later.
+
+For developer / macOS installs there is no in-place upgrade path; the update dialog offers **Open Release Page** so devs can grab the installer or `git pull`.
+
+See [UPDATE_SYSTEM.md](UPDATE_SYSTEM.md) for technical details and [PRESERVE_DATA_ON_UPDATE.md](PRESERVE_DATA_ON_UPDATE.md) for the data-persistence contract.
 
 ---
 
@@ -163,46 +168,53 @@ All reports export to **CSV** or **Excel**.
 
 ---
 
-## Packaging into a Windows .exe
+## Cutting a Release
 
-This lets you send the program to someone who does not have Python installed.
+Development happens on macOS; the Windows installer is built by GitHub Actions on a `windows-latest` runner. You do **not** need Windows to ship a release.
 
-### Step 1 – Install PyInstaller
+### 1. Merge everything to `main`
 
+Make sure `VERSION.json` on `main` reflects the version you're about to ship. Follow semantic versioning — `MAJOR.MINOR.PATCH`:
+
+- **PATCH** (`2.1.0` → `2.1.1`): bug fixes only.
+- **MINOR** (`2.1.0` → `2.2.0`): new features, no breaking changes.
+- **MAJOR** (`2.1.0` → `3.0.0`): breaking changes to data model, config, or public behaviour.
+
+### 2. Tag and push
+
+```bash
+git tag v2.1.0
+git push origin v2.1.0
 ```
+
+That's it. Pushing a tag matching `v*.*.*` triggers the **Windows Release** workflow in `.github/workflows/windows-release.yml`, which:
+
+1. Checks out the tag.
+2. Sets up Python 3.11 on Windows.
+3. Installs dependencies + PyInstaller.
+4. Syncs `VERSION.json` to the tag.
+5. Regenerates multi-resolution icons from `assets/HarvestHeroIcon.png`.
+6. Runs `pyinstaller HarvestHero.spec` to produce `dist/HarvestHero/HarvestHero.exe`.
+7. Installs Inno Setup 6 via Chocolatey.
+8. Runs `iscc /DAppVersion=<ver> installer/HarvestHero.iss` to produce `dist/installer/HarvestHeroSetup-<ver>.exe`.
+9. Computes the installer's SHA-256 and writes it to `.exe.sha256`.
+10. Creates the GitHub Release, attaches the installer + checksum, and auto-fills release notes from commits.
+
+Watch the workflow at **Actions → Windows Release**. On success the release is public and every already-installed client will offer the update on its next launch.
+
+### 3. Local development build (optional)
+
+If you want to build the exe locally on your Mac just to verify the spec parses, run:
+
+```bash
 pip install pyinstaller
+python make_icons.py --no-build
+pyinstaller --clean --noconfirm HarvestHero.spec
 ```
 
-### Step 2 – Build the executable
+You'll get `dist/HarvestHero/` — but on macOS it's a Mac executable, not a Windows one. Cross-building Windows exes from Mac is not supported by PyInstaller; that's why we let the CI runner do it.
 
-Run this from inside the `inventory_tracker` folder:
-
-```
-pyinstaller --onefile --windowed --name "InventoryControlCenter" main.py
-```
-
-| Flag | Purpose |
-|------|---------|
-| `--onefile` | Bundle everything into a single `.exe` file |
-| `--windowed` | Hide the terminal/console window |
-| `--name` | Name of the output file |
-
-### Step 3 – Find your .exe
-
-After the build finishes, look in the `dist/` folder:
-
-```
-inventory_tracker/
-  dist/
-    InventoryControlCenter.exe   ← this is the file to send
-```
-
-### Step 4 – Test it
-
-Double-click `InventoryControlCenter.exe`.  
-On first launch it creates `inventory.db` in the same folder as the `.exe`.
-
-> **Note:** Windows Defender or antivirus software may flag a freshly built `.exe`. This is a false positive common with PyInstaller. You can whitelist the file or use a code-signing certificate to prevent warnings.
+> **Note:** Windows SmartScreen may warn on freshly published unsigned installers. Get a code-signing certificate to eliminate the warning — see [SIGNING.md](SIGNING.md).
 
 ---
 

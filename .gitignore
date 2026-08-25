@@ -17,7 +17,11 @@ venv/
 # Build / packaging artifacts
 build/
 dist/
+# PyInstaller specs are usually generated artifacts, so we ignore them
+# by default. HarvestHero.spec is the exception -- it's the source of
+# truth for the Windows CI build, so track it explicitly.
 *.spec
+!HarvestHero.spec
 assets/*.ico
 assets/*.icns
 HarvestHero-*.zip

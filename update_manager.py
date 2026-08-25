@@ -1,299 +1,307 @@
-"""update_manager.py — Automatic update system for GitHub-based distribution.
+"""update_manager.py — GitHub-Release-driven update flow for Harvest Hero.
 
-Handles:
-- Checking for updates on GitHub
-- Downloading updates
-- Applying updates with restart
-- Version management
-- Update notifications
+Behaviour depends on how the app is running:
+
+* **Installed Windows build** (frozen exe from the Inno Setup installer):
+  the "Update" button downloads the newest ``HarvestHeroSetup-*.exe``
+  from the latest GitHub Release, verifies its SHA-256 against the
+  release's ``.sha256`` sidecar, launches the installer with
+  ``/SILENT /RESTARTAPPLICATIONS``, and exits the current process so
+  the installer can replace the running binary. The installer then
+  relaunches the new version. **User data lives outside {app} so it
+  is never touched.**
+
+* **Source install** (running ``python main.py`` on macOS or a dev
+  Windows machine): the update mechanism still reports whether a
+  newer release exists so devs know they're behind, but the "Install
+  Update" action opens the release page in a browser rather than
+  attempting an in-place upgrade. Devs pull from git or grab the
+  installer manually.
+
+The old flow (download a ZIP and overwrite files) is intentionally
+gone — it stomped user data on source installs and never worked cleanly
+on Windows for locked exes.
 """
 
-import os
-import sys
-import json
-import subprocess
-import threading
-import requests
-from datetime import datetime
-from pathlib import Path
-from typing import Tuple, Optional
+from __future__ import annotations
 
-# GitHub repository details
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+import webbrowser
+from datetime import datetime
+from typing import Callable, Optional, Tuple
+
+import requests
+
+# GitHub coordinates
 GITHUB_OWNER = "oclemons"
 GITHUB_REPO = "HarvestHero"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
 
-# Version file path
 VERSION_FILE = "VERSION.json"
+
+# Windows installer naming convention emitted by the GitHub Actions
+# workflow: HarvestHeroSetup-<version>.exe and .exe.sha256 sidecar.
+INSTALLER_PREFIX = "HarvestHeroSetup"
+
+
+def is_frozen_windows() -> bool:
+    """Return True when running from the installed Windows exe."""
+    return bool(getattr(sys, "frozen", False)) and sys.platform == "win32"
+
+
+def _version_json_path() -> str:
+    """Return the path to VERSION.json for the *running* build.
+
+    In a PyInstaller onedir build, VERSION.json is bundled into the exe
+    folder via the spec's ``datas``. In a source checkout it sits next
+    to this file.
+    """
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", None) or os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, VERSION_FILE)
 
 
 class UpdateManager:
-    """Manages automatic updates from GitHub."""
+    """Query GitHub for releases and, on Windows installs, apply them."""
 
-    def __init__(self, app_root: str = None):
-        """Initialize update manager.
-        
-        Args:
-            app_root: Root directory of the application
-        """
+    def __init__(self, app_root: Optional[str] = None):
+        # app_root is retained for backwards compatibility with the old
+        # ZIP-based flow but is no longer used to write anything into
+        # the code folder.
         self.app_root = app_root or os.path.dirname(os.path.abspath(__file__))
-        self.version_file = os.path.join(self.app_root, VERSION_FILE)
+        self.version_file = _version_json_path()
         self.current_version = self._load_version()
-        self.latest_version = None
+        self.latest_version: Optional[str] = None
+        self.release_notes: str = ""
+        self.installer_url: Optional[str] = None
+        self.checksum_url: Optional[str] = None
+        self.release_html_url: Optional[str] = None
         self.update_available = False
-        self.update_url = None
 
+    # ------------------------------------------------------------------
+    # Version handling
+    # ------------------------------------------------------------------
     def _load_version(self) -> str:
-        """Load current version from VERSION.json."""
         try:
-            if os.path.exists(self.version_file):
-                with open(self.version_file, 'r') as f:
-                    data = json.load(f)
-                    return data.get("version", "1.0.0")
-        except Exception as e:
-            print(f"Error loading version: {e}")
-        return "1.0.0"
+            with open(self.version_file) as f:
+                return json.load(f).get("version", "0.0.0")
+        except Exception as exc:  # pragma: no cover
+            print(f"[update] Could not read {self.version_file}: {exc}")
+            return "0.0.0"
 
-    def _save_version(self, version: str):
-        """Save version to VERSION.json."""
-        try:
-            data = {
-                "version": version,
-                "last_updated": datetime.now().isoformat(),
-                "app_name": "Harvest Hero Inventory Tracker"
-            }
-            with open(self.version_file, 'w') as f:
-                json.dump(data, f, indent=2)
-        except Exception as e:
-            print(f"Error saving version: {e}")
+    @staticmethod
+    def _compare_versions(v1: str, v2: str) -> int:
+        """Semantic-ish version comparison. Non-numeric suffixes are
+        treated as pre-release and sort below their numeric root
+        (2.1.0-rc1 < 2.1.0), which matches Inno Setup's ordering."""
+        def parse(v: str):
+            parts = []
+            for chunk in v.lstrip("v").split("."):
+                num = ""
+                for ch in chunk:
+                    if ch.isdigit():
+                        num += ch
+                    else:
+                        break
+                parts.append(int(num) if num else 0)
+            return parts
 
+        p1, p2 = parse(v1), parse(v2)
+        while len(p1) < len(p2):
+            p1.append(0)
+        while len(p2) < len(p1):
+            p2.append(0)
+        for a, b in zip(p1, p2):
+            if a < b: return -1
+            if a > b: return 1
+        return 0
+
+    # ------------------------------------------------------------------
+    # GitHub lookup
+    # ------------------------------------------------------------------
     def check_for_updates(self) -> Tuple[bool, Optional[str], Optional[str]]:
-        """Check GitHub for new releases.
-        
-        Returns:
-            Tuple of (update_available, latest_version, release_notes)
+        """Query GitHub for the latest release. Returns
+        ``(update_available, latest_version, release_notes)``.
         """
         try:
-            # Get latest release from GitHub
-            response = requests.get(
+            resp = requests.get(
                 f"{GITHUB_API_URL}/releases/latest",
-                timeout=10
+                headers={"Accept": "application/vnd.github+json"},
+                timeout=10,
             )
-            response.raise_for_status()
-            
-            release = response.json()
-            latest_version = release.get("tag_name", "").lstrip("v")
-            release_notes = release.get("body", "")
-            download_url = None
-            
-            # Get download URL for the release
-            assets = release.get("assets", [])
-            for asset in assets:
-                if asset["name"].endswith(".zip"):
-                    download_url = asset["browser_download_url"]
-                    break
-            
-            # Compare versions
-            if self._compare_versions(self.current_version, latest_version) < 0:
-                self.latest_version = latest_version
-                self.update_url = download_url
-                self.update_available = True
-                return True, latest_version, release_notes
-            
-            return False, None, None
-        except Exception as e:
-            print(f"Error checking for updates: {e}")
+            resp.raise_for_status()
+            release = resp.json()
+        except Exception as exc:
+            print(f"[update] check_for_updates failed: {exc}")
             return False, None, None
 
-    def _compare_versions(self, v1: str, v2: str) -> int:
-        """Compare two version strings.
-        
-        Returns:
-            -1 if v1 < v2
-             0 if v1 == v2
-             1 if v1 > v2
-        """
-        try:
-            parts1 = [int(x) for x in v1.split(".")]
-            parts2 = [int(x) for x in v2.split(".")]
-            
-            # Pad with zeros
-            while len(parts1) < len(parts2):
-                parts1.append(0)
-            while len(parts2) < len(parts1):
-                parts2.append(0)
-            
-            for p1, p2 in zip(parts1, parts2):
-                if p1 < p2:
-                    return -1
-                elif p1 > p2:
-                    return 1
-            return 0
-        except Exception:
-            return 0
+        tag = release.get("tag_name", "").lstrip("v")
+        notes = release.get("body", "") or ""
+        html_url = release.get("html_url")
 
-    def download_update(self, callback=None) -> Tuple[bool, str]:
-        """Download update from GitHub.
-        
-        Args:
-            callback: Function to call with progress updates
-            
-        Returns:
-            Tuple of (success, message)
-        """
-        if not self.update_url:
-            return False, "No update URL available"
-        
-        try:
-            # Create temp directory for download
-            temp_dir = os.path.join(self.app_root, ".update_temp")
-            os.makedirs(temp_dir, exist_ok=True)
-            
-            zip_path = os.path.join(temp_dir, "update.zip")
-            
-            # Download the file
-            response = requests.get(self.update_url, stream=True, timeout=30)
-            response.raise_for_status()
-            
-            total_size = int(response.headers.get("content-length", 0))
-            downloaded = 0
-            
-            with open(zip_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if callback and total_size > 0:
-                            progress = (downloaded / total_size) * 100
-                            callback(progress)
-            
-            return True, zip_path
-        except Exception as e:
-            return False, f"Download failed: {str(e)}"
+        installer_url = None
+        checksum_url = None
+        for asset in release.get("assets", []):
+            name = asset.get("name", "")
+            url = asset.get("browser_download_url")
+            if not name or not url:
+                continue
+            if name.startswith(INSTALLER_PREFIX) and name.endswith(".exe"):
+                installer_url = url
+            elif name.startswith(INSTALLER_PREFIX) and name.endswith(".exe.sha256"):
+                checksum_url = url
 
-    def apply_update(self, zip_path: str) -> Tuple[bool, str]:
-        """Extract and apply update.
-        
-        Args:
-            zip_path: Path to downloaded update zip
-            
-        Returns:
-            Tuple of (success, message)
-        """
-        try:
-            import zipfile
-            
-            # Extract to temp location first
-            temp_extract = os.path.join(self.app_root, ".update_extract")
-            os.makedirs(temp_extract, exist_ok=True)
-            
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_extract)
-            
-            # Find the actual source directory
-            # GitHub releases typically have a top-level folder
-            extracted_items = os.listdir(temp_extract)
-            if len(extracted_items) == 1 and os.path.isdir(
-                os.path.join(temp_extract, extracted_items[0])
-            ):
-                source_dir = os.path.join(temp_extract, extracted_items[0])
-            else:
-                source_dir = temp_extract
-            
-            # Backup current files
-            backup_dir = os.path.join(self.app_root, ".backup")
-            os.makedirs(backup_dir, exist_ok=True)
-            
-            # Copy new files over old ones
-            for item in os.listdir(source_dir):
-                src = os.path.join(source_dir, item)
-                dst = os.path.join(self.app_root, item)
-                
-                # Skip certain directories
-                if item in [".git", ".github", ".update_temp", ".update_extract", ".backup", "data"]:
-                    continue
-                
-                if os.path.isdir(src):
-                    # Copy directory
-                    import shutil
-                    if os.path.exists(dst):
-                        shutil.rmtree(dst)
-                    shutil.copytree(src, dst)
-                else:
-                    # Copy file
-                    import shutil
-                    shutil.copy2(src, dst)
-            
-            # Update version file
-            self._save_version(self.latest_version)
-            
-            # Cleanup
-            import shutil
-            shutil.rmtree(temp_extract, ignore_errors=True)
-            os.remove(zip_path)
-            
-            return True, f"Update applied successfully. Version {self.latest_version}"
-        except Exception as e:
-            return False, f"Update failed: {str(e)}"
+        self.release_html_url = html_url
+        if not tag or self._compare_versions(self.current_version, tag) >= 0:
+            self.update_available = False
+            return False, None, None
 
-    def restart_app(self):
-        """Restart the application."""
-        try:
-            # Get the main script path
-            main_script = os.path.join(self.app_root, "main.py")
-            
-            if os.path.exists(main_script):
-                # Restart with the same Python interpreter
-                os.execl(sys.executable, sys.executable, main_script)
-            else:
-                print("main.py not found")
-        except Exception as e:
-            print(f"Error restarting app: {e}")
+        self.latest_version = tag
+        self.release_notes = notes
+        self.installer_url = installer_url
+        self.checksum_url = checksum_url
+        self.update_available = True
+        return True, tag, notes
 
-    def check_for_updates_async(self, callback=None):
-        """Check for updates in background thread.
-        
-        Args:
-            callback: Function to call with (has_update, version, notes)
-        """
-        def _check():
-            has_update, version, notes = self.check_for_updates()
-            if callback:
-                callback(has_update, version, notes)
-        
-        thread = threading.Thread(target=_check, daemon=True)
-        thread.start()
-
-    def download_and_apply_async(self, progress_callback=None, complete_callback=None):
-        """Download and apply update in background thread.
-        
-        Args:
-            progress_callback: Function to call with progress (0-100)
-            complete_callback: Function to call with (success, message)
-        """
-        def _download_apply():
+    def check_for_updates_async(self, callback: Callable) -> None:
+        """Run ``check_for_updates`` off the UI thread."""
+        def _run():
+            has, ver, notes = self.check_for_updates()
             try:
-                # Download
-                success, result = self.download_update(progress_callback)
-                if not success:
-                    if complete_callback:
-                        complete_callback(False, result)
-                    return
-                
-                zip_path = result
-                
-                # Apply
-                success, message = self.apply_update(zip_path)
+                callback(has, ver, notes)
+            except Exception as exc:  # pragma: no cover
+                print(f"[update] callback error: {exc}")
+        threading.Thread(target=_run, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Download + verify + install
+    # ------------------------------------------------------------------
+    def _temp_dir(self) -> str:
+        d = os.path.join(tempfile.gettempdir(), "HarvestHero-update")
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def download_installer(self, progress: Optional[Callable[[float], None]] = None
+                           ) -> Tuple[bool, str]:
+        """Download the installer (and its checksum sidecar) to a temp
+        folder outside the app dir. Returns ``(ok, path_or_error)``.
+        """
+        if not self.installer_url:
+            return False, "This release does not have a Windows installer attached."
+
+        installer_path = os.path.join(
+            self._temp_dir(), f"{INSTALLER_PREFIX}-{self.latest_version}.exe"
+        )
+        try:
+            with requests.get(self.installer_url, stream=True, timeout=60) as r:
+                r.raise_for_status()
+                total = int(r.headers.get("content-length", 0))
+                seen = 0
+                with open(installer_path, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=64 * 1024):
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        seen += len(chunk)
+                        if progress and total:
+                            progress((seen / total) * 100.0)
+        except Exception as exc:
+            return False, f"Download failed: {exc}"
+
+        # Fetch the checksum sidecar. If it isn't there we refuse to
+        # install rather than silently trust the download.
+        if not self.checksum_url:
+            return False, ("No SHA-256 checksum was attached to this release; "
+                           "refusing to install for safety.")
+        try:
+            r = requests.get(self.checksum_url, timeout=15)
+            r.raise_for_status()
+            expected = r.text.split()[0].lower()
+        except Exception as exc:
+            return False, f"Could not fetch checksum: {exc}"
+
+        actual = _sha256(installer_path)
+        if actual != expected:
+            try:
+                os.remove(installer_path)
+            except OSError:
+                pass
+            return False, ("Downloaded installer failed SHA-256 verification. "
+                           f"expected {expected}, got {actual}")
+
+        return True, installer_path
+
+    def apply_update(self, installer_path: str) -> Tuple[bool, str]:
+        """Launch the downloaded installer and exit the current app.
+
+        The installer's ``CloseApplications=yes`` gives us a graceful
+        window to shut down; we still ``sys.exit(0)`` explicitly so the
+        installer can overwrite the exe without waiting.
+        """
+        if not is_frozen_windows():
+            # A source install can't upgrade itself in place.
+            return False, ("This is a developer build. Download the installer "
+                           "manually from the Releases page to upgrade.")
+
+        try:
+            # /SILENT — small progress dialog, no wizard pages
+            # /RESTARTAPPLICATIONS — relaunch the app when finished
+            # /CLOSEAPPLICATIONS — offer to close running app cleanly
+            subprocess.Popen(
+                [installer_path, "/SILENT",
+                 "/RESTARTAPPLICATIONS", "/CLOSEAPPLICATIONS"],
+                shell=False,
+                creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
+            )
+        except Exception as exc:
+            return False, f"Could not launch installer: {exc}"
+
+        # Give the installer a beat to attach to our process, then quit.
+        # Return True so the UI can show a "restarting" message; the
+        # process itself will terminate before the caller uses it.
+        threading.Timer(1.5, lambda: os._exit(0)).start()
+        return True, f"Installing Harvest Hero {self.latest_version}…"
+
+    def download_and_apply_async(
+        self,
+        progress_callback: Optional[Callable[[float], None]] = None,
+        complete_callback: Optional[Callable[[bool, str], None]] = None,
+    ) -> None:
+        def _run():
+            ok, result = self.download_installer(progress_callback)
+            if not ok:
                 if complete_callback:
-                    complete_callback(success, message)
-            except Exception as e:
-                if complete_callback:
-                    complete_callback(False, str(e))
-        
-        thread = threading.Thread(target=_download_apply, daemon=True)
-        thread.start()
+                    complete_callback(False, result)
+                return
+            ok, msg = self.apply_update(result)
+            if complete_callback:
+                complete_callback(ok, msg)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def open_release_page(self) -> None:
+        """Fallback for devs: open the release page in a browser."""
+        if self.release_html_url:
+            try:
+                webbrowser.open(self.release_html_url)
+            except Exception:
+                pass
 
 
-def get_update_manager(app_root: str = None) -> UpdateManager:
-    """Get or create update manager instance."""
+def _sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest().lower()
+
+
+def get_update_manager(app_root: Optional[str] = None) -> UpdateManager:
     return UpdateManager(app_root)

@@ -37,7 +37,14 @@ In v2.0.2, `paths.py` only used the persistent OS folder when running as a PyIns
 
 The result was the "the password isn't working" report — the admin hash the client had set was replaced by a different hash from the developer's machine.
 
-## What v2.0.3 changes
+## What v2.1.0 adds on top
+
+- Windows clients now install via a real MSI-style installer (`HarvestHeroSetup-<version>.exe`, built with Inno Setup by GitHub Actions).
+- The installer's install target is `%LOCALAPPDATA%\Programs\HarvestHero` — a code folder that has never held user data at any point in the app's history.
+- Uninstalling from **Settings → Apps** only removes files the installer placed there. `%APPDATA%\HarvestHero` is intentionally left alone so a user can reinstall later and pick up exactly where they left off. To fully wipe data they delete that folder manually.
+- The in-app updater downloads the installer, checks its SHA-256 against the release's `.exe.sha256` sidecar, and hands control to the installer with `/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS`. A corrupted or tampered download aborts before anything is installed.
+
+## What v2.0.3 changed
 
 1. **`paths.py` always uses the persistent OS folder**, whether running from source or from a frozen `.exe`. There is a `HARVESTHERO_DEV_DIR` env-var escape hatch for local development; it must never be set on a client machine.
 

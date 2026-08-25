@@ -1,223 +1,152 @@
-"""update_dialog.py — Update notification and installation dialog.
+"""update_dialog.py — In-app update notification for Harvest Hero.
 
-Shows:
-- Available update notification
-- Release notes
-- Download/install progress
-- Restart prompt
+Displays release notes for the latest GitHub Release and, on installed
+Windows builds, downloads and runs the Inno Setup installer with SHA-256
+verification. On dev / source builds the primary action becomes
+"Open Release Page" so developers upgrade by running the installer
+manually or pulling from git.
 """
 
-import tkinter as tk
+from __future__ import annotations
+
 from tkinter import messagebox
+
 import customtkinter as ctk
-from update_manager import UpdateManager
+
+from update_manager import UpdateManager, is_frozen_windows
 
 from theme import (
-    BG_PRIMARY, BG_SURFACE, BG_ELEVATED, BG_HOVER,
-    ACCENT, ACCENT_GOLD, ACCENT_GREEN, ACCENT_RED,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
-    FONT_FAMILY, BORDER_COLOR,
+    ACCENT_GREEN, ACCENT_RED, TEXT_MUTED,
 )
 
 
 class UpdateDialog(ctk.CTkToplevel):
-    """Dialog for displaying and managing updates."""
+    """Update Available modal."""
 
     def __init__(self, parent, update_manager: UpdateManager):
         super().__init__(parent)
         self.update_manager = update_manager
         self.title("Update Available")
-        self.geometry("600x500")
+        self.geometry("600x520")
         self.resizable(True, True)
         self.grab_set()
+        self._install_button: ctk.CTkButton | None = None
+        self._later_button: ctk.CTkButton | None = None
         self._build()
         self.after(100, self.lift)
 
+    # ------------------------------------------------------------------
+    # UI
+    # ------------------------------------------------------------------
     def _build(self):
-        """Build the update dialog."""
-        # Title
         ctk.CTkLabel(
-            self, text="🔄 Update Available",
+            self, text="🌾  Update Available",
             font=ctk.CTkFont(size=18, weight="bold"),
-        ).pack(pady=(20, 10))
+        ).pack(pady=(20, 6))
 
-        # Version info
-        version_text = f"New version {self.update_manager.latest_version} is available"
         ctk.CTkLabel(
-            self, text=version_text,
+            self,
+            text=f"Version {self.update_manager.latest_version} is ready to install.\n"
+                 f"You are currently on {self.update_manager.current_version}.",
             font=ctk.CTkFont(size=12),
             text_color=ACCENT_GREEN,
-        ).pack(pady=(0, 20))
+            justify="center",
+        ).pack(pady=(0, 16))
 
-        # Release notes
         ctk.CTkLabel(
-            self, text="Release Notes:",
+            self, text="Release notes",
             font=ctk.CTkFont(size=11, weight="bold"),
-        ).pack(anchor="w", padx=20, pady=(10, 5))
+        ).pack(anchor="w", padx=20)
 
         notes_frame = ctk.CTkFrame(self)
-        notes_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        notes_frame.pack(fill="both", expand=True, padx=20, pady=(4, 12))
 
-        notes_text = ctk.CTkTextbox(notes_frame)
+        notes_text = ctk.CTkTextbox(notes_frame, wrap="word")
         notes_text.pack(fill="both", expand=True)
-        notes_text.insert("1.0", self.update_manager.release_notes or "No release notes available")
+        notes_text.insert("1.0", self.update_manager.release_notes
+                          or "(no release notes attached)")
         notes_text.configure(state="disabled")
 
-        # Progress bar (initially hidden)
-        self.progress_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.progress_frame.pack(fill="x", padx=20, pady=(0, 10))
-
-        ctk.CTkLabel(
-            self.progress_frame, text="Download Progress:",
-            font=ctk.CTkFont(size=10),
-        ).pack(anchor="w")
-
-        self.progress_bar = ctk.CTkProgressBar(self.progress_frame)
-        self.progress_bar.pack(fill="x", pady=(5, 0))
+        # Progress bar — hidden until download starts.
+        self.progress_bar = ctk.CTkProgressBar(self)
         self.progress_bar.set(0)
-        self.progress_frame.pack_forget()  # Hide initially
-
         self.status_label = ctk.CTkLabel(
-            self, text="",
-            font=ctk.CTkFont(size=10),
-            text_color=TEXT_MUTED,
+            self, text="", font=ctk.CTkFont(size=10), text_color=TEXT_MUTED,
         )
-        self.status_label.pack(pady=(0, 10))
 
-        # Buttons
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(fill="x", padx=20, pady=(0, 20))
-        btn_frame.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkButton(
-            btn_frame, text="Install Update", width=140, height=40,
+        install_label, install_cmd = self._primary_action()
+        self._install_button = ctk.CTkButton(
+            btn_frame, text=install_label, width=170, height=40,
             fg_color=ACCENT_GREEN, hover_color="#16a34a",
-            text_color="white",
-            command=self._install_update,
-        ).pack(side="right", padx=(10, 0))
+            text_color="white", command=install_cmd,
+        )
+        self._install_button.pack(side="right", padx=(10, 0))
 
-        ctk.CTkButton(
+        self._later_button = ctk.CTkButton(
             btn_frame, text="Later", width=110, height=40,
             fg_color="#7f8c8d", hover_color="#626567",
             command=self.destroy,
-        ).pack(side="right")
+        )
+        self._later_button.pack(side="right")
+
+    def _primary_action(self):
+        """Choose the button label and behaviour based on build mode."""
+        if is_frozen_windows() and self.update_manager.installer_url:
+            return "Install Update", self._install_update
+        # Dev / source install (or a release with no Windows installer)
+        return "Open Release Page", self._open_release
+
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
+    def _show_progress_ui(self):
+        self.progress_bar.pack(fill="x", padx=20, pady=(4, 0))
+        self.status_label.pack(pady=(4, 12))
 
     def _install_update(self):
-        """Start the update installation process."""
-        # Show progress
-        self.progress_frame.pack(fill="x", padx=20, pady=(0, 10), before=self.status_label)
-        
-        # Disable button
-        for widget in self.winfo_children():
-            if isinstance(widget, ctk.CTkButton):
-                widget.configure(state="disabled")
+        self._show_progress_ui()
+        self._install_button.configure(state="disabled")
+        self._later_button.configure(state="disabled")
+        self.status_label.configure(text="Preparing download…")
 
-        def on_progress(progress):
-            """Update progress bar."""
-            self.progress_bar.set(progress / 100)
-            self.status_label.configure(text=f"Downloading... {progress:.0f}%")
-            self.update()
+        def on_progress(pct: float):
+            self.after(0, lambda: self._on_progress(pct))
 
-        def on_complete(success, message):
-            """Handle completion."""
-            if success:
-                self.status_label.configure(
-                    text="Update installed successfully!",
-                    text_color=ACCENT_GREEN
-                )
-                messagebox.showinfo(
-                    "Update Complete",
-                    f"{message}\n\nThe application will restart now."
-                )
-                # Restart the app
-                self.update_manager.restart_app()
-            else:
-                self.status_label.configure(
-                    text=f"Error: {message}",
-                    text_color=ACCENT_RED
-                )
-                messagebox.showerror("Update Failed", message)
-                # Re-enable buttons
-                for widget in self.winfo_children():
-                    if isinstance(widget, ctk.CTkButton):
-                        widget.configure(state="normal")
+        def on_complete(ok: bool, msg: str):
+            self.after(0, lambda: self._on_complete(ok, msg))
 
-        # Download and apply in background
         self.update_manager.download_and_apply_async(on_progress, on_complete)
 
+    def _on_progress(self, pct: float):
+        self.progress_bar.set(pct / 100.0)
+        self.status_label.configure(text=f"Downloading… {pct:.0f}%")
 
-class UpdateCheckDialog(ctk.CTkToplevel):
-    """Dialog shown while checking for updates."""
+    def _on_complete(self, ok: bool, message: str):
+        if ok:
+            self.status_label.configure(text=message, text_color=ACCENT_GREEN)
+            messagebox.showinfo(
+                "Restarting",
+                f"{message}\n\nHarvest Hero will restart automatically "
+                "when the installer finishes.",
+            )
+            # apply_update() will terminate the process shortly.
+        else:
+            self.status_label.configure(text=message, text_color=ACCENT_RED)
+            messagebox.showerror("Update Failed", message)
+            self._install_button.configure(state="normal")
+            self._later_button.configure(state="normal")
 
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title("Checking for Updates")
-        self.geometry("300x150")
-        self.resizable(False, False)
-        self.grab_set()
-        self._build()
-        self.after(100, self.lift)
-
-    def _build(self):
-        """Build the checking dialog."""
-        ctk.CTkLabel(
-            self, text="🔄 Checking for Updates",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).pack(pady=(20, 10))
-
-        ctk.CTkLabel(
-            self, text="Please wait...",
-            font=ctk.CTkFont(size=11),
-            text_color=TEXT_MUTED,
-        ).pack(pady=(0, 20))
-
-        # Progress indicator
-        progress = ctk.CTkProgressBar(self, indeterminate_speed=1.0)
-        progress.pack(padx=20, pady=(0, 20), fill="x")
-        progress.start()
+    def _open_release(self):
+        self.update_manager.open_release_page()
+        self.destroy()
 
 
-def show_update_notification(parent, update_manager: UpdateManager):
-    """Show update notification dialog if update is available.
-    
-    Args:
-        parent: Parent window
-        update_manager: UpdateManager instance
-        
-    Returns:
-        True if update dialog was shown, False otherwise
-    """
+def show_update_notification(parent, update_manager: UpdateManager) -> bool:
+    """Show the dialog if the manager knows an update is available."""
     if update_manager.update_available:
         UpdateDialog(parent, update_manager)
         return True
     return False
-
-
-def check_and_notify_updates(parent, app_root: str = None):
-    """Check for updates and show notification if available.
-    
-    Args:
-        parent: Parent window
-        app_root: Application root directory
-    """
-    from update_manager import get_update_manager
-    
-    # Show checking dialog
-    check_dialog = UpdateCheckDialog(parent)
-    parent.update()
-
-    def on_check_complete(has_update, version, notes):
-        """Handle check completion."""
-        check_dialog.destroy()
-        
-        if has_update:
-            show_update_notification(parent, update_manager)
-        else:
-            messagebox.showinfo(
-                "No Updates",
-                f"You are running the latest version ({update_manager.current_version})"
-            )
-
-    # Get update manager and check
-    update_manager = get_update_manager(app_root)
-    update_manager.check_for_updates_async(on_check_complete)

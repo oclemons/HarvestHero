@@ -1,0 +1,131 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 2.1.0) - used when triggered manually"
+        required: true
+        default: "0.0.0"
+
+permissions:
+  contents: write  # needed to publish the release + upload assets
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Derive semantic version from the tag ────────────────────────
+      - name: Derive version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
+          } else {
+            $version = '${{ github.event.inputs.version }}'
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Building Harvest Hero $version"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      # ── Sync VERSION.json to the tag so the exe reports the same
+      #    version the release is tagged with ─────────────────────────
+      - name: Sync VERSION.json to tag
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.version.outputs.version }}"
+          $json = Get-Content VERSION.json -Raw | ConvertFrom-Json
+          $json.version = $ver
+          $json | ConvertTo-Json -Depth 20 | Set-Content VERSION.json -Encoding UTF8
+          Write-Host "VERSION.json set to $ver"
+
+      # ── Regenerate the multi-res .ico from HarvestHeroIcon.png ────
+      - name: Regenerate icons
+        run: python make_icons.py --no-build
+
+      # ── Build the onedir Windows exe ──────────────────────────────
+      - name: Build with PyInstaller
+        run: pyinstaller --clean --noconfirm HarvestHero.spec
+
+      # ── Install Inno Setup 6 via chocolatey and compile the setup .exe
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.version.outputs.version }}"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+              /DAppVersion=$ver `
+              installer\HarvestHero.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # ── SHA-256 sidecar the updater checks against ─────────────────
+      - name: Compute SHA-256
+        id: checksum
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.version.outputs.version }}"
+          $installer = "dist\installer\HarvestHeroSetup-$ver.exe"
+          if (-not (Test-Path $installer)) {
+            Write-Error "Installer not produced at $installer"
+            exit 1
+          }
+          $hash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLower()
+          "$hash *HarvestHeroSetup-$ver.exe" |
+              Out-File -FilePath "$installer.sha256" -Encoding ASCII
+          "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "SHA-256: $hash"
+
+      # ── Publish the GitHub Release ─────────────────────────────────
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Harvest Hero ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/installer/HarvestHeroSetup-${{ steps.version.outputs.version }}.exe
+            dist/installer/HarvestHeroSetup-${{ steps.version.outputs.version }}.exe.sha256
+          body: |
+            ## Harvest Hero ${{ steps.version.outputs.version }}
+
+            Windows installer for Harvest Hero Inventory Tracker.
+
+            ### Installing
+            1. Download `HarvestHeroSetup-${{ steps.version.outputs.version }}.exe` below.
+            2. Run it. No admin rights required.
+            3. Launch **Harvest Hero** from the Start menu or desktop shortcut.
+
+            ### Updating (existing users)
+            Open the app — it will detect this release, download the
+            installer automatically, verify the SHA-256 checksum, and
+            upgrade in place. Your inventory, users, and settings live
+            in `%APPDATA%\HarvestHero` and are never touched by the
+            installer.
+
+            ### Installer SHA-256
+            ```
+            ${{ steps.checksum.outputs.sha256 }}
+            ```

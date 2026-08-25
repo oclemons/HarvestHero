@@ -100,13 +100,20 @@ class App(ctk.CTk):
     # ------------------------------------------------------------------
 
     def _set_icon(self) -> None:
-        """Set the window icon from assets/HarvestHeroIcon.png."""
+        """Set the window icon from assets/HarvestHeroIcon.png.
+
+        Works from source, from a PyInstaller onedir build (where
+        assets/ sits under sys._MEIPASS or next to the exe), and from
+        a onefile build (assets/ under _MEIPASS).
+        """
         try:
             from PIL import Image, ImageTk
-            icon_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "assets", "HarvestHeroIcon.png",
-            )
+            if getattr(sys, "frozen", False):
+                bundle_root = getattr(sys, "_MEIPASS", None) or \
+                              os.path.dirname(sys.executable)
+            else:
+                bundle_root = os.path.dirname(os.path.abspath(__file__))
+            icon_path = os.path.join(bundle_root, "assets", "HarvestHeroIcon.png")
             if os.path.exists(icon_path):
                 img = Image.open(icon_path).resize((256, 256))
                 self._icon_ref = ImageTk.PhotoImage(img)
