@@ -7,22 +7,33 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (e.g. 2.1.0) - used when triggered manually"
+        description: "Version to build (e.g. 2.1.0). Used when triggering manually."
         required: true
         default: "0.0.0"
 
 permissions:
   contents: write  # needed to publish the release + upload assets
 
+env:
+  # AppId GUID declared in installer/HarvestHero.iss. Used by the
+  # acceptance job to look the installer up in the HKCU uninstall
+  # registry (installer appends _is1 to the AppId).
+  APP_ID: "{B4A8D7E3-2C15-4A5B-9F3D-8E7C6A1B2D5F}"
+
 jobs:
-  build-and-release:
+  # ═══════════════════════════════════════════════════════════════
+  # Job 1 — Build the Windows installer.
+  # ═══════════════════════════════════════════════════════════════
+  build:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha256:  ${{ steps.checksum.outputs.sha256 }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── Derive semantic version from the tag ────────────────────────
       - name: Derive version
         id: version
         shell: pwsh
@@ -46,8 +57,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
-      # ── Sync VERSION.json to the tag so the exe reports the same
-      #    version the release is tagged with ─────────────────────────
+      # ─── Unit tests must pass before we spend 10 minutes on a
+      #     PyInstaller + Inno Setup build. ─────────────────────────
+      - name: Unit tests (update_manager)
+        run: python -m unittest tests.test_update_manager -v
+
       - name: Sync VERSION.json to tag
         shell: pwsh
         run: |
@@ -55,17 +69,13 @@ jobs:
           $json = Get-Content VERSION.json -Raw | ConvertFrom-Json
           $json.version = $ver
           $json | ConvertTo-Json -Depth 20 | Set-Content VERSION.json -Encoding UTF8
-          Write-Host "VERSION.json set to $ver"
 
-      # ── Regenerate the multi-res .ico from HarvestHeroIcon.png ────
       - name: Regenerate icons
         run: python make_icons.py --no-build
 
-      # ── Build the onedir Windows exe ──────────────────────────────
       - name: Build with PyInstaller
         run: pyinstaller --clean --noconfirm HarvestHero.spec
 
-      # ── Install Inno Setup 6 via chocolatey and compile the setup .exe
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
@@ -78,7 +88,6 @@ jobs:
               installer\HarvestHero.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      # ── SHA-256 sidecar the updater checks against ─────────────────
       - name: Compute SHA-256
         id: checksum
         shell: pwsh
@@ -95,26 +104,305 @@ jobs:
           "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "SHA-256: $hash"
 
-      # ── Publish the GitHub Release ─────────────────────────────────
+      - name: Upload installer + sha256 as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: |
+            dist/installer/HarvestHeroSetup-${{ steps.version.outputs.version }}.exe
+            dist/installer/HarvestHeroSetup-${{ steps.version.outputs.version }}.exe.sha256
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════════════════
+  # Job 2 — Real Windows acceptance test.
+  # Runs the actual installer, verifies file layout, shortcuts,
+  # uninstall registration, and data-preservation contract.
+  # A failure here blocks the release from being published.
+  # ═══════════════════════════════════════════════════════════════
+  acceptance:
+    runs-on: windows-latest
+    needs: build
+
+    steps:
+      - name: Download installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: installer
+          path: installer-artifact
+
+      - name: Locate installer files
+        id: paths
+        shell: pwsh
+        run: |
+          $ver = "${{ needs.build.outputs.version }}"
+          $inst = Resolve-Path "installer-artifact\HarvestHeroSetup-$ver.exe"
+          $sha  = Resolve-Path "installer-artifact\HarvestHeroSetup-$ver.exe.sha256"
+          "installer=$inst" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "sha=$sha"        | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      # ─── T1. SHA-256 of downloaded installer matches sidecar ─────
+      - name: T1 - installer SHA-256 matches sidecar
+        shell: pwsh
+        run: |
+          $expected = (Get-Content "${{ steps.paths.outputs.sha }}").Split(' ')[0].ToLower()
+          $actual   = (Get-FileHash -Algorithm SHA256 "${{ steps.paths.outputs.installer }}").Hash.ToLower()
+          if ($expected -ne $actual) {
+            Write-Error "SHA-256 mismatch. sidecar=$expected actual=$actual"
+            exit 1
+          }
+          Write-Host "OK  installer sha256 matches sidecar ($actual)"
+
+      # ─── T2. Pre-existing user data is preserved by a fresh install
+      - name: T2a - seed pre-existing user data
+        shell: pwsh
+        run: |
+          $userDir = "$env:APPDATA\HarvestHero"
+          New-Item -ItemType Directory -Force -Path "$userDir\data"   | Out-Null
+          New-Item -ItemType Directory -Force -Path "$userDir\input"  | Out-Null
+          New-Item -ItemType Directory -Force -Path "$userDir\output" | Out-Null
+          "USER-DATA-SIGNATURE-2025" |
+              Out-File -FilePath "$userDir\test_signature.txt" -Encoding ASCII
+          # Create a non-empty inventory.db so we can tell if the
+          # installer stomps it. The magic bytes make it a valid
+          # (if empty) SQLite file.
+          $bytes = [byte[]](0x53,0x51,0x4c,0x69,0x74,0x65,0x20,0x66,
+                            0x6f,0x72,0x6d,0x61,0x74,0x20,0x33,0x00)
+          [System.IO.File]::WriteAllBytes("$userDir\data\inventory.db", $bytes)
+          Write-Host "Seeded user data at $userDir"
+
+      - name: T2b - silent install (fresh)
+        shell: pwsh
+        run: |
+          $inst = "${{ steps.paths.outputs.installer }}"
+          # /VERYSILENT   — no wizard UI at all
+          # /SUPPRESSMSGBOXES — auto-answer prompts
+          # /NORESTART    — never trigger a reboot
+          # /TASKS=desktopicon — force desktop shortcut so we can verify it
+          $p = Start-Process $inst `
+                 -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/TASKS=desktopicon","/LOG=install.log" `
+                 -PassThru -Wait
+          if ($p.ExitCode -ne 0) {
+            Write-Host "--- install.log ---"
+            Get-Content install.log
+            Write-Error "Installer exit code $($p.ExitCode)"
+            exit 1
+          }
+          Write-Host "OK  installer exit code 0"
+
+      - name: T3 - install dir + exe exist
+        shell: pwsh
+        run: |
+          $exe = "$env:LOCALAPPDATA\Programs\HarvestHero\HarvestHero.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "HarvestHero.exe not found at $exe"
+            exit 1
+          }
+          $sz = (Get-Item $exe).Length
+          Write-Host "OK  $exe present ($([int]($sz/1MB)) MB)"
+
+      - name: T4 - Start menu shortcut exists
+        shell: pwsh
+        run: |
+          $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Harvest Hero\Harvest Hero.lnk"
+          if (-not (Test-Path $lnk)) {
+            Write-Error "Start menu shortcut not found at $lnk"
+            Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\" -Recurse -Filter "*.lnk" |
+              Select-Object FullName | Format-Table -AutoSize
+            exit 1
+          }
+          Write-Host "OK  $lnk present"
+
+      - name: T5 - Desktop shortcut exists
+        shell: pwsh
+        run: |
+          $lnk1 = "$env:USERPROFILE\Desktop\Harvest Hero.lnk"
+          $lnk2 = "$env:PUBLIC\Desktop\Harvest Hero.lnk"
+          if ((Test-Path $lnk1) -or (Test-Path $lnk2)) {
+            $found = if (Test-Path $lnk1) { $lnk1 } else { $lnk2 }
+            Write-Host "OK  desktop shortcut present at $found"
+          } else {
+            Write-Error "Desktop shortcut not found in either $lnk1 or $lnk2"
+            exit 1
+          }
+
+      - name: T6 - Uninstall registered in HKCU
+        id: uninst
+        shell: pwsh
+        run: |
+          $appId = "${env:APP_ID}"
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${appId}_is1"
+          if (-not (Test-Path $key)) {
+            Write-Error "Uninstall key not found at $key"
+            Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
+              Select-Object PSChildName | Format-Table -AutoSize
+            exit 1
+          }
+          $props = Get-ItemProperty $key
+          Write-Host "OK  Uninstall entry:"
+          Write-Host "    DisplayName    = $($props.DisplayName)"
+          Write-Host "    DisplayVersion = $($props.DisplayVersion)"
+          Write-Host "    UninstallString= $($props.UninstallString)"
+          $u = $props.UninstallString.Trim('"')
+          "uninstaller=$u" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: T7 - user data preserved by first install
+        shell: pwsh
+        run: |
+          $sig = Get-Content "$env:APPDATA\HarvestHero\test_signature.txt" -ErrorAction Stop
+          if ($sig -notlike "*USER-DATA-SIGNATURE-2025*") {
+            Write-Error "Signature was tampered with: got '$sig'"
+            exit 1
+          }
+          $db = Get-Item "$env:APPDATA\HarvestHero\data\inventory.db" -ErrorAction Stop
+          if ($db.Length -lt 16) {
+            Write-Error "Seeded inventory.db was replaced (size=$($db.Length))"
+            exit 1
+          }
+          Write-Host "OK  user data survived fresh install (signature intact, db $($db.Length) bytes)"
+
+      - name: T8 - app launches without crashing
+        shell: pwsh
+        run: |
+          # Rename the seeded db out of the way so the app creates a
+          # fresh one (which proves the exe reaches the Database()
+          # constructor -- i.e. it initialized successfully).
+          $userDir = "$env:APPDATA\HarvestHero"
+          Move-Item "$userDir\data\inventory.db" "$userDir\data\inventory.db.seeded" -Force
+
+          $exe = "$env:LOCALAPPDATA\Programs\HarvestHero\HarvestHero.exe"
+          Write-Host "Launching $exe (will kill after 12 s)..."
+          $p = Start-Process $exe -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 12; $i++) {
+            Start-Sleep -Seconds 1
+            if (Test-Path "$userDir\data\inventory.db") {
+              $ok = $true
+              Write-Host "OK  app created fresh $userDir\data\inventory.db after $($i+1)s"
+              break
+            }
+          }
+          # Whether or not it hung on a modal, kill the process now.
+          try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch { }
+          Start-Sleep -Seconds 2
+          # Make sure nothing lingered
+          Get-Process -Name HarvestHero -ErrorAction SilentlyContinue |
+            ForEach-Object { Stop-Process -Id $_.Id -Force }
+          if (-not $ok) {
+            Write-Error "App did not create the sqlite db within 12s -- likely a crash before Database() ran."
+            exit 1
+          }
+          # Restore original seeded db for the next upgrade test
+          Move-Item "$userDir\data\inventory.db.seeded" "$userDir\data\inventory.db" -Force
+
+      - name: T9 - upgrade (re-run installer on top)
+        shell: pwsh
+        run: |
+          $inst = "${{ steps.paths.outputs.installer }}"
+          $p = Start-Process $inst `
+                 -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=upgrade.log" `
+                 -PassThru -Wait
+          if ($p.ExitCode -ne 0) {
+            Write-Host "--- upgrade.log ---"
+            Get-Content upgrade.log
+            Write-Error "Upgrade exit code $($p.ExitCode)"
+            exit 1
+          }
+          # Data still there?
+          $sig = Get-Content "$env:APPDATA\HarvestHero\test_signature.txt"
+          if ($sig -notlike "*USER-DATA-SIGNATURE-2025*") {
+            Write-Error "Upgrade lost the user signature"
+            exit 1
+          }
+          $sz = (Get-Item "$env:APPDATA\HarvestHero\data\inventory.db").Length
+          if ($sz -lt 16) {
+            Write-Error "Upgrade stomped inventory.db (now $sz bytes)"
+            exit 1
+          }
+          Write-Host "OK  upgrade preserved signature and inventory.db"
+
+      - name: T10 - uninstall preserves user data
+        shell: pwsh
+        run: |
+          $u = "${{ steps.uninst.outputs.uninstaller }}"
+          Write-Host "Running uninstaller: $u"
+          $p = Start-Process $u `
+                 -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=uninstall.log" `
+                 -PassThru -Wait
+          if ($p.ExitCode -ne 0) {
+            Write-Host "--- uninstall.log ---"
+            Get-Content uninstall.log -ErrorAction SilentlyContinue
+            Write-Error "Uninstaller exit code $($p.ExitCode)"
+            exit 1
+          }
+          # Install dir gone
+          if (Test-Path "$env:LOCALAPPDATA\Programs\HarvestHero\HarvestHero.exe") {
+            Write-Error "Uninstall did not remove the exe"
+            exit 1
+          }
+          # User data still present
+          $sig = Get-Content "$env:APPDATA\HarvestHero\test_signature.txt" -ErrorAction Stop
+          if ($sig -notlike "*USER-DATA-SIGNATURE-2025*") {
+            Write-Error "Uninstall deleted user signature"
+            exit 1
+          }
+          if (-not (Test-Path "$env:APPDATA\HarvestHero\data\inventory.db")) {
+            Write-Error "Uninstall deleted inventory.db"
+            exit 1
+          }
+          Write-Host "OK  uninstall removed app and left user data intact"
+
+      - name: Post - upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-logs
+          path: |
+            install.log
+            upgrade.log
+            uninstall.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ═══════════════════════════════════════════════════════════════
+  # Job 3 — Publish GitHub Release.
+  # Only runs when acceptance succeeded, so a broken installer
+  # will never make it into a release.
+  # ═══════════════════════════════════════════════════════════════
+  publish:
+    runs-on: ubuntu-latest
+    needs: [build, acceptance]
+    if: startsWith(github.ref, 'refs/tags/v')  # skip on workflow_dispatch tests
+
+    steps:
+      - name: Download installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: installer
+          path: dist
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: Harvest Hero ${{ steps.version.outputs.version }}
+          tag_name: v${{ needs.build.outputs.version }}
+          name: Harvest Hero ${{ needs.build.outputs.version }}
           draft: false
           prerelease: false
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            dist/installer/HarvestHeroSetup-${{ steps.version.outputs.version }}.exe
-            dist/installer/HarvestHeroSetup-${{ steps.version.outputs.version }}.exe.sha256
+            dist/HarvestHeroSetup-${{ needs.build.outputs.version }}.exe
+            dist/HarvestHeroSetup-${{ needs.build.outputs.version }}.exe.sha256
           body: |
-            ## Harvest Hero ${{ steps.version.outputs.version }}
+            ## Harvest Hero ${{ needs.build.outputs.version }}
 
             Windows installer for Harvest Hero Inventory Tracker.
 
+            **This installer passed the automated Windows acceptance test suite
+            on `windows-latest` (fresh install, upgrade, uninstall, and
+            data-preservation checks). See the Actions run for details.**
+
             ### Installing
-            1. Download `HarvestHeroSetup-${{ steps.version.outputs.version }}.exe` below.
+            1. Download `HarvestHeroSetup-${{ needs.build.outputs.version }}.exe` below.
             2. Run it. No admin rights required.
             3. Launch **Harvest Hero** from the Start menu or desktop shortcut.
 
@@ -127,5 +415,5 @@ jobs:
 
             ### Installer SHA-256
             ```
-            ${{ steps.checksum.outputs.sha256 }}
+            ${{ needs.build.outputs.sha256 }}
             ```
