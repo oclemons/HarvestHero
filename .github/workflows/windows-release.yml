@@ -59,8 +59,8 @@ jobs:
 
       # ─── Unit tests must pass before we spend 10 minutes on a
       #     PyInstaller + Inno Setup build. ─────────────────────────
-      - name: Unit tests (update_manager)
-        run: python -m unittest tests.test_update_manager -v
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
 
       - name: Sync VERSION.json to tag
         shell: pwsh

@@ -91,9 +91,19 @@ class App(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
 
         self.show_login()
-        
-        # Check for updates after showing login screen
-        self.after(2000, self._check_for_updates)
+
+        # ── Update policy ────────────────────────────────────────
+        # Fire one check shortly after the app is on screen, then
+        # re-check every N hours while the app stays open so a
+        # long-running pantry PC still picks up releases without
+        # a manual restart.
+        import update_config
+        self._update_policy = update_config.load()
+        self._update_dialog_open = False
+        if self._update_policy["auto_update"]:
+            if self._update_policy["check_on_startup"]:
+                self.after(2000, self._check_for_updates)
+            self._schedule_next_update_check()
 
     # ------------------------------------------------------------------
     # Helpers
@@ -166,12 +176,56 @@ class App(ctk.CTk):
         self._swap_frame(LoginScreen(self, self._on_login_success))
 
     def _check_for_updates(self) -> None:
-        """Check for updates in background."""
+        """Kick off a background GitHub check.
+
+        The result callback runs on a worker thread; we bounce back
+        onto the Tk main thread with ``after(0, ...)`` before touching
+        any widget so the dialog is created in the right context.
+        """
         def on_check_complete(has_update, version, notes):
-            if has_update:
-                show_update_notification(self, self.update_manager)
-        
-        self.update_manager.check_for_updates_async(on_check_complete)
+            self.after(0, lambda: self._maybe_show_update_dialog(has_update))
+
+        try:
+            self.update_manager.check_for_updates_async(on_check_complete)
+        except Exception as exc:
+            # Never let an update check take the app down. Log and move on.
+            print(f"[update] background check failed: {exc}")
+
+    def _maybe_show_update_dialog(self, has_update: bool) -> None:
+        """Show the Update Available dialog unless one is already up."""
+        if not has_update:
+            return
+        if self._update_dialog_open:
+            return
+        if not self._update_policy.get("notify_user", True):
+            return
+        self._update_dialog_open = True
+        show_update_notification(self, self.update_manager)
+        # Hook the dialog's destroy event so a "Later" click lets the
+        # next periodic check pop it again.
+        try:
+            top = self.winfo_children()[-1]  # the toplevel we just created
+            top.bind("<Destroy>", lambda _e: setattr(self, "_update_dialog_open", False))
+        except Exception:
+            self._update_dialog_open = False
+
+    def _schedule_next_update_check(self) -> None:
+        """Re-arm the periodic recheck timer, if enabled."""
+        hours = self._update_policy.get("check_interval_hours", 0)
+        if hours <= 0:
+            return  # user disabled recurring rechecks
+        ms = int(hours * 60 * 60 * 1000)
+
+        def _tick():
+            try:
+                self._check_for_updates()
+            finally:
+                # Always reschedule, even if the check errored, so a
+                # single network hiccup doesn't disable auto-updates
+                # for the rest of the session.
+                self._schedule_next_update_check()
+
+        self.after(ms, _tick)
 
     def _on_login_success(self, user: dict) -> None:
         self.current_user = user

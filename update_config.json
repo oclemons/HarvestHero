@@ -1,11 +1,7 @@
 {
   "auto_update": true,
   "check_on_startup": true,
-  "scheduled_check": true,
-  "check_time": "02:00",
-  "silent_update": false,
+  "check_interval_hours": 6,
   "notify_user": true,
-  "download_timeout": 300,
-  "retry_on_failure": true,
-  "max_retries": 3
+  "download_timeout": 300
 }

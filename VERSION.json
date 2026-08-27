@@ -1,7 +1,7 @@
 {
-  "version": "2.1.0",
+  "version": "2.1.1",
   "app_name": "Harvest Hero Inventory Tracker",
-  "last_updated": "2026-08-25T00:00:00",
+  "last_updated": "2026-08-26T00:00:00",
   "features": [
     "Role-based access control",
     "Weight/pounds tracking with monthly cadence",
@@ -11,6 +11,11 @@
     "Shopping list auto-population",
     "Windows installer with in-app upgrade",
     "Persistent user data across every install and update"
+  ],
+  "new_in_2_1_1": [
+    "Periodic auto-update check: the app now re-polls GitHub for new releases every 6 hours while it's running, in addition to the check on startup. A pantry PC left running for days will still find and offer new versions without a manual restart.",
+    "update_config.json is now actually read at startup. Ships with sensible defaults (auto_update=true, check_on_startup=true, check_interval_hours=6). Admins can drop an override into %APPDATA%\\HarvestHero\\update_config.json to change the interval per-client.",
+    "The Update Available dialog will not stack on top of itself if a periodic check fires while a previous dialog is still open."
   ],
   "new_in_2_1_0": [
     "Windows clients now install from a real installer (HarvestHeroSetup-<ver>.exe) built by GitHub Actions on every tag. No Python required on the client machine.",
