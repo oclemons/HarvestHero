@@ -41,9 +41,11 @@ def create_app(config: type = Config) -> Flask:
     from routes.auth      import bp as auth_bp
     from routes.dashboard import bp as dashboard_bp
     from routes.account   import bp as account_bp
+    from routes.inventory import bp as inventory_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(account_bp)
+    app.register_blueprint(inventory_bp)
 
     # ── Root redirect ───────────────────────────────────────────
     @app.route("/")

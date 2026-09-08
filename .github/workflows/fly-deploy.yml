@@ -1,0 +1,73 @@
+name: Fly.io deploy
+
+# Auto-deploys the web app to Fly.io on every push to main that
+# touches something the web app cares about. The paths filter keeps
+# unrelated changes (Windows installer, docs) from spinning up a
+# deploy for nothing.
+#
+# One-time setup on the maintainer's side:
+#
+#   1. Generate a deploy token scoped to just this app:
+#        flyctl tokens create deploy \
+#            --name "github-actions-deploy" \
+#            --app harvest-hero-pantry
+#
+#   2. Copy the token (starts with "FlyV1 "), then add it as a
+#      repository secret:
+#        GitHub -> Settings -> Secrets and variables -> Actions
+#        -> New repository secret
+#          Name:  FLY_API_TOKEN
+#          Value: <paste>
+#
+# After that, `git push origin main` deploys automatically. Watch
+# progress in the Actions tab.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "database.py"
+      - "auth.py"
+      - "paths.py"
+      - ".github/workflows/fly-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'deploy' to confirm a manual deploy"
+        required: true
+        default: ""
+
+# Only one deploy runs at a time; a new push cancels any in-flight
+# deploy that's still building.
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy web app
+    runs-on: ubuntu-latest
+
+    # Manual dispatch requires typing "deploy" to guard against
+    # accidental clicks in the Actions UI.
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.confirm == 'deploy' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # --remote-only builds the Docker image on Fly's builder,
+      # not on the GitHub runner. Saves ~5 min of runner time and
+      # produces a smaller image download.
+      - name: Deploy
+        run: |
+          flyctl deploy \
+              --config web/fly.toml \
+              --dockerfile web/Dockerfile \
+              --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

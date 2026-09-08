@@ -12,14 +12,18 @@
 </div>
 
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-  <div class="bg-white rounded-lg shadow p-6">
+  <a href="{{ url_for('inventory.list_items') }}"
+     class="bg-white rounded-lg shadow p-6 hover:shadow-md transition block">
     <div class="text-slate-500 text-sm">Items in inventory</div>
     <div class="text-3xl font-bold text-emerald-700 mt-1">{{ stats.total_items }}</div>
-  </div>
-  <div class="bg-white rounded-lg shadow p-6">
+    <div class="text-xs text-emerald-700 mt-2 hover:underline">View all &rarr;</div>
+  </a>
+  <a href="{{ url_for('inventory.list_items') }}?q="
+     class="bg-white rounded-lg shadow p-6 hover:shadow-md transition block">
     <div class="text-slate-500 text-sm">Low stock</div>
     <div class="text-3xl font-bold text-amber-600 mt-1">{{ stats.low_stock }}</div>
-  </div>
+    <div class="text-xs text-amber-700 mt-2 hover:underline">View inventory &rarr;</div>
+  </a>
   <div class="bg-white rounded-lg shadow p-6">
     <div class="text-slate-500 text-sm">Active users</div>
     <div class="text-3xl font-bold text-slate-700 mt-1">{{ stats.active_users }}</div>
@@ -28,8 +32,9 @@
 
 <div class="mt-10 rounded-lg border-2 border-dashed border-slate-300 p-8 text-center">
   <p class="text-slate-500">
-    This is the Phase 0 scaffold. Inventory list, barcode scan, shopping
-    list, reports, and user management arrive in Phase 1.
+    Add / edit item, barcode scan-in/out, shopping list, and reports
+    arrive in Phase 1c and Phase 2. For now, click <b>Inventory</b>
+    above to view what's in the pantry.
   </p>
 </div>
 {% endblock %}

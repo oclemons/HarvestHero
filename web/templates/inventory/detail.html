@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}{{ item.item_name }} &middot; Harvest Hero{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <a href="{{ url_for('inventory.list_items') }}"
+     class="text-sm text-emerald-700 hover:underline">
+    &larr; Back to inventory
+  </a>
+</div>
+
+<div class="flex flex-wrap items-start justify-between gap-4 mb-6">
+  <div>
+    <h1 class="text-3xl font-bold text-slate-900">{{ item.item_name }}</h1>
+    <p class="text-slate-600">
+      {% if item.brand %}Brand: <span class="font-semibold">{{ item.brand }}</span>{% endif %}
+      {% if item.category %}
+        {% if item.brand %} &middot; {% endif %}
+        Category: <span class="font-semibold">{{ item.category }}</span>
+      {% endif %}
+    </p>
+  </div>
+
+  {% if is_low %}
+    <span class="inline-block rounded bg-amber-200 text-amber-900 text-sm font-semibold
+                 px-3 py-1 uppercase tracking-wide">
+      Low stock
+    </span>
+  {% endif %}
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+  <div class="bg-white rounded-lg shadow p-5">
+    <div class="text-slate-500 text-sm">Current quantity</div>
+    <div class="text-3xl font-bold {{ 'text-amber-700' if is_low else 'text-emerald-700' }} mt-1">
+      {{ item.current_quantity }}
+    </div>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <div class="text-slate-500 text-sm">Minimum on hand</div>
+    <div class="text-3xl font-bold text-slate-700 mt-1">{{ item.minimum_stock }}</div>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <div class="text-slate-500 text-sm">Storage location</div>
+    <div class="text-2xl font-semibold text-slate-700 mt-1">
+      {{ item.storage_location or '—' }}
+    </div>
+  </div>
+</div>
+
+<section class="bg-white rounded-lg shadow p-6">
+  <h2 class="text-lg font-semibold text-slate-900 mb-4">Item details</h2>
+  <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+
+    <div>
+      <dt class="text-slate-500">Primary barcode</dt>
+      <dd class="font-mono text-slate-900">{{ item.barcode }}</dd>
+    </div>
+    {% if item.barcode_out %}
+    <div>
+      <dt class="text-slate-500">Scan-out barcode</dt>
+      <dd class="font-mono text-slate-900">{{ item.barcode_out }}</dd>
+    </div>
+    {% endif %}
+
+    <div>
+      <dt class="text-slate-500">Overstock threshold</dt>
+      <dd class="text-slate-900">{{ item.overstock_threshold or '—' }}</dd>
+    </div>
+    <div>
+      <dt class="text-slate-500">Shelf life</dt>
+      <dd class="text-slate-900">
+        {% if item.shelf_life_days %}
+          {{ item.shelf_life_days }} days
+        {% else %}—{% endif %}
+      </dd>
+    </div>
+
+    <div>
+      <dt class="text-slate-500">Expiration date</dt>
+      <dd class="text-slate-900">{{ item.expiration_date or '—' }}</dd>
+    </div>
+    <div>
+      <dt class="text-slate-500">Weight per unit</dt>
+      <dd class="text-slate-900">
+        {% if item.weight_per_unit %}
+          {{ '%.2f'|format(item.weight_per_unit) }} lb
+        {% else %}—{% endif %}
+      </dd>
+    </div>
+
+    <div>
+      <dt class="text-slate-500">Current pounds on hand</dt>
+      <dd class="text-slate-900">
+        {% if item.current_pounds %}
+          {{ '%.1f'|format(item.current_pounds) }} lb
+        {% else %}—{% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-slate-500">Discarded pounds</dt>
+      <dd class="text-slate-900">
+        {% if item.discarded_pounds %}
+          {{ '%.1f'|format(item.discarded_pounds) }} lb
+        {% else %}—{% endif %}
+      </dd>
+    </div>
+
+    <div>
+      <dt class="text-slate-500">Donated pounds</dt>
+      <dd class="text-slate-900">
+        {% if item.donated_pounds %}
+          {{ '%.1f'|format(item.donated_pounds) }} lb
+        {% else %}—{% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-slate-500">Added on</dt>
+      <dd class="text-slate-900">{{ item.created_at }}</dd>
+    </div>
+
+    {% if item.notes %}
+    <div class="sm:col-span-2">
+      <dt class="text-slate-500">Notes</dt>
+      <dd class="whitespace-pre-line text-slate-900">{{ item.notes }}</dd>
+    </div>
+    {% endif %}
+
+  </dl>
+</section>
+
+<p class="text-xs text-slate-400 mt-4">
+  Phase 1c will add editing. For now this page is read-only.
+</p>
+{% endblock %}
