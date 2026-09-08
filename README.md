@@ -1,27 +1,43 @@
-# Harvest Hero — Pantry Intelligence Platform
+# Harvest Hero — Pantry Inventory Platform
 
-A local desktop inventory management application built with Python, CustomTkinter, and SQLite.  
-No internet connection required. All data is stored in `data/inventory.db` on the device where the app runs.
+Harvest Hero has moved to a browser-based web app hosted at
+**https://harvestheropantry.com**. Nothing to install; just log in.
+
+The original Windows desktop app is **frozen at v2.1.1** — the code
+still lives in this repo for reference and the last installer stays
+on the GitHub Releases page, but no new versions will ship. Use the
+web app for everything going forward.
 
 ---
 
-## 🚀 Quick Download & Install
+## For end users
 
-### For Windows Users
-1. Go to https://github.com/oclemons/HarvestHero/releases/latest
-2. Download **`HarvestHeroSetup-<version>.exe`**.
-3. Run it. Windows may show a SmartScreen warning the first time; click **More info → Run anyway** (the installer is not code-signed yet).
-4. Launch **Harvest Hero** from the Start menu or the desktop shortcut.
+Open **https://harvestheropantry.com** in any browser (Windows, Mac,
+tablet — any device). Sign in with the credentials your pantry
+administrator gave you. That's it.
 
-Future updates are handled by the app itself — open Harvest Hero, click **Install Update** when prompted, and it swaps itself out automatically. No downloads, no CMD, no data loss.
+Features currently live on the web app (see
+[WEB_APP_ROADMAP.md](WEB_APP_ROADMAP.md) for what's coming next):
 
-### For Mac / Linux Users (developer / staff mode)
-1. Clone the repo: `git clone https://github.com/oclemons/HarvestHero.git`
-2. `cd HarvestHero`
-3. `pip install -r requirements.txt`
-4. `python main.py`
+- Login + change your own password
+- Inventory list with search + pagination
+- Item detail view
+- (Phase 1c) Add / edit / delete items + barcode scan-in/out
 
-**📖 Full Installation Guide**: see [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md).
+---
+
+## For maintainers / developers
+
+- **Web app source:** the `web/` subdirectory. Flask + Jinja + HTMX +
+  Tailwind. See [`web/README.md`](web/README.md) for the local dev
+  loop.
+- **Deploying:** [`DEPLOY_STEPS.md`](DEPLOY_STEPS.md) — one-command
+  `flyctl deploy` after a `git push`, or automatic on push once
+  `FLY_API_TOKEN` is set in the repo's GitHub secrets.
+- **Shared core:** `database.py`, `auth.py`, `paths.py` at the repo
+  root — used by both the web app and the frozen desktop app.
+- **Legacy desktop app:** all other `*.py` files at the repo root.
+  Runs via `python main.py` if you need to reproduce a v2.1.1 bug.
 
 ---
 
