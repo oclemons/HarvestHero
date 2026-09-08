@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en" class="h-full bg-slate-50">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Harvest Hero{% endblock %}</title>
+
+  {# Tailwind via CDN for Phase 0 — Phase 1 swaps this out for a built
+     stylesheet with only the classes we use, saving ~3 MB per pageload. #}
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  {# HTMX for tiny partial-page updates (barcode-scan-in, edit-in-place,
+     etc.). Loaded on every page so any template can drop in hx-* attrs. #}
+  <script src="https://unpkg.com/htmx.org@2.0.3"
+          integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq"
+          crossorigin="anonymous"></script>
+
+  <style>
+    /* Font stack matches the desktop app's Times-New-Roman preference
+       so users switching from the .exe don't feel a jarring redesign. */
+    html { font-family: "Times New Roman", Times, Georgia, serif; }
+  </style>
+</head>
+<body class="h-full flex flex-col min-h-screen text-slate-900">
+
+  {% if current_user.is_authenticated %}
+  <header class="bg-emerald-800 text-white">
+    <div class="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
+      <a href="{{ url_for('dashboard.home') }}" class="text-lg font-bold tracking-tight">
+        Harvest Hero
+      </a>
+      <nav class="flex items-center gap-4 text-sm">
+        <a href="{{ url_for('dashboard.home') }}" class="hover:underline">Dashboard</a>
+        <span class="opacity-60">|</span>
+        <span>{{ current_user.username }} ({{ current_user.role }})</span>
+        <a href="{{ url_for('auth.logout') }}"
+           class="ml-2 rounded bg-emerald-900 px-3 py-1 hover:bg-emerald-950">
+          Sign out
+        </a>
+      </nav>
+    </div>
+  </header>
+  {% endif %}
+
+  {# Flash messages — one row of pills at the top of the content area. #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="max-w-6xl mx-auto px-6 pt-4 space-y-2 w-full">
+        {% for category, msg in messages %}
+          <div class="rounded border px-4 py-2 text-sm
+                      {% if category == 'error' %}
+                        bg-red-50 border-red-200 text-red-800
+                      {% elif category == 'success' %}
+                        bg-emerald-50 border-emerald-200 text-emerald-800
+                      {% else %}
+                        bg-slate-100 border-slate-200 text-slate-700
+                      {% endif %}">
+            {{ msg }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <main class="flex-1 w-full max-w-6xl mx-auto px-6 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="text-xs text-slate-500 py-4 text-center">
+    Harvest Hero &middot; v{{ config.APP_VERSION }}
+  </footer>
+</body>
+</html>

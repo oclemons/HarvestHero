@@ -1,0 +1,18 @@
+# Runtime deps for the Harvest Hero web app.
+# Deliberately narrow — we lean on server-rendered HTML + HTMX so we
+# never grow a JS build pipeline.
+
+Flask>=3.0,<4.0
+Flask-Login>=0.6,<1.0
+Werkzeug>=3.0,<4.0
+Jinja2>=3.1,<4.0
+itsdangerous>=2.1,<3.0
+gunicorn>=22,<24        # production WSGI server, used by the Dockerfile
+
+# Shared with the desktop app so the two agree on the DB schema.
+# We depend on:
+#   database.py       (repo root)
+#   auth.py           (repo root)
+#   paths.py          (repo root)
+# These pull in a small subset of the desktop app's requirements:
+cryptography>=44.0.1,<60.0.0
