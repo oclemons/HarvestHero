@@ -1,6 +1,7 @@
-"""Inventory list + item detail.
+"""Inventory list + item detail + add.
 
-Phase 1b: read-only. Add / edit / delete arrive in Phase 1c.
+Phase 1c-i adds ``GET/POST /inventory/new``. Edit, delete, adjust,
+and barcode scan are separate later commits.
 
 The list view leans on ``Database.get_all_items(search)`` — the same
 query the desktop app uses — so the two frontends can never disagree
@@ -13,7 +14,9 @@ from __future__ import annotations
 
 from math import ceil
 
-from flask import Blueprint, abort, render_template, request
+from flask import (
+    Blueprint, abort, flash, redirect, render_template, request, url_for,
+)
 from flask_login import login_required
 
 from database import Database
@@ -73,7 +76,96 @@ def detail(item_id: int):
 
 
 # ─────────────────────────────────────────────────────────────────
+# Add a new item
+# ─────────────────────────────────────────────────────────────────
+
+@bp.route("/new", methods=["GET", "POST"])
+@login_required
+def new():
+    """Show the add-item form (GET) or create one (POST).
+
+    Role gating: none for now. When user management lands in a later
+    phase we'll add @admin_required. Today, any authenticated user
+    (i.e. anyone with a password from the admin) can add an item.
+    """
+    if request.method == "GET":
+        return render_template("inventory/form.html", item=_blank_item())
+
+    data, err = _parse_form(request.form)
+    if err:
+        flash(err, "error")
+        return render_template("inventory/form.html", item=data), 400
+
+    ok, msg = _db.add_item(
+        barcode          = data["barcode"],
+        item_name        = data["item_name"],
+        category         = data["category"],
+        quantity         = data["current_quantity"],
+        minimum_stock    = data["minimum_stock"],
+        notes            = data["notes"],
+        barcode_out      = data["barcode_out"],
+        brand            = data["brand"],
+        storage_location = data["storage_location"],
+    )
+    if not ok:
+        flash(msg, "error")
+        return render_template("inventory/form.html", item=data), 400
+
+    flash(f"Added '{data['item_name']}' to inventory.", "success")
+    row = _db.get_item_by_barcode(data["barcode"])
+    if row:
+        return redirect(url_for("inventory.detail", item_id=row["id"]))
+    return redirect(url_for("inventory.list_items"))
+
+
+# ─────────────────────────────────────────────────────────────────
 # Helpers
+# ─────────────────────────────────────────────────────────────────
+
+def _blank_item() -> dict:
+    """Empty-form defaults so the template can iterate a consistent shape."""
+    return {
+        "barcode": "", "barcode_out": "",
+        "item_name": "", "brand": "", "category": "",
+        "current_quantity": 0, "minimum_stock": 0,
+        "storage_location": "", "notes": "",
+    }
+
+
+def _parse_form(form) -> tuple[dict, str | None]:
+    """Return ``(cleaned_data, error_or_None)``.
+
+    On failure the cleaned dict is still returned in the shape the
+    template expects, so the user's typing is not lost when we
+    re-render the form with a flashed error.
+    """
+    data = {
+        "barcode":          (form.get("barcode") or "").strip(),
+        "barcode_out":      (form.get("barcode_out") or "").strip(),
+        "item_name":        (form.get("item_name") or "").strip(),
+        "brand":            (form.get("brand") or "").strip(),
+        "category":         (form.get("category") or "").strip(),
+        "storage_location": (form.get("storage_location") or "").strip(),
+        "notes":            (form.get("notes") or "").strip(),
+    }
+    for numeric in ("current_quantity", "minimum_stock"):
+        raw = (form.get(numeric) or "").strip()
+        try:
+            data[numeric] = max(0, int(raw)) if raw else 0
+        except ValueError:
+            return data, (
+                f"{numeric.replace('_', ' ').capitalize()} must be a whole "
+                f"number, got '{raw}'."
+            )
+    if not data["barcode"]:
+        return data, "Barcode is required."
+    if not data["item_name"]:
+        return data, "Item name is required."
+    return data, None
+
+
+# ─────────────────────────────────────────────────────────────────
+# List-page helpers (unchanged from Phase 1b)
 # ─────────────────────────────────────────────────────────────────
 
 def _low_stock_id_set() -> set[int]:

@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Add item &middot; Harvest Hero{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <a href="{{ url_for('inventory.list_items') }}"
+     class="text-sm text-emerald-700 hover:underline">
+    &larr; Back to inventory
+  </a>
+</div>
+
+<h1 class="text-3xl font-bold text-slate-900 mb-6">Add a new item</h1>
+
+<form method="post" class="bg-white rounded-lg shadow p-6 max-w-3xl space-y-5">
+
+  {# ── Identity ────────────────────────────────────────── #}
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">
+        Primary barcode *
+      </label>
+      <input name="barcode" required value="{{ item.barcode or '' }}"
+             autofocus autocomplete="off"
+             class="w-full rounded border border-slate-300 px-3 py-2 font-mono
+                    focus:outline-none focus:ring-2 focus:ring-emerald-600">
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">
+        Scan-out barcode <span class="text-slate-400 text-xs">(optional)</span>
+      </label>
+      <input name="barcode_out" value="{{ item.barcode_out or '' }}"
+             autocomplete="off"
+             class="w-full rounded border border-slate-300 px-3 py-2 font-mono
+                    focus:outline-none focus:ring-2 focus:ring-emerald-600">
+    </div>
+  </div>
+
+  {# ── Naming ─────────────────────────────────────────── #}
+  <div>
+    <label class="block text-sm font-medium text-slate-700 mb-1">
+      Item name *
+    </label>
+    <input name="item_name" required value="{{ item.item_name or '' }}"
+           class="w-full rounded border border-slate-300 px-3 py-2
+                  focus:outline-none focus:ring-2 focus:ring-emerald-600">
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">Brand</label>
+      <input name="brand" value="{{ item.brand or '' }}"
+             class="w-full rounded border border-slate-300 px-3 py-2
+                    focus:outline-none focus:ring-2 focus:ring-emerald-600">
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">Category</label>
+      <input name="category" value="{{ item.category or '' }}"
+             placeholder="e.g. Canned, Pantry, Non-food"
+             class="w-full rounded border border-slate-300 px-3 py-2
+                    focus:outline-none focus:ring-2 focus:ring-emerald-600">
+    </div>
+  </div>
+
+  {# ── Quantities ─────────────────────────────────────── #}
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">
+        Starting quantity
+      </label>
+      <input name="current_quantity" type="number" min="0"
+             value="{{ item.current_quantity or 0 }}"
+             class="w-full rounded border border-slate-300 px-3 py-2
+                    focus:outline-none focus:ring-2 focus:ring-emerald-600">
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">
+        Minimum on hand
+      </label>
+      <input name="minimum_stock" type="number" min="0"
+             value="{{ item.minimum_stock or 0 }}"
+             class="w-full rounded border border-slate-300 px-3 py-2
+                    focus:outline-none focus:ring-2 focus:ring-emerald-600">
+      <p class="text-xs text-slate-500 mt-1">
+        Items drop into the <b>Low stock</b> group when their quantity
+        goes below this. Leave at 0 to disable that flag.
+      </p>
+    </div>
+  </div>
+
+  {# ── Storage ────────────────────────────────────────── #}
+  <div>
+    <label class="block text-sm font-medium text-slate-700 mb-1">
+      Storage location
+    </label>
+    <input name="storage_location" value="{{ item.storage_location or '' }}"
+           placeholder="e.g. Section 1, Shelf A"
+           class="w-full rounded border border-slate-300 px-3 py-2
+                  focus:outline-none focus:ring-2 focus:ring-emerald-600">
+  </div>
+
+  <div>
+    <label class="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+    <textarea name="notes" rows="3"
+              class="w-full rounded border border-slate-300 px-3 py-2
+                     focus:outline-none focus:ring-2 focus:ring-emerald-600">{{ item.notes or '' }}</textarea>
+  </div>
+
+  {# ── Actions ────────────────────────────────────────── #}
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit"
+            class="bg-emerald-700 text-white font-semibold px-5 py-2 rounded
+                   hover:bg-emerald-800 transition">
+      Add item
+    </button>
+    <a href="{{ url_for('inventory.list_items') }}"
+       class="text-slate-600 hover:underline">Cancel</a>
+  </div>
+
+  <p class="text-xs text-slate-400 pt-2">* Required</p>
+</form>
+{% endblock %}
