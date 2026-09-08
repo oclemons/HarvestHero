@@ -43,6 +43,14 @@ flyctl launch \
     --yes
 ```
 
+> **Important — build-context rule.**
+> Every subsequent `flyctl deploy`, `flyctl volumes …`, and
+> `flyctl secrets …` command must be run **from the repo root**
+> with `--config web/fly.toml` (or the Dockerfile can't see
+> `database.py` / `auth.py` / `paths.py` in the root). Only
+> `flyctl launch` runs from `web/` because it needs to write
+> the fly.toml next to itself.
+
 * `--name` fixes the default subdomain to `harvest-hero-pantry.fly.dev`.
   Changing this later means changing DNS too; pick once.
 * `--region iad` is Ashburn, VA (US East). If your pantries are on the
@@ -58,7 +66,10 @@ flyctl launch \
 ## 2. Create the persistent volume for the SQLite database
 
 ```bash
+cd /Users/octayviaclemons/CascadeProjects/inventory_tracker
+
 flyctl volumes create harvest_data \
+    --config web/fly.toml \
     --size 1 \
     --region iad \
     --yes
@@ -79,13 +90,14 @@ on every deploy. Set a persistent one:
 
 ```bash
 flyctl secrets set \
+    --config web/fly.toml \
     HARVESTHERO_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
 ```
 
 Verify it's stored (value is redacted):
 
 ```bash
-flyctl secrets list
+flyctl secrets list --config web/fly.toml
 ```
 
 ---
@@ -93,8 +105,25 @@ flyctl secrets list
 ## 4. First deploy
 
 ```bash
-flyctl deploy
+# From the REPO ROOT, not from web/.
+cd /Users/octayviaclemons/CascadeProjects/inventory_tracker
+
+flyctl deploy \
+    --config web/fly.toml \
+    --dockerfile web/Dockerfile
 ```
+
+The `--config` and `--dockerfile` flags together make flyctl:
+* use `web/fly.toml` for the app config
+* use `web/Dockerfile` for the build recipe
+* use the **repo root** as the Docker build context, so the
+  `COPY . /app` line can see `database.py`, `auth.py`, `paths.py`,
+  and the `web/` subdirectory in one go.
+
+If you run `flyctl deploy` from inside `web/` without those flags,
+the build context is `web/` and the Dockerfile fails at step [4/5]
+with `Could not open requirements file /app/web/requirements.txt`.
+That's the symptom of the wrong build context.
 
 Takes 2–4 minutes: builds the Docker image, uploads it, boots a
 machine, mounts the volume, starts gunicorn.
@@ -229,9 +258,16 @@ To ship any change:
 ```bash
 git commit -a -m "..."
 git push origin main
-cd web
-flyctl deploy
+
+# From the REPO ROOT
+cd /Users/octayviaclemons/CascadeProjects/inventory_tracker
+flyctl deploy --config web/fly.toml --dockerfile web/Dockerfile
 ```
+
+If you connected the Fly.io GitHub App to this repo (via the Fly
+dashboard), the `git push` alone triggers a deploy — you can skip
+the `flyctl deploy` line. Fly.io's own runner does the equivalent
+`--config web/fly.toml --dockerfile web/Dockerfile` for you.
 
 That's it. `flyctl deploy` rebuilds, uploads, and does a zero-downtime
 rollout. The site is unreachable for a few seconds during the swap;
