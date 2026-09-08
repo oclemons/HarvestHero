@@ -1,47 +1,37 @@
-# Fly.io deployment config for the Harvest Hero web app.
+# fly.toml app configuration file generated for harvest-hero-pantry on 2026-09-08T16:25:35-05:00
 #
-# One-time setup on your machine:
-#   brew install flyctl
-#   flyctl auth signup          # first time only
-#   cd inventory_tracker/web
-#   flyctl launch --no-deploy   # asks for app name, region, etc.
-#                               # will rewrite this file with your values
-#   flyctl volumes create harvest_data --size 1 --region <same-region>
-#   flyctl secrets set HARVESTHERO_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(48))')"
-#   flyctl deploy
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
-# After that, `flyctl deploy` from web/ ships a new version.
 
-app          = "harvest-hero"       # flyctl launch will rewrite this
-primary_region = "iad"              # US East. Change to your closest region.
+app = 'harvest-hero-pantry'
+primary_region = 'iad'
 
 [build]
-  # Uses ../ as build context so the Dockerfile can COPY the repo root.
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  PORT                     = "8080"
-  HARVESTHERO_DEV_DIR      = "/data"
-  HARVESTHERO_COOKIE_SECURE = "1"
+  HARVESTHERO_COOKIE_SECURE = '1'
+  HARVESTHERO_DEV_DIR = '/data'
+  PORT = '8080'
 
 [[mounts]]
-  source      = "harvest_data"
-  destination = "/data"
+  source = 'harvest_data'
+  destination = '/data'
 
 [http_service]
-  internal_port       = 8080
-  force_https         = true
-  auto_stop_machines  = "suspend"   # sleeps free-tier machines when idle
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'suspend'
   auto_start_machines = true
   min_machines_running = 0
 
   [[http_service.checks]]
-    interval     = "15s"
-    timeout      = "5s"
-    grace_period = "10s"
-    method       = "GET"
-    path         = "/healthz"
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/healthz'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
+  size = 'shared-cpu-1x'
+  memory = '512mb'
