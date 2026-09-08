@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Account settings &middot; Harvest Hero{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl">
+  <h1 class="text-3xl font-bold text-slate-900 mb-1">Account settings</h1>
+  <p class="text-slate-600 mb-8">
+    Signed in as <span class="font-semibold text-emerald-800">{{ user.username }}</span>
+    ({{ user.role }}).
+  </p>
+
+  <section class="bg-white rounded-lg shadow p-6">
+    <h2 class="text-xl font-semibold text-slate-900 mb-4">Change password</h2>
+
+    <p class="text-sm text-slate-600 mb-4">
+      Passwords must be at least {{ min_length }} characters and include
+      characters from at least three of: lowercase, uppercase, digits,
+      symbols.
+    </p>
+
+    <form method="post" action="{{ url_for('account.change_password') }}"
+          class="space-y-4">
+      <div>
+        <label for="current_password"
+               class="block text-sm font-medium text-slate-700 mb-1">
+          Current password
+        </label>
+        <input id="current_password" name="current_password" type="password"
+               required autocomplete="current-password"
+               class="w-full rounded border border-slate-300 px-3 py-2
+                      focus:outline-none focus:ring-2 focus:ring-emerald-600">
+      </div>
+
+      <div>
+        <label for="new_password"
+               class="block text-sm font-medium text-slate-700 mb-1">
+          New password
+        </label>
+        <input id="new_password" name="new_password" type="password"
+               required autocomplete="new-password"
+               minlength="{{ min_length }}"
+               class="w-full rounded border border-slate-300 px-3 py-2
+                      focus:outline-none focus:ring-2 focus:ring-emerald-600">
+      </div>
+
+      <div>
+        <label for="confirm_password"
+               class="block text-sm font-medium text-slate-700 mb-1">
+          Confirm new password
+        </label>
+        <input id="confirm_password" name="confirm_password" type="password"
+               required autocomplete="new-password"
+               minlength="{{ min_length }}"
+               class="w-full rounded border border-slate-300 px-3 py-2
+                      focus:outline-none focus:ring-2 focus:ring-emerald-600">
+      </div>
+
+      <div class="pt-2">
+        <button type="submit"
+                class="bg-emerald-700 text-white font-semibold px-5 py-2 rounded
+                       hover:bg-emerald-800 transition">
+          Update password
+        </button>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}
