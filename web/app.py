@@ -56,7 +56,43 @@ def create_app(config: type = Config) -> Flask:
         return {"ok": True, "app": Config.APP_NAME,
                 "version": Config.APP_VERSION}, 200
 
+    # ── First-launch admin bootstrap ─────────────────────────────
+    #   The Fly.io volume starts empty on first deploy, so the users
+    #   table has no rows and no one could log in. Detect that case
+    #   and mint a random admin password, printing it to stdout so
+    #   it shows up in `flyctl logs`. Idempotent: subsequent starts
+    #   see the existing admin and do nothing.
+    _bootstrap_default_admin()
+
     return app
+
+
+def _bootstrap_default_admin() -> None:
+    import secrets as _secrets
+    from database import Database
+    from auth import hash_password as _hp
+    db = Database()
+    try:
+        if db.get_all_users():
+            return  # Already bootstrapped.
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"[bootstrap] could not query users table: {exc}")
+        return
+    pw = _secrets.token_urlsafe(12)
+    ph, salt = _hp(pw)
+    ok, msg = db.create_user("admin", ph, salt, "admin")
+    if ok:
+        print("=" * 72)
+        print("  HARVEST HERO -- FIRST-LAUNCH ADMIN CREATED")
+        print("     username: admin")
+        print(f"     password: {pw}")
+        print("  Log in at your app URL and change this password immediately.")
+        print("  This password will NEVER be shown again -- save it now.")
+        print("=" * 72)
+    else:
+        # Race with a sibling worker: harmless, someone else already made it.
+        print(f"[bootstrap] admin not created ({msg}); assuming another "
+              f"worker beat us to it")
 
 
 # WSGI entry point — used by gunicorn in production.
