@@ -1,7 +1,7 @@
-"""Inventory list + item detail + add + edit.
+"""Inventory list + item detail + add + edit + delete.
 
-Phase 1c-i added add. Phase 1c-ii adds edit. Delete, adjust, and
-barcode scan are separate later commits.
+Phase 1c-i: add. 1c-ii: edit. 1c-iii: delete. Adjust and barcode
+scan are separate later commits.
 
 The list view leans on ``Database.get_all_items(search)`` — the same
 query the desktop app uses — so the two frontends can never disagree
@@ -183,6 +183,30 @@ def edit(item_id: int):
 
     flash(f"Saved changes to '{data['item_name']}'.", "success")
     return redirect(url_for("inventory.detail", item_id=item_id))
+
+
+# ─────────────────────────────────────────────────────────────────
+# Delete an item
+# ─────────────────────────────────────────────────────────────────
+
+@bp.route("/<int:item_id>/delete", methods=["POST"])
+@login_required
+def delete(item_id: int):
+    """Hard delete. The template pairs this with a JS confirm() so a
+    stray click can't destroy inventory; the two guards together are
+    good enough for MVP.
+
+    POST-only intentionally — GET would let a link in an email or an
+    open redirect trigger a delete just by being fetched. The
+    template submits via a small inline <form>.
+    """
+    row = _db.get_item_by_id(item_id)
+    if not row:
+        abort(404)
+    name = row["item_name"]
+    _db.delete_item(item_id)
+    flash(f"Deleted '{name}'.", "success")
+    return redirect(url_for("inventory.list_items"))
 
 
 # ─────────────────────────────────────────────────────────────────

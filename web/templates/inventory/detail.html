@@ -135,5 +135,21 @@
             hover:bg-slate-800 transition">
     Edit item
   </a>
+
+  <form method="post"
+        action="{{ url_for('inventory.delete', item_id=item.id) }}"
+        onsubmit="return confirm('Delete {{ item.item_name|e }}? This cannot be undone.');"
+        class="inline">
+    <button type="submit"
+            class="bg-red-700 text-white font-semibold px-4 py-2 rounded
+                   hover:bg-red-800 transition">
+      Delete item
+    </button>
+  </form>
 </div>
+
+<p class="text-xs text-slate-400 mt-2">
+  Deleting removes the row permanently. If you just want to zero out
+  the quantity, use Edit &rarr; Current quantity instead.
+</p>
 {% endblock %}
