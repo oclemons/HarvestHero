@@ -1,7 +1,8 @@
-"""Inventory list + item detail + add + edit + delete.
+"""Inventory list + item detail + add + edit + delete + adjust.
 
-Phase 1c-i: add. 1c-ii: edit. 1c-iii: delete. Adjust and barcode
-scan are separate later commits.
+Phase 1c-i: add. 1c-ii: edit. 1c-iii: delete. 1c-iv: adjust
+quantity (single-field inline form on the detail page).
+Barcode scan is a separate later commit.
 
 The list view leans on ``Database.get_all_items(search)`` — the same
 query the desktop app uses — so the two frontends can never disagree
@@ -207,6 +208,43 @@ def delete(item_id: int):
     _db.delete_item(item_id)
     flash(f"Deleted '{name}'.", "success")
     return redirect(url_for("inventory.list_items"))
+
+
+# ─────────────────────────────────────────────────────────────────
+# Directly set an item's quantity
+# ─────────────────────────────────────────────────────────────────
+
+@bp.route("/<int:item_id>/adjust", methods=["POST"])
+@login_required
+def adjust(item_id: int):
+    """Set current_quantity to whatever the form field says.
+
+    Purpose: correcting a mistake without walking through the full
+    Edit form. For daily +1/-1 the Scan page (1c-v) is the tool.
+
+    Refuses negative values silently — flash the error and redirect
+    back to the detail page so the user sees what went wrong.
+    """
+    row = _db.get_item_by_id(item_id)
+    if not row:
+        abort(404)
+
+    raw = (request.form.get("quantity") or "").strip()
+    try:
+        new_qty = int(raw)
+        if new_qty < 0:
+            raise ValueError("negative")
+    except ValueError:
+        flash("Quantity must be a non-negative whole number.", "error")
+        return redirect(url_for("inventory.detail", item_id=item_id))
+
+    if new_qty == int(row.get("current_quantity") or 0):
+        flash("Quantity was already at that value; nothing changed.", "info")
+        return redirect(url_for("inventory.detail", item_id=item_id))
+
+    _db.set_stock(item_id, new_qty)
+    flash(f"Quantity set to {new_qty}.", "success")
+    return redirect(url_for("inventory.detail", item_id=item_id))
 
 
 # ─────────────────────────────────────────────────────────────────

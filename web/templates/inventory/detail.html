@@ -136,6 +136,25 @@
     Edit item
   </a>
 
+  {# Small inline "correct the quantity" form. For daily +1/-1
+     workflow the Scan page in 1c-v is the right tool. #}
+  <form method="post"
+        action="{{ url_for('inventory.adjust', item_id=item.id) }}"
+        class="flex items-center gap-2 bg-white rounded border border-slate-200 px-3 py-2">
+    <label for="adjust-qty" class="text-sm text-slate-600">
+      Set quantity to
+    </label>
+    <input id="adjust-qty" name="quantity" type="number" min="0"
+           value="{{ item.current_quantity }}"
+           class="w-24 rounded border border-slate-300 px-2 py-1
+                  focus:outline-none focus:ring-2 focus:ring-emerald-600">
+    <button type="submit"
+            class="bg-emerald-700 text-white font-semibold px-3 py-1.5 rounded
+                   hover:bg-emerald-800 transition text-sm">
+      Save
+    </button>
+  </form>
+
   <form method="post"
         action="{{ url_for('inventory.delete', item_id=item.id) }}"
         onsubmit="return confirm('Delete {{ item.item_name|e }}? This cannot be undone.');"
@@ -149,7 +168,7 @@
 </div>
 
 <p class="text-xs text-slate-400 mt-2">
-  Deleting removes the row permanently. If you just want to zero out
-  the quantity, use Edit &rarr; Current quantity instead.
+  Deleting removes the row permanently. For daily +1 / -1 stock
+  changes, use the Scan page (arriving soon).
 </p>
 {% endblock %}
