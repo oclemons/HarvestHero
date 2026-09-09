@@ -129,7 +129,11 @@
   </dl>
 </section>
 
-<p class="text-xs text-slate-400 mt-4">
-  Phase 1c will add editing. For now this page is read-only.
-</p>
+<div class="mt-6 flex flex-wrap items-center gap-3">
+  <a href="{{ url_for('inventory.edit', item_id=item.id) }}"
+     class="bg-slate-700 text-white font-semibold px-4 py-2 rounded
+            hover:bg-slate-800 transition">
+    Edit item
+  </a>
+</div>
 {% endblock %}

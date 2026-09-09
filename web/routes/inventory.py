@@ -1,7 +1,7 @@
-"""Inventory list + item detail + add.
+"""Inventory list + item detail + add + edit.
 
-Phase 1c-i adds ``GET/POST /inventory/new``. Edit, delete, adjust,
-and barcode scan are separate later commits.
+Phase 1c-i added add. Phase 1c-ii adds edit. Delete, adjust, and
+barcode scan are separate later commits.
 
 The list view leans on ``Database.get_all_items(search)`` — the same
 query the desktop app uses — so the two frontends can never disagree
@@ -89,12 +89,14 @@ def new():
     (i.e. anyone with a password from the admin) can add an item.
     """
     if request.method == "GET":
-        return render_template("inventory/form.html", item=_blank_item())
+        return render_template("inventory/form.html",
+                               mode="new", item=_blank_item())
 
     data, err = _parse_form(request.form)
     if err:
         flash(err, "error")
-        return render_template("inventory/form.html", item=data), 400
+        return render_template("inventory/form.html",
+                               mode="new", item=data), 400
 
     ok, msg = _db.add_item(
         barcode          = data["barcode"],
@@ -109,13 +111,78 @@ def new():
     )
     if not ok:
         flash(msg, "error")
-        return render_template("inventory/form.html", item=data), 400
+        return render_template("inventory/form.html",
+                               mode="new", item=data), 400
 
     flash(f"Added '{data['item_name']}' to inventory.", "success")
     row = _db.get_item_by_barcode(data["barcode"])
     if row:
         return redirect(url_for("inventory.detail", item_id=row["id"]))
     return redirect(url_for("inventory.list_items"))
+
+
+# ─────────────────────────────────────────────────────────────────
+# Edit an existing item
+# ─────────────────────────────────────────────────────────────────
+
+@bp.route("/<int:item_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit(item_id: int):
+    """Show the edit form (GET) or save changes (POST).
+
+    ``barcode`` is intentionally not editable — changing the primary
+    barcode of an existing item would silently orphan any barcode
+    labels already printed for it. If the barcode is truly wrong,
+    delete + re-add is the safer path.
+
+    Quantity IS editable here (it goes through set_stock). For daily
+    increment/decrement, phase 1c-v's Scan page is the intended tool.
+    """
+    row = _db.get_item_by_id(item_id)
+    if not row:
+        abort(404)
+
+    if request.method == "GET":
+        return render_template("inventory/form.html",
+                               mode="edit", item=row)
+
+    data, err = _parse_form(request.form, editing=True,
+                            existing_barcode=row["barcode"])
+    if err:
+        flash(err, "error")
+        # Preserve the submitted values so the user's typing isn't lost.
+        # Add id + readonly barcode back in so the template's Cancel /
+        # Back links still resolve.
+        preserved = dict(data)
+        preserved["id"]      = row["id"]
+        preserved["barcode"] = row["barcode"]
+        return render_template("inventory/form.html",
+                               mode="edit", item=preserved), 400
+
+    # 1. Core fields via update_item (item_name, category,
+    #    minimum_stock, notes, barcode_out)
+    _db.update_item(
+        item_id       = item_id,
+        item_name     = data["item_name"],
+        category      = data["category"],
+        minimum_stock = data["minimum_stock"],
+        notes         = data["notes"],
+        barcode_out   = data["barcode_out"],
+    )
+    # 2. Extended fields via update_item_extended (brand,
+    #    storage_location, ...). Only brand + storage_location are
+    #    exposed on this form; the rest stay at their existing values.
+    _db.update_item_extended(
+        item_id          = item_id,
+        brand            = data["brand"],
+        storage_location = data["storage_location"],
+    )
+    # 3. Quantity change if it moved.
+    if int(data["current_quantity"]) != int(row.get("current_quantity") or 0):
+        _db.set_stock(item_id, data["current_quantity"])
+
+    flash(f"Saved changes to '{data['item_name']}'.", "success")
+    return redirect(url_for("inventory.detail", item_id=item_id))
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -132,12 +199,19 @@ def _blank_item() -> dict:
     }
 
 
-def _parse_form(form) -> tuple[dict, str | None]:
+def _parse_form(form, *, editing: bool = False,
+                existing_barcode: str | None = None
+                ) -> tuple[dict, str | None]:
     """Return ``(cleaned_data, error_or_None)``.
 
     On failure the cleaned dict is still returned in the shape the
     template expects, so the user's typing is not lost when we
     re-render the form with a flashed error.
+
+    In edit mode the ``barcode`` field is force-set to the existing
+    value; the form renders it as read-only but a malicious client
+    could still submit a different value, so we ignore that field
+    server-side rather than trust the input.
     """
     data = {
         "barcode":          (form.get("barcode") or "").strip(),
@@ -148,6 +222,8 @@ def _parse_form(form) -> tuple[dict, str | None]:
         "storage_location": (form.get("storage_location") or "").strip(),
         "notes":            (form.get("notes") or "").strip(),
     }
+    if editing and existing_barcode is not None:
+        data["barcode"] = existing_barcode
     for numeric in ("current_quantity", "minimum_stock"):
         raw = (form.get(numeric) or "").strip()
         try:
