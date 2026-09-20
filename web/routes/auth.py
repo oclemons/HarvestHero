@@ -13,7 +13,7 @@ from flask_login import UserMixin, login_required, login_user, logout_user
 from auth import verify_password
 from database import Database
 
-from extensions import login_manager
+from extensions import limiter, login_manager
 
 
 bp = Blueprint("auth", __name__)
@@ -45,6 +45,9 @@ def _load_user(user_id: str):
 
 
 @bp.route("/login", methods=["GET", "POST"])
+@limiter.limit("10 per 5 minutes",
+               methods=["POST"],
+               error_message="Too many login attempts. Try again shortly.")
 def login():
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
@@ -53,6 +56,10 @@ def login():
         if row and row.get("is_active") and verify_password(
                 password, row["password_hash"], row["salt"]):
             login_user(User(row), remember=False)
+            # Rotate session ID + stamp identifiers so a later
+            # password change invalidates this session (2A.4).
+            from security import mark_login
+            mark_login(row)
             _db.update_last_login(username)
             return redirect(request.args.get("next") or url_for("dashboard.home"))
         flash("Invalid username or password.", "error")

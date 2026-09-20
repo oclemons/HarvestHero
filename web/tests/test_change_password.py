@@ -52,6 +52,7 @@ class ChangePasswordFlow(unittest.TestCase):
         self.app = create_app()
         self.app.config["TESTING"] = True
         self.app.config["WTF_CSRF_ENABLED"] = False
+        self.app.config["RATELIMIT_ENABLED"] = False
         self.client = self.app.test_client()
 
     def tearDown(self):

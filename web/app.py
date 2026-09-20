@@ -20,9 +20,38 @@ if _REPO_ROOT not in sys.path:
 
 from flask import Flask, redirect, url_for
 from flask_login import current_user
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config
-from extensions import csrf, login_manager
+from extensions import csrf, limiter, login_manager, talisman
+
+
+# Content Security Policy. Any script/style/font/image the app pulls
+# in via the base template must be listed here or the browser will
+# refuse to load it. Update alongside base.html.
+_CSP = {
+    "default-src":     "'self'",
+    "script-src":      ["'self'", "https://cdn.tailwindcss.com",
+                        "https://unpkg.com"],
+    "style-src":       ["'self'", "'unsafe-inline'"],  # Tailwind CDN emits inline <style>
+    "img-src":         ["'self'", "data:"],
+    "font-src":        ["'self'", "data:"],
+    "connect-src":     "'self'",
+    "frame-ancestors": "'none'",
+    "form-action":     "'self'",
+    "base-uri":        "'self'",
+    "object-src":      "'none'",
+}
+
+_PERMISSIONS_POLICY = {
+    "geolocation":  "()",
+    "microphone":   "()",
+    "camera":       "()",
+    "payment":      "()",
+    "usb":          "()",
+    "gyroscope":    "()",
+    "magnetometer": "()",
+}
 
 
 def create_app(config: type = Config) -> Flask:
@@ -35,10 +64,48 @@ def create_app(config: type = Config) -> Flask:
     app.config.from_object(config)
     config.warn_if_insecure()
 
+    # Fly.io terminates TLS at the edge and forwards over HTTP with
+    # X-Forwarded-Proto: https. Without ProxyFix, Flask/Talisman think
+    # every request is plain HTTP -- so HSTS never emits, url_for
+    # generates http:// links, and secure-cookie flags are misapplied.
+    # trust=1 hop of proxy (Fly's edge), no more.
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1
+    )
+
     login_manager.init_app(app)
     # CSRF protection: every state-changing POST must carry the token
     # rendered by {{ csrf_token() }}. Reads SECRET_KEY from Config.
     csrf.init_app(app)
+
+    # Security headers via Talisman. force_https lets tests + local
+    # dev hit http:// without being kicked to https://; production
+    # rides Fly.io's edge which is HTTPS-terminated anyway, and HSTS
+    # keeps browsers locked to HTTPS for a year regardless.
+    talisman.init_app(
+        app,
+        force_https=False,               # trust the reverse proxy
+        strict_transport_security=True,
+        strict_transport_security_max_age=31536000,   # 1 year
+        strict_transport_security_include_subdomains=True,
+        content_security_policy=_CSP,
+        content_security_policy_nonce_in=[],
+        referrer_policy="strict-origin-when-cross-origin",
+        permissions_policy=_PERMISSIONS_POLICY,
+        frame_options="DENY",
+        session_cookie_secure=Config.SESSION_COOKIE_SECURE,
+        session_cookie_http_only=Config.SESSION_COOKIE_HTTPONLY,
+    )
+
+    # Rate limiting. Global default applies to everything; per-route
+    # tighter limits are declared with @limiter.limit(...) on the
+    # affected view functions (see routes/auth.py, routes/account.py).
+    limiter.init_app(app)
+
+    # Session-fixation defense (regenerate on login), global logout
+    # on password change, and idle-timeout enforcement.
+    from security import install_session_guards
+    install_session_guards(app)
 
     # ── Blueprints ──────────────────────────────────────────────
     from routes.auth      import bp as auth_bp

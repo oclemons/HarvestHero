@@ -44,6 +44,13 @@ class Config:
     WTF_CSRF_ENABLED = True
     WTF_CSRF_TIME_LIMIT = None  # tokens live as long as the session
 
+    # ── Rate limiting (Flask-Limiter) ───────────────────────────
+    # Enabled by default. Tests set app.config["RATELIMIT_ENABLED"] = False
+    # to keep the test suite from tripping the per-route caps. A
+    # dedicated test in test_rate_limit.py flips it back on to prove
+    # the 11th login attempt in 5 minutes is rejected.
+    RATELIMIT_ENABLED = True
+
     # ── Warnings ────────────────────────────────────────────────
     @classmethod
     def warn_if_insecure(cls) -> None:

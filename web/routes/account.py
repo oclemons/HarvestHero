@@ -19,6 +19,8 @@ from auth import (
 )
 from database import Database
 
+from extensions import limiter
+
 
 bp = Blueprint("account", __name__, url_prefix="/account")
 
@@ -37,6 +39,9 @@ def settings():
 
 @bp.route("/password", methods=["POST"])
 @login_required
+@limiter.limit("20 per 15 minutes",
+               error_message="Too many password-change attempts. "
+                             "Try again shortly.")
 def change_password():
     current    = request.form.get("current_password") or ""
     new_pw     = request.form.get("new_password")     or ""
@@ -84,6 +89,13 @@ def change_password():
               f"{row['id']}: {exc}")
         flash("Could not save the new password. Try again.", "error")
         return redirect(url_for("account.settings"))
+
+    # Refresh THIS session's stored pw-hash prefix so we don't kick
+    # ourselves out on the next request. Any OTHER concurrent
+    # session for the same user still holds the old prefix and will
+    # be logged out by security.install_session_guards on next hit.
+    from security import refresh_pw_prefix
+    refresh_pw_prefix(new_hash)
 
     flash("Password changed. Use it the next time you sign in.", "success")
     return redirect(url_for("account.settings"))
