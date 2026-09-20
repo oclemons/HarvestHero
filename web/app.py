@@ -107,6 +107,17 @@ def create_app(config: type = Config) -> Flask:
     from security import install_session_guards
     install_session_guards(app)
 
+    # 400/403/404/405/429/500 handlers that render a generic page and
+    # never leak tracebacks or SQL text to the client. The 500 handler
+    # writes the full traceback to the JSON log via logger.exception().
+    from errors import install_error_handlers
+    install_error_handlers(app)
+
+    # Structured JSON logging + per-request access log. Skips
+    # /healthz to avoid drowning the log in probe traffic.
+    from logging_config import install_logging
+    install_logging(app)
+
     # ── Blueprints ──────────────────────────────────────────────
     from routes.auth      import bp as auth_bp
     from routes.dashboard import bp as dashboard_bp
