@@ -15,6 +15,7 @@
 </h1>
 
 <form method="post" class="bg-white rounded-lg shadow p-6 max-w-3xl space-y-5">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   {# ── Identity ────────────────────────────────────────── #}
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">

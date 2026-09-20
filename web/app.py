@@ -22,7 +22,7 @@ from flask import Flask, redirect, url_for
 from flask_login import current_user
 
 from config import Config
-from extensions import login_manager
+from extensions import csrf, login_manager
 
 
 def create_app(config: type = Config) -> Flask:
@@ -36,6 +36,9 @@ def create_app(config: type = Config) -> Flask:
     config.warn_if_insecure()
 
     login_manager.init_app(app)
+    # CSRF protection: every state-changing POST must carry the token
+    # rendered by {{ csrf_token() }}. Reads SECRET_KEY from Config.
+    csrf.init_app(app)
 
     # ── Blueprints ──────────────────────────────────────────────
     from routes.auth      import bp as auth_bp

@@ -41,6 +41,7 @@ class AdjustQuantity(unittest.TestCase):
         from app import create_app
         self.app = create_app()
         self.app.config["TESTING"] = True
+        self.app.config["WTF_CSRF_ENABLED"] = False
         self.client = self.app.test_client()
 
     def tearDown(self):

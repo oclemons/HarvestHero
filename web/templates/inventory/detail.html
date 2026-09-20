@@ -141,6 +141,7 @@
   <form method="post"
         action="{{ url_for('inventory.adjust', item_id=item.id) }}"
         class="flex items-center gap-2 bg-white rounded border border-slate-200 px-3 py-2">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label for="adjust-qty" class="text-sm text-slate-600">
       Set quantity to
     </label>
@@ -159,6 +160,7 @@
         action="{{ url_for('inventory.delete', item_id=item.id) }}"
         onsubmit="return confirm('Delete {{ item.item_name|e }}? This cannot be undone.');"
         class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit"
             class="bg-red-700 text-white font-semibold px-4 py-2 rounded
                    hover:bg-red-800 transition">

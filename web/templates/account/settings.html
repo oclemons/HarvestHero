@@ -20,6 +20,7 @@
 
     <form method="post" action="{{ url_for('account.change_password') }}"
           class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div>
         <label for="current_password"
                class="block text-sm font-medium text-slate-700 mb-1">

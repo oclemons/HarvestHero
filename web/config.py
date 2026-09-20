@@ -36,6 +36,14 @@ class Config:
     # ── Ergonomics ──────────────────────────────────────────────
     TEMPLATES_AUTO_RELOAD = _bool("FLASK_TEMPLATES_AUTO_RELOAD", default=True)
 
+    # ── CSRF (Flask-WTF) ────────────────────────────────────────
+    # Enabled by default. Tests set app.config["WTF_CSRF_ENABLED"] = False
+    # after create_app() to skip token generation without stripping the
+    # <input> tags from templates. One dedicated test flips it back on
+    # to prove CSRF actually blocks a tokenless POST.
+    WTF_CSRF_ENABLED = True
+    WTF_CSRF_TIME_LIMIT = None  # tokens live as long as the session
+
     # ── Warnings ────────────────────────────────────────────────
     @classmethod
     def warn_if_insecure(cls) -> None:
