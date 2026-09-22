@@ -112,9 +112,13 @@ Verified by `web/tests/test_security_headers.py` on every push.
   A CVE finding blocks deploy.
 
 ### Backup (partial, full story lands in Phase 2N)
-* Fly.io volume snapshots are enabled (default). Retention =
-  Fly's default (5 daily) until Phase 2N adds off-Fly encrypted
-  copies to R2.
+* Fly.io volume `harvest_data` (1 GiB, region `iad`) is **encrypted at
+  rest** — confirmed via `flyctl volumes list`.
+* Automated snapshots running: 5 daily snapshots on a 5-day rolling
+  retention. Confirmed 2025-09 via `flyctl volumes snapshots list`.
+* **Off-Fly encrypted backups** and a tested restore drill are the
+  Phase 2N deliverable. Until then, a total Fly.io region outage
+  would take the data with it.
 
 ## OWASP Top 10 (2021) coverage matrix
 
