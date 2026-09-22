@@ -34,7 +34,18 @@
         <a href="{{ url_for('inventory.list_items') }}" class="hover:underline">Inventory</a>
         <a href="{{ url_for('account.settings') }}" class="hover:underline">Settings</a>
         <span class="opacity-60">|</span>
-        <span>{{ current_user.username }} ({{ current_user.role }})</span>
+        <span>
+          {{ current_user.username }}
+          <span class="ml-1 inline-block rounded text-[10px] font-semibold
+                       px-1.5 py-0.5 uppercase tracking-wide
+                       {% if current_user.is_admin %}
+                         bg-emerald-200 text-emerald-900
+                       {% else %}
+                         bg-slate-300 text-slate-800
+                       {% endif %}">
+            {{ current_user.role }}
+          </span>
+        </span>
         <a href="{{ url_for('auth.logout') }}"
            class="ml-2 rounded bg-emerald-900 px-3 py-1 hover:bg-emerald-950">
           Sign out

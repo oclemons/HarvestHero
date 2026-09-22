@@ -7,12 +7,26 @@ from paths import DB_PATH
 _SCHEMA = """
 PRAGMA journal_mode=WAL;
 
+CREATE TABLE IF NOT EXISTS roles (
+    name        TEXT    PRIMARY KEY,       -- 'admin', 'student', ...
+    description TEXT    DEFAULT '',
+    is_active   INTEGER DEFAULT 1,
+    created_at  TEXT    DEFAULT (datetime('now', 'localtime'))
+);
+
+INSERT OR IGNORE INTO roles(name, description) VALUES
+    ('admin',   'Full inventory + user administration'),
+    ('student', 'Scan-in only; read-only inventory access');
+
 CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT    UNIQUE NOT NULL,
     password_hash TEXT    NOT NULL,
     salt          TEXT    NOT NULL,
-    role          TEXT    NOT NULL CHECK(role IN ('admin', 'staff')),
+    -- role is FK to roles.name so new roles can be added without a
+    -- schema migration (INSERT INTO roles). No CHECK constraint here
+    -- deliberately; the FK enforces validity.
+    role          TEXT    NOT NULL REFERENCES roles(name),
     full_name           TEXT    DEFAULT '',
     created_at          TEXT    DEFAULT (datetime('now', 'localtime')),
     is_active           INTEGER DEFAULT 1,
@@ -297,7 +311,77 @@ class Database:
                 pass
 
         self._migrate_pantry_visits_cascade(conn)
+        self._migrate_users_role_to_fk(conn)
         conn.close()
+
+    def _migrate_users_role_to_fk(self, conn: sqlite3.Connection) -> None:
+        """Replace ``users.role`` CHECK('admin','staff') with a FK to
+        ``roles.name``. Adding a new role now = INSERT into roles;
+        no more schema migration.
+
+        Idempotent: detects the old CHECK constraint in
+        ``sqlite_master`` and only runs when found. If migration
+        fails partway through, the transaction is rolled back and
+        the original ``users`` table is left in place.
+        """
+        try:
+            row = conn.execute(
+                "SELECT sql FROM sqlite_master "
+                "WHERE type='table' AND name='users'"
+            ).fetchone()
+            if not row or not row[0]:
+                return
+            existing_sql = row[0].upper()
+            if "CHECK" not in existing_sql or "STAFF" not in existing_sql:
+                # Already migrated (or table was created fresh from
+                # the new _SCHEMA above).
+                return
+
+            conn.executescript("""
+                BEGIN;
+
+                CREATE TABLE users_new (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username      TEXT    UNIQUE NOT NULL,
+                    password_hash TEXT    NOT NULL,
+                    salt          TEXT    NOT NULL,
+                    role          TEXT    NOT NULL REFERENCES roles(name),
+                    full_name           TEXT    DEFAULT '',
+                    created_at          TEXT    DEFAULT (datetime('now', 'localtime')),
+                    is_active           INTEGER DEFAULT 1,
+                    has_completed_tour  INTEGER DEFAULT 0,
+                    last_login          TEXT    DEFAULT '',
+                    created_by          TEXT    DEFAULT ''
+                );
+
+                -- Green-field data is expected, but be defensive: any
+                -- legacy 'staff' user is promoted to 'admin' rather than
+                -- silently dropped or left with a value the FK rejects.
+                INSERT INTO users_new
+                    (id, username, password_hash, salt, role,
+                     full_name, created_at, is_active,
+                     has_completed_tour, last_login, created_by)
+                SELECT id, username, password_hash, salt,
+                       CASE role WHEN 'staff' THEN 'admin' ELSE role END,
+                       COALESCE(full_name, ''),
+                       created_at,
+                       is_active,
+                       COALESCE(has_completed_tour, 0),
+                       COALESCE(last_login, ''),
+                       COALESCE(created_by, '')
+                FROM users;
+
+                DROP TABLE users;
+                ALTER TABLE users_new RENAME TO users;
+
+                COMMIT;
+            """)
+        except Exception as exc:  # pragma: no cover - safety net
+            print(f"[db] users role->FK migration skipped: {exc}")
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
 
     def _migrate_pantry_visits_cascade(self, conn: sqlite3.Connection) -> None:
         """Rebuild pantry_visits so its FK to pantry_clients uses ON DELETE

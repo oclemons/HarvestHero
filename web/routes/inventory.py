@@ -21,6 +21,7 @@ from flask import (
 from flask_login import login_required
 
 from database import Database
+from decorators import admin_required
 
 
 bp = Blueprint("inventory", __name__, url_prefix="/inventory")
@@ -82,6 +83,7 @@ def detail(item_id: int):
 
 @bp.route("/new", methods=["GET", "POST"])
 @login_required
+@admin_required
 def new():
     """Show the add-item form (GET) or create one (POST).
 
@@ -128,6 +130,7 @@ def new():
 
 @bp.route("/<int:item_id>/edit", methods=["GET", "POST"])
 @login_required
+@admin_required
 def edit(item_id: int):
     """Show the edit form (GET) or save changes (POST).
 
@@ -192,6 +195,7 @@ def edit(item_id: int):
 
 @bp.route("/<int:item_id>/delete", methods=["POST"])
 @login_required
+@admin_required
 def delete(item_id: int):
     """Hard delete. The template pairs this with a JS confirm() so a
     stray click can't destroy inventory; the two guards together are
@@ -216,6 +220,7 @@ def delete(item_id: int):
 
 @bp.route("/<int:item_id>/adjust", methods=["POST"])
 @login_required
+@admin_required
 def adjust(item_id: int):
     """Set current_quantity to whatever the form field says.
 

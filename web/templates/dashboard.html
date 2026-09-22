@@ -31,11 +31,15 @@
 </div>
 
 <div class="mt-10 flex flex-wrap gap-3">
-  <a href="{{ url_for('inventory.new') }}"
-     class="bg-emerald-700 text-white font-semibold px-5 py-3 rounded
-            hover:bg-emerald-800 transition">
-    Add item
-  </a>
+  {# Admin-only actions. Server-side @admin_required still gates the
+     routes; hiding the button just cleans up the UI for students. #}
+  {% if current_user.is_admin %}
+    <a href="{{ url_for('inventory.new') }}"
+       class="bg-emerald-700 text-white font-semibold px-5 py-3 rounded
+              hover:bg-emerald-800 transition">
+      Add item
+    </a>
+  {% endif %}
   <a href="{{ url_for('inventory.list_items') }}"
      class="bg-white border border-slate-300 text-slate-700 font-semibold
             px-5 py-3 rounded hover:bg-slate-50 transition">
@@ -44,7 +48,12 @@
 </div>
 
 <p class="text-slate-500 text-sm mt-6">
-  Edit, delete, barcode scan-in/out, shopping list, and reports arrive
-  in later phases.
+  {% if current_user.is_admin %}
+    Edit, delete, barcode scan-in/out, shopping list, and reports arrive
+    in later phases.
+  {% else %}
+    Signed in as {{ current_user.role }} &mdash; read-only inventory
+    access. Scan-in and additional workflows arrive in later phases.
+  {% endif %}
 </p>
 {% endblock %}

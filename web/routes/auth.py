@@ -22,14 +22,28 @@ _db = Database()
 
 
 class User(UserMixin):
-    """Flask-Login user shim over the desktop app's user rows."""
+    """Flask-Login user shim over the desktop app's user rows.
+
+    Role attributes are computed once at construction. The decorators
+    in web/decorators.py read ``is_admin`` and ``role``; templates
+    read ``is_admin`` / ``is_student`` to conditionally render UI
+    (server-side enforcement is a separate concern via decorators,
+    NOT template hiding).
+    """
 
     def __init__(self, row: dict):
-        self.id       = str(row["id"])
-        self.username = row["username"]
-        self.role     = row["role"]
-        self.is_admin = row.get("role") == "admin"
-        self._row     = row
+        self.id         = str(row["id"])
+        self.username   = row["username"]
+        self.role       = row["role"]
+        self.is_admin   = (self.role == "admin")
+        self.is_student = (self.role == "student")
+        self._row       = row
+
+    def has_role(self, name: str) -> bool:
+        """True if the user's role matches ``name``. Future-proof way
+        for templates or ad-hoc checks to test roles beyond the two
+        currently supported."""
+        return self.role == name
 
 
 @login_manager.user_loader
