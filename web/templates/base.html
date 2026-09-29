@@ -19,14 +19,22 @@
     /* Font stack matches the desktop app's Times-New-Roman preference
        so users switching from the .exe don't feel a jarring redesign. */
     html { font-family: "Times New Roman", Times, Georgia, serif; }
-    :root { --soil: #382f25; --leaf: #185b42; --cream: #fbf8f0; --gold: #ecc77a; }
+    :root { --soil: #382f25; --leaf: #7c2d12; --leaf-hover: #65230e; --cream: #fff8e7; --gold: #f3b64c; --soft: #ffedd5; --accent-text: #9a3412; }
+    body[data-theme="spring"] { --soil: #243b2f; --leaf: #166534; --leaf-hover: #14532d; --cream: #f0fdf4; --gold: #f9a8d4; --soft: #dcfce7; --accent-text: #166534; }
     body { background-color: var(--cream); }
+    .theme-header, body .bg-emerald-900, body .bg-emerald-700 { background-color: var(--leaf) !important; }
+    body .hover\:bg-emerald-950:hover, body .hover\:bg-emerald-800:hover, .theme-button:hover { background-color: var(--leaf-hover) !important; }
+    body .text-emerald-900, body .text-emerald-800, body .text-emerald-700 { color: var(--accent-text) !important; }
+    body .bg-emerald-50, body .bg-emerald-100, body .bg-emerald-200 { background-color: var(--soft) !important; }
+    body .border-amber-300 { border-color: var(--gold) !important; }
+    body .text-amber-200 { color: var(--gold) !important; }
+    .theme-button { background-color: var(--leaf); }
     a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   </style>
 </head>
-<body class="h-full flex flex-col min-h-screen text-slate-900">
+<body data-theme="{{ current_user.theme if current_user.is_authenticated else 'fall' }}" class="h-full flex flex-col min-h-screen text-slate-900">
   {% if current_user.is_authenticated %}
-  <header class="bg-emerald-900 text-white border-b-4 border-amber-300">
+  <header class="theme-header text-white border-b-4 border-amber-300">
     <div class="max-w-6xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
       <a href="{{ url_for('dashboard.home') }}" class="text-xl font-bold tracking-tight">
         Harvest Hero <span class="block text-xs tracking-widest uppercase text-amber-200">Community pantry</span>

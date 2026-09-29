@@ -37,6 +37,7 @@ class User(UserMixin):
         self.role       = row["role"]
         self.is_admin   = (self.role == "admin")
         self.is_student = (self.role == "student")
+        self.theme      = _db.get_user_theme(row["id"])
         self._row       = row
 
     def has_role(self, name: str) -> bool:

@@ -86,6 +86,37 @@ class ChangePasswordFlow(unittest.TestCase):
         self.assertIn("Change password", body)
         self.assertIn("Update password", body)
 
+    def test_theme_defaults_to_fall_and_persists_spring_selection(self):
+        self._login()
+        body = self._settings_body()
+        self.assertIn('data-theme="fall"', body)
+        self.assertIn('value="fall" checked', body)
+
+        response = self.client.post(
+            "/account/theme", data={"theme": "spring"}, follow_redirects=True
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Spring theme applied", response.data)
+        self.assertIn(b'data-theme="spring"', response.data)
+        self.assertIn(b'value="spring" checked', response.data)
+
+        self.client.get("/app")
+        self.assertIn('data-theme="spring"', self._settings_body())
+
+    def test_invalid_theme_is_rejected(self):
+        self._login()
+        response = self.client.post(
+            "/account/theme", data={"theme": "summer"}, follow_redirects=True
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Choose the Fall or Spring theme", response.data)
+        self.assertIn(b'data-theme="fall"', response.data)
+
+    def test_theme_change_requires_auth(self):
+        response = self.client.post("/account/theme", data={"theme": "spring"})
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login", response.headers["Location"])
+
     def test_wrong_current_password_rejected(self):
         self._login()
         self._change("WRONG", "SomethingNew!7", "SomethingNew!7")

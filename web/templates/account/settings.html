@@ -9,6 +9,43 @@
     ({{ user.role }}).
   </p>
 
+  <section class="bg-white rounded-lg shadow p-6 mb-6">
+    <h2 class="text-xl font-semibold text-slate-900 mb-2">Seasonal color theme</h2>
+    <p class="text-sm text-slate-600 mb-5">Choose the colors used for your account across Harvest Hero.</p>
+    <form method="post" action="{{ url_for('account.change_theme') }}" class="space-y-5">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="grid sm:grid-cols-2 gap-4">
+        <label class="block rounded-lg border-2 p-4 cursor-pointer {% if selected_theme == 'fall' %}border-amber-700{% else %}border-slate-200{% endif %}">
+          <span class="flex items-center gap-2 font-semibold text-slate-900">
+            <input type="radio" name="theme" value="fall" {% if selected_theme == 'fall' %}checked{% endif %}>
+            Fall harvest
+          </span>
+          <span class="flex gap-2 mt-3" aria-hidden="true">
+            <span class="w-8 h-8 rounded-full bg-[#7c2d12]"></span>
+            <span class="w-8 h-8 rounded-full bg-[#b45309]"></span>
+            <span class="w-8 h-8 rounded-full bg-[#f3d39a]"></span>
+            <span class="w-8 h-8 rounded-full bg-[#fff8e7] border"></span>
+          </span>
+          <span class="block text-sm text-slate-600 mt-3">Warm pumpkin, amber, soil and cream.</span>
+        </label>
+        <label class="block rounded-lg border-2 p-4 cursor-pointer {% if selected_theme == 'spring' %}border-emerald-700{% else %}border-slate-200{% endif %}">
+          <span class="flex items-center gap-2 font-semibold text-slate-900">
+            <input type="radio" name="theme" value="spring" {% if selected_theme == 'spring' %}checked{% endif %}>
+            Spring garden
+          </span>
+          <span class="flex gap-2 mt-3" aria-hidden="true">
+            <span class="w-8 h-8 rounded-full bg-[#166534]"></span>
+            <span class="w-8 h-8 rounded-full bg-[#65a30d]"></span>
+            <span class="w-8 h-8 rounded-full bg-[#f9a8d4]"></span>
+            <span class="w-8 h-8 rounded-full bg-[#f0fdf4] border"></span>
+          </span>
+          <span class="block text-sm text-slate-600 mt-3">Fresh leaf, blossom pink and soft green.</span>
+        </label>
+      </div>
+      <button type="submit" class="theme-button text-white font-semibold px-5 py-2 rounded transition">Save color theme</button>
+    </form>
+  </section>
+
   <section class="bg-white rounded-lg shadow p-6">
     <h2 class="text-xl font-semibold text-slate-900 mb-4">Change password</h2>
 

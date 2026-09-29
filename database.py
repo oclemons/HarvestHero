@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS user_inventory_views (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER PRIMARY KEY,
+    theme TEXT NOT NULL DEFAULT 'fall' CHECK(theme IN ('fall', 'spring')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS inventory_items (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     barcode          TEXT    UNIQUE NOT NULL,
@@ -1549,6 +1555,40 @@ class Database:
         if row:
             return dict(row), "SCAN_OUT"
         return None, None
+
+    def get_user_theme(self, user_id: int) -> str:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT preferences.theme FROM user_preferences preferences "
+            "JOIN users account ON account.id = preferences.user_id "
+            "WHERE preferences.user_id = ? AND account.is_active = 1",
+            (user_id,),
+        ).fetchone()
+        conn.close()
+        return row["theme"] if row and row["theme"] in {"fall", "spring"} else "fall"
+
+    def save_user_theme(self, user_id: int, theme: str) -> None:
+        if theme not in {"fall", "spring"}:
+            raise ValueError("Choose the Fall or Spring theme.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            account = conn.execute(
+                "SELECT is_active FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+            if not account or not account["is_active"]:
+                raise ValueError("Only an active account can save a theme.")
+            conn.execute(
+                "INSERT INTO user_preferences (user_id, theme) VALUES (?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET theme = excluded.theme, "
+                "updated_at = datetime('now')", (user_id, theme),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def get_inventory_columns(self, user_id: int) -> list[str]:
         conn = self._connect()

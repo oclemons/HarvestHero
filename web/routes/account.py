@@ -34,7 +34,22 @@ def settings():
         "account/settings.html",
         user=current_user,
         min_length=MIN_PASSWORD_LENGTH,
+        selected_theme=current_user.theme,
     )
+
+
+@bp.route("/theme", methods=["POST"])
+@login_required
+def change_theme():
+    theme = (request.form.get("theme") or "").strip().lower()
+    try:
+        _db.save_user_theme(int(current_user.id), theme)
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("account.settings"))
+    current_user.theme = theme
+    flash(f"{theme.title()} theme applied.", "success")
+    return redirect(url_for("account.settings"))
 
 
 @bp.route("/password", methods=["POST"])
