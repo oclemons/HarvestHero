@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Scan out · Harvest Hero{% endblock %}
+{% block content %}
+<div class="mb-8">
+  <p class="text-sm uppercase tracking-widest font-semibold text-emerald-700">Admin · food distribution</p>
+  <h1 class="text-3xl font-bold mt-2">Scan food out</h1>
+  <p class="text-slate-600 mt-2">Choose a verified student client, scan food into the cart, and review the pounds before completing a visit.</p>
+</div>
+{% if not cart %}
+<section class="max-w-xl bg-white rounded-xl border border-emerald-100 shadow-sm p-6">
+  <h2 class="text-xl font-bold mb-4">Start a client visit</h2>
+  <form method="post" action="{{ url_for('scan.start_out') }}" class="space-y-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="client-id" class="block font-semibold">Student client</label>
+    <select id="client-id" name="client_id" required class="w-full rounded border border-slate-300 px-3 py-3">
+      <option value="">Choose a verified client</option>
+      {% for person in clients %}
+        <option value="{{ person.id }}" {% if not person.eligible %}disabled{% endif %}>
+          {{ person.first_name }} {{ person.last_name }} · ID ending {{ person.student_id_last4 }}{% if not person.eligible %} (verification needed){% endif %}
+        </option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="rounded bg-emerald-800 px-5 py-3 text-white font-semibold hover:bg-emerald-900">Begin scan-out cart</button>
+  </form>
+  <p class="mt-4 text-sm text-slate-600">Not listed or not verified? <a class="underline text-emerald-800" href="{{ url_for('clients.index') }}">Review the private client record</a>.</p>
+</section>
+{% else %}
+<div class="grid gap-6 lg:grid-cols-5">
+  <div class="lg:col-span-2 space-y-5">
+    <section class="bg-white rounded-xl border border-emerald-100 shadow-sm p-6">
+      <h2 class="text-xl font-bold">{{ client.first_name }} {{ client.last_name }}</h2>
+      <p class="text-sm text-slate-600">Private client visit · {{ stats.total_visits }} previous visit{{ '' if stats.total_visits == 1 else 's' }}</p>
+      <p class="font-semibold mt-3">{{ '%.3f'|format(stats.known_weight_milli_lb / 1000) }} known lb across prior visits</p>
+      {% if stats.pending_visits %}<p class="text-sm text-amber-900 mt-1">{{ stats.pending_visits }} visit{{ '' if stats.pending_visits == 1 else 's' }} with incomplete weight. Lifetime pounds are provisional.</p>{% endif %}
+      <a class="text-sm text-emerald-800 underline mt-2 inline-block" href="{{ url_for('clients.detail', client_id=client.id) }}">View private visit history</a>
+    </section>
+    <form method="post" action="{{ url_for('scan.add_out') }}" class="bg-white rounded-xl border border-emerald-100 shadow-sm p-6 space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <h2 class="text-xl font-bold">Add food to cart</h2>
+      <label for="out-barcode" class="block font-semibold">Scan-out barcode</label>
+      <input id="out-barcode" name="barcode" required autofocus autocomplete="off" maxlength="128" placeholder="Scan or type barcode" class="w-full rounded border border-slate-300 px-3 py-3">
+      <label for="source-shelf" class="block font-semibold">Take from shelf</label>
+      <select id="source-shelf" name="shelf_id" required class="w-full rounded border border-slate-300 px-3 py-3">
+        <option value="">Choose a stocked shelf</option>
+        {% for section in sections if not section.system %}{% for shelf in section.shelves if shelf.units > 0 %}
+          <option value="{{ shelf.id }}">{{ section.name }} / {{ shelf.name }}{% if shelf.is_overflow %} (overflow){% endif %}</option>
+        {% endfor %}{% endfor %}
+      </select>
+      <button type="submit" class="rounded bg-emerald-800 text-white font-semibold px-5 py-3 hover:bg-emerald-900">Add scanned item</button>
+    </form>
+  </div>
+  <section class="lg:col-span-3 bg-white rounded-xl border border-emerald-100 shadow-sm p-6" aria-label="Distribution cart">
+    <h2 class="text-xl font-bold mb-4">Distribution cart</h2>
+    {% if cart.lines %}
+      <ul class="divide-y divide-slate-200">{% for line in cart.lines %}
+        <li class="py-4">
+          <div class="flex justify-between gap-3"><div><strong>{{ line.item_name }}</strong>
+            <span class="block text-sm text-slate-600">{{ line.section_name }} / {{ line.shelf_name }}</span></div>
+            <strong>{{ line.quantity }} unit{{ '' if line.quantity == 1 else 's' }}</strong></div>
+          <div class="mt-2 flex flex-wrap gap-3 items-center text-sm">
+            {% if line.weight_milli_lb is not none %}{{ '%.3f'|format(line.weight_milli_lb / 1000) }} lb {% if line.weight_override_milli_lb is not none %}(measured){% else %}(unit weight){% endif %}
+            {% else %}<span class="text-amber-900 font-semibold">Weight pending</span>{% endif %}
+            <form method="post" action="{{ url_for('scan.remove_out', line_id=line.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="text-red-800 underline">Remove</button>
+            </form>
+          </div>
+          <form method="post" action="{{ url_for('scan.weigh_out', line_id=line.id) }}" class="mt-3 flex flex-wrap items-end gap-2 text-sm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label>Measured line weight (lb)<input name="measured_lb" type="number" min="0.001" max="10000" step="0.001" required class="block w-36 border border-slate-300 rounded px-2 py-1 mt-1"></label>
+            <label class="flex-1 min-w-36">Override reason<input name="reason" required maxlength="200" class="block w-full border border-slate-300 rounded px-2 py-1 mt-1"></label>
+            <button type="submit" class="rounded bg-slate-700 text-white px-3 py-2">Use measured weight</button>
+          </form>
+        </li>
+      {% endfor %}</ul>
+      {% set totals = namespace(units=0, pounds=0, pending=0) %}
+      {% for line in cart.lines %}
+        {% set totals.units = totals.units + line.quantity %}
+        {% if line.weight_milli_lb is none %}{% set totals.pending = totals.pending + 1 %}
+        {% else %}{% set totals.pounds = totals.pounds + line.weight_milli_lb %}{% endif %}
+      {% endfor %}
+      <div class="mt-4 rounded bg-emerald-50 p-4 font-semibold">{{ totals.units }} units · {{ '%.3f'|format(totals.pounds / 1000) }} known lb
+        {% if totals.pending %}<span class="block text-sm text-amber-900">{{ totals.pending }} pending-weight line{{ '' if totals.pending == 1 else 's' }}; visitor pounds will be incomplete.</span>{% endif %}
+      </div>
+      <div class="mt-5 flex flex-wrap gap-3">
+        <form method="post" action="{{ url_for('scan.complete_out') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="cart_id" value="{{ cart.id }}">
+          <button type="submit" class="rounded bg-emerald-800 text-white px-5 py-3 font-bold hover:bg-emerald-900">Complete visit and scan out</button>
+        </form>
+        <form method="post" action="{{ url_for('scan.cancel_out') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="cart_id" value="{{ cart.id }}">
+          <button type="submit" class="rounded border border-slate-300 px-5 py-3 font-semibold">Cancel cart</button>
+        </form>
+      </div>
+    {% else %}<p class="rounded bg-stone-50 p-6 text-slate-600">This visitor's cart is empty. No stock or visit will change until you complete it.</p>
+      <form method="post" action="{{ url_for('scan.cancel_out') }}" class="mt-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="cart_id" value="{{ cart.id }}">
+        <button type="submit" class="text-red-800 underline">Choose a different client</button>
+      </form>{% endif %}
+  </section>
+</div>
+{% endif %}
+{% endblock %}

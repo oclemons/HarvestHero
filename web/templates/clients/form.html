@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if client_id is defined else 'Register' }} client · Harvest Hero{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <a class="text-sm text-emerald-800 underline" href="{{ url_for('clients.index') }}">&larr; Back to clients</a>
+  <p class="uppercase tracking-widest text-sm font-semibold text-emerald-700 mt-6">Admin · private</p>
+  <h1 class="text-3xl font-bold mt-2">{{ 'Edit' if client_id is defined else 'Register' }} a student client</h1>
+  <p class="text-slate-600 mt-2 mb-6">Registration does not prove current enrollment. Verify the academic term separately before distribution.</p>
+  <form method="post" class="bg-white rounded-xl shadow-sm border border-emerald-100 p-6 grid sm:grid-cols-2 gap-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="block font-semibold text-sm">First name *
+      <input name="first_name" maxlength="80" required value="{{ values.get('first_name', '') }}" class="block w-full rounded border border-slate-300 p-2 mt-1">
+    </label>
+    <label class="block font-semibold text-sm">Last name *
+      <input name="last_name" maxlength="80" required value="{{ values.get('last_name', '') }}" class="block w-full rounded border border-slate-300 p-2 mt-1">
+    </label>
+    <label class="block font-semibold text-sm">Student ID *
+      <input name="student_id" maxlength="64" required autocomplete="off" value="{{ values.get('student_id', '') }}" class="block w-full rounded border border-slate-300 p-2 mt-1">
+    </label>
+    <label class="block font-semibold text-sm">Date of birth *
+      <input name="birth_date" type="date" required value="{{ values.get('birth_date', '') }}" class="block w-full rounded border border-slate-300 p-2 mt-1">
+    </label>
+    <label class="block font-semibold text-sm">Expected graduation semester *
+      <input name="graduation_semester" maxlength="40" required placeholder="e.g. Spring 2028" value="{{ values.get('graduation_semester', '') }}" class="block w-full rounded border border-slate-300 p-2 mt-1">
+    </label>
+    <label class="block font-semibold text-sm">Enrollment type *
+      <select name="enrollment_status" required class="block w-full rounded border border-slate-300 p-2 mt-1">
+        <option value="full_time" {% if values.get('enrollment_status') == 'full_time' %}selected{% endif %}>Full-time</option>
+        <option value="part_time" {% if values.get('enrollment_status') == 'part_time' %}selected{% endif %}>Part-time</option>
+      </select>
+    </label>
+    <div class="sm:col-span-2"><button type="submit" class="rounded bg-emerald-800 text-white px-5 py-3 font-semibold hover:bg-emerald-900">{{ 'Save changes' if client_id is defined else 'Save private client record' }}</button></div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Visit recorded · Harvest Hero{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <p class="text-sm uppercase tracking-widest font-semibold text-emerald-700">Admin · private distribution receipt</p>
+  <h1 class="text-3xl font-bold mt-2">Visit recorded</h1>
+  <p class="text-slate-600 mt-2">All cart items were distributed in one transaction. Visit #{{ receipt.visit_id }}.</p>
+  <section class="bg-white rounded-xl border border-emerald-100 shadow-sm p-6 mt-6">
+    <ul class="divide-y divide-slate-100">{% for line in receipt.lines %}
+      <li class="flex justify-between gap-3 py-3"><span>{{ line.item_name }} · {{ -line.quantity_delta }} unit{{ '' if line.quantity_delta == -1 else 's' }}</span>
+        {% if line.weight_milli_lb is not none %}<span>{{ '%.3f'|format(-line.weight_milli_lb / 1000) }} lb</span>
+        {% else %}<span class="text-amber-800">Weight pending</span>{% endif %}
+      </li>
+    {% endfor %}</ul>
+    <p class="mt-4 font-semibold">{{ '%.3f'|format(receipt.known_weight_milli_lb / 1000) }} known lb this visit</p>
+    {% if receipt.pending_lines %}<p class="text-sm text-amber-900 mt-1">{{ receipt.pending_lines }} line{{ '' if receipt.pending_lines == 1 else 's' }} pending weight. Visitor pounds are provisional.</p>{% endif %}
+  </section>
+  <section class="bg-emerald-50 rounded-xl p-6 mt-5">
+    <h2 class="text-lg font-bold">Visitor history</h2>
+    <p class="mt-2">{{ stats.total_visits }} visits · {{ '%.3f'|format(stats.known_weight_milli_lb / 1000) }} known lb across all visits</p>
+    {% if stats.pending_visits %}<p class="text-sm text-amber-900">{{ stats.pending_visits }} visit{{ '' if stats.pending_visits == 1 else 's' }} with incomplete weight; this is not a final lifetime total.</p>{% endif %}
+    <a href="{{ url_for('clients.detail', client_id=receipt.client_id) }}" class="text-emerald-800 underline text-sm mt-3 inline-block">View private client record</a>
+  </section>
+  <a href="{{ url_for('scan.scan_out') }}" class="inline-block mt-6 rounded bg-emerald-800 text-white px-5 py-3 font-semibold hover:bg-emerald-900">Start another distribution</a>
+</div>
+{% endblock %}

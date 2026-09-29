@@ -25,10 +25,13 @@ def home():
     # Cheap counts so the dashboard has a pulse from day one.
     items    = _db.get_all_items()
     low      = _db.get_low_stock_items()
-    users    = _db.get_all_users()
     stats = {
-        "total_items":  len(items),
-        "low_stock":    len(low),
-        "active_users": sum(1 for u in users if u.get("is_active")),
+        "total_items": len(items),
+        "low_stock": len(low),
     }
-    return render_template("dashboard.html", user=current_user, stats=stats)
+    if current_user.is_admin:
+        stats["active_users"] = sum(1 for u in _db.get_all_users() if u.get("is_active"))
+        activity = _db.get_recent_transactions(8)
+    else:
+        activity = _db.get_recent_transactions_by_user(current_user.username, 5)
+    return render_template("dashboard.html", user=current_user, stats=stats, activity=activity)

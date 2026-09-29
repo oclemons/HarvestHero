@@ -13,12 +13,13 @@ adding SQL-level LIMIT/OFFSET would mean touching database.py.
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from math import ceil
 
 from flask import (
     Blueprint, abort, flash, redirect, render_template, request, url_for,
 )
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from database import Database
 from decorators import admin_required
@@ -63,6 +64,7 @@ def list_items():
         total_matches=total_matches,
         page_size=_PAGE_SIZE,
         low_stock_ids=_low_stock_id_set(),
+        locations=_db.get_item_locations([item["id"] for item in page_items]),
     )
 
 
@@ -72,8 +74,9 @@ def detail(item_id: int):
     item = _db.get_item_by_id(item_id)
     if not item:
         abort(404)
-    return render_template("inventory/detail.html",
-                           item=item,
+    return render_template("inventory/detail.html", item=item,
+                           allocations=_db.get_item_shelf_stock(item_id),
+                           sections=_db.get_pantry_layout() if current_user.is_admin else [],
                            is_low=_is_low_stock(item))
 
 
@@ -91,37 +94,39 @@ def new():
     phase we'll add @admin_required. Today, any authenticated user
     (i.e. anyone with a password from the admin) can add an item.
     """
+    sections = _db.get_pantry_layout()
     if request.method == "GET":
-        return render_template("inventory/form.html",
-                               mode="new", item=_blank_item())
+        return render_template("inventory/form.html", mode="new", item=_blank_item(),
+                               sections=sections)
 
     data, err = _parse_form(request.form)
+    data["shelf_id"] = request.form.get("shelf_id") or ""
+    data["unit_weight_lb"] = (request.form.get("unit_weight_lb") or "").strip()
+    unit_weight, weight_error = _parse_unit_weight(data["unit_weight_lb"])
+    err = err or weight_error
+    if not err:
+        try:
+            shelf_id = int(data["shelf_id"])
+        except (ValueError, TypeError):
+            err = "Choose a shelf before adding an item."
+    if not err:
+        try:
+            item_id = _db.create_item_on_shelf(
+                barcode=data["barcode"], item_name=data["item_name"],
+                category=data["category"], quantity=data["current_quantity"],
+                minimum_stock=data["minimum_stock"], shelf_id=shelf_id,
+                username=current_user.username, unit_weight_milli_lb=unit_weight,
+                barcode_out=data["barcode_out"], brand=data["brand"], notes=data["notes"],
+            )
+        except ValueError as error:
+            err = str(error)
     if err:
         flash(err, "error")
-        return render_template("inventory/form.html",
-                               mode="new", item=data), 400
-
-    ok, msg = _db.add_item(
-        barcode          = data["barcode"],
-        item_name        = data["item_name"],
-        category         = data["category"],
-        quantity         = data["current_quantity"],
-        minimum_stock    = data["minimum_stock"],
-        notes            = data["notes"],
-        barcode_out      = data["barcode_out"],
-        brand            = data["brand"],
-        storage_location = data["storage_location"],
-    )
-    if not ok:
-        flash(msg, "error")
-        return render_template("inventory/form.html",
-                               mode="new", item=data), 400
+        return render_template("inventory/form.html", mode="new", item=data,
+                               sections=sections), 400
 
     flash(f"Added '{data['item_name']}' to inventory.", "success")
-    row = _db.get_item_by_barcode(data["barcode"])
-    if row:
-        return redirect(url_for("inventory.detail", item_id=row["id"]))
-    return redirect(url_for("inventory.list_items"))
+    return redirect(url_for("inventory.detail", item_id=item_id))
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -147,11 +152,30 @@ def edit(item_id: int):
         abort(404)
 
     if request.method == "GET":
-        return render_template("inventory/form.html",
-                               mode="edit", item=row)
+        return render_template("inventory/form.html", mode="edit", item=row)
 
     data, err = _parse_form(request.form, editing=True,
                             existing_barcode=row["barcode"])
+    # 2. Unit weights stay on the catalog row, while shelf quantities
+    #    are managed on the item detail page rather than this form.
+    data["unit_weight_lb"] = (request.form.get("unit_weight_lb") or "").strip()
+    unit_weight, weight_error = _parse_unit_weight(data["unit_weight_lb"])
+    err = err or weight_error
+    # 3. Quantity changes must name a physical shelf.
+    if "current_quantity" in request.form and data["current_quantity"] != row["current_quantity"]:
+        err = "Use the item detail page to correct stock on a specific shelf."
+    # 1. Update item identity and metadata atomically, preserving
+    #    existing expiration and nutrition fields not shown here.
+    #    Stock transfers and corrections are separate transactions.
+    if not err:
+        try:
+            _db.update_item_profile(
+                item_id, data["item_name"], data["category"], data["minimum_stock"],
+                data["notes"], data["barcode_out"], data["brand"], unit_weight,
+                current_user.username,
+            )
+        except ValueError as error:
+            err = str(error)
     if err:
         flash(err, "error")
         # Preserve the submitted values so the user's typing isn't lost.
@@ -160,30 +184,8 @@ def edit(item_id: int):
         preserved = dict(data)
         preserved["id"]      = row["id"]
         preserved["barcode"] = row["barcode"]
-        return render_template("inventory/form.html",
-                               mode="edit", item=preserved), 400
-
-    # 1. Core fields via update_item (item_name, category,
-    #    minimum_stock, notes, barcode_out)
-    _db.update_item(
-        item_id       = item_id,
-        item_name     = data["item_name"],
-        category      = data["category"],
-        minimum_stock = data["minimum_stock"],
-        notes         = data["notes"],
-        barcode_out   = data["barcode_out"],
-    )
-    # 2. Extended fields via update_item_extended (brand,
-    #    storage_location, ...). Only brand + storage_location are
-    #    exposed on this form; the rest stay at their existing values.
-    _db.update_item_extended(
-        item_id          = item_id,
-        brand            = data["brand"],
-        storage_location = data["storage_location"],
-    )
-    # 3. Quantity change if it moved.
-    if int(data["current_quantity"]) != int(row.get("current_quantity") or 0):
-        _db.set_stock(item_id, data["current_quantity"])
+        preserved["current_quantity"] = row["current_quantity"]
+        return render_template("inventory/form.html", mode="edit", item=preserved), 400
 
     flash(f"Saved changes to '{data['item_name']}'.", "success")
     return redirect(url_for("inventory.detail", item_id=item_id))
@@ -197,19 +199,15 @@ def edit(item_id: int):
 @login_required
 @admin_required
 def delete(item_id: int):
-    """Hard delete. The template pairs this with a JS confirm() so a
-    stray click can't destroy inventory; the two guards together are
-    good enough for MVP.
-
-    POST-only intentionally — GET would let a link in an email or an
-    open redirect trigger a delete just by being fetched. The
-    template submits via a small inline <form>.
-    """
-    row = _db.get_item_by_id(item_id)
-    if not row:
+    """Delete an empty, unused catalog item only after barcode confirmation."""
+    if not _db.get_item_by_id(item_id):
         abort(404)
-    name = row["item_name"]
-    _db.delete_item(item_id)
+    try:
+        name = _db.delete_empty_item(item_id, request.form.get("confirm_barcode") or "",
+                                     current_user.username)
+    except ValueError as error:
+        flash(str(error), "error")
+        return redirect(url_for("inventory.detail", item_id=item_id))
     flash(f"Deleted '{name}'.", "success")
     return redirect(url_for("inventory.list_items"))
 
@@ -222,33 +220,52 @@ def delete(item_id: int):
 @login_required
 @admin_required
 def adjust(item_id: int):
-    """Set current_quantity to whatever the form field says.
-
-    Purpose: correcting a mistake without walking through the full
-    Edit form. For daily +1/-1 the Scan page (1c-v) is the tool.
-
-    Refuses negative values silently — flash the error and redirect
-    back to the detail page so the user sees what went wrong.
-    """
+    """Correct the on-hand count on one shelf with a reason and stale-form check."""
     row = _db.get_item_by_id(item_id)
     if not row:
         abort(404)
 
-    raw = (request.form.get("quantity") or "").strip()
     try:
-        new_qty = int(raw)
-        if new_qty < 0:
-            raise ValueError("negative")
-    except ValueError:
-        flash("Quantity must be a non-negative whole number.", "error")
+        shelf_id = int(request.form.get("shelf_id") or "")
+        new_qty = int(request.form.get("quantity") or "")
+        expected = int(request.form.get("expected_quantity") or "")
+        reason = (request.form.get("reason") or "").strip()
+        if new_qty < 0 or not reason:
+            raise ValueError("Enter a non-negative count and a correction reason.")
+        previous = next((entry for entry in _db.get_item_shelf_stock(item_id)
+                         if entry["shelf_id"] == shelf_id), None)
+        if previous is None:
+            raise ValueError("Choose a stocked shelf to correct.")
+        if previous["quantity"] != expected:
+            raise ValueError("This shelf changed since you opened the page. Refresh and retry.")
+        if new_qty == expected:
+            flash("Quantity was already at that value; nothing changed.", "info")
+            return redirect(url_for("inventory.detail", item_id=item_id))
+        _db.adjust_shelf_stock(item_id, shelf_id, new_qty - expected,
+                               current_user.username, reason, expected)
+    except ValueError as error:
+        flash(str(error), "error")
         return redirect(url_for("inventory.detail", item_id=item_id))
+    flash(f"Shelf count corrected to {new_qty}.", "success")
+    return redirect(url_for("inventory.detail", item_id=item_id))
 
-    if new_qty == int(row.get("current_quantity") or 0):
-        flash("Quantity was already at that value; nothing changed.", "info")
+
+@bp.route("/<int:item_id>/transfer", methods=["POST"])
+@login_required
+@admin_required
+def transfer(item_id: int):
+    if not _db.get_item_by_id(item_id):
+        abort(404)
+    try:
+        _db.transfer_shelf_stock(
+            item_id, int(request.form.get("source_id") or ""),
+            int(request.form.get("destination_id") or ""),
+            int(request.form.get("quantity") or ""), current_user.username,
+        )
+    except ValueError as error:
+        flash(str(error), "error")
         return redirect(url_for("inventory.detail", item_id=item_id))
-
-    _db.set_stock(item_id, new_qty)
-    flash(f"Quantity set to {new_qty}.", "success")
+    flash("Stock moved between shelves; the total on hand is unchanged.", "success")
     return redirect(url_for("inventory.detail", item_id=item_id))
 
 
@@ -262,8 +279,24 @@ def _blank_item() -> dict:
         "barcode": "", "barcode_out": "",
         "item_name": "", "brand": "", "category": "",
         "current_quantity": 0, "minimum_stock": 0,
-        "storage_location": "", "notes": "",
+        "storage_location": "", "notes": "", "shelf_id": "",
+        "unit_weight_lb": "",
     }
+
+
+def _parse_unit_weight(raw: str) -> tuple[int | None, str | None]:
+    if not raw:
+        return None, None
+    try:
+        value = Decimal(raw)
+    except InvalidOperation:
+        return None, "Unit weight must be a number in pounds."
+    if not value.is_finite() or value <= 0 or value > 10000:
+        return None, "Unit weight must be positive and use at most three decimal places."
+    scaled = value * 1000
+    if scaled != scaled.to_integral_value():
+        return None, "Unit weight must be positive and use at most three decimal places."
+    return int(scaled), None
 
 
 def _parse_form(form, *, editing: bool = False,
@@ -294,7 +327,9 @@ def _parse_form(form, *, editing: bool = False,
     for numeric in ("current_quantity", "minimum_stock"):
         raw = (form.get(numeric) or "").strip()
         try:
-            data[numeric] = max(0, int(raw)) if raw else 0
+            data[numeric] = int(raw) if raw else 0
+            if not 0 <= data[numeric] <= 1_000_000:
+                raise ValueError("out of range")
         except ValueError:
             return data, (
                 f"{numeric.replace('_', ' ').capitalize()} must be a whole "

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Intake recorded · Harvest Hero{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">Inventory intake</p>
+  <h1 class="text-3xl font-bold mt-2">Intake recorded</h1>
+  <p class="text-slate-600 mt-2">The items below were added to inventory together.</p>
+  <section class="bg-white rounded-xl border border-emerald-100 shadow-sm p-6 mt-6">
+    <ul class="divide-y divide-slate-100">
+      {% for line in receipt.lines %}
+        <li class="flex justify-between gap-3 py-3"><span>{{ line.item_name }} · {{ line.quantity_delta }} unit{{ '' if line.quantity_delta == 1 else 's' }}</span>
+          {% if line.weight_milli_lb is not none %}<span>{{ '%.3f'|format(line.weight_milli_lb / 1000) }} lb</span>
+          {% else %}<span class="text-amber-800">Weight pending</span>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="mt-4 font-semibold">{{ '%.3f'|format(receipt.known_weight_milli_lb / 1000) }} known lb received</p>
+    {% if receipt.pending_lines %}<p class="text-sm text-amber-900 mt-1">{{ receipt.pending_lines }} line{{ '' if receipt.pending_lines == 1 else 's' }} pending weight. This is not a final donated-pound total.</p>{% endif %}
+  </section>
+  <a href="{{ url_for('scan.scan_in') }}" class="inline-block mt-6 rounded bg-emerald-800 text-white px-5 py-3 font-semibold hover:bg-emerald-900">Start another intake</a>
+</div>
+{% endblock %}

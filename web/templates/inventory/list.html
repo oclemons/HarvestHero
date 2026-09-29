@@ -36,7 +36,7 @@
 </div>
 
 {% if items %}
-  <div class="bg-white rounded-lg shadow overflow-hidden">
+  <div class="bg-white rounded-xl shadow-sm border border-emerald-100 overflow-x-auto">
     <table class="min-w-full divide-y divide-slate-200">
       <thead class="bg-slate-50">
         <tr class="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -51,9 +51,7 @@
       <tbody class="divide-y divide-slate-100 text-sm">
         {% for it in items %}
           {% set low = it.id in low_stock_ids %}
-          <tr class="hover:bg-emerald-50 {% if low %}bg-amber-50{% endif %}
-                     cursor-pointer"
-              onclick="location.href='{{ url_for('inventory.detail', item_id=it.id) }}'">
+          <tr class="hover:bg-emerald-50 {% if low %}bg-amber-50{% endif %}">
             <td class="px-4 py-2 font-mono text-xs text-slate-600">{{ it.barcode }}</td>
             <td class="px-4 py-2 font-medium text-slate-900">
               <a href="{{ url_for('inventory.detail', item_id=it.id) }}"
@@ -73,7 +71,7 @@
               {{ it.current_quantity }}
             </td>
             <td class="px-4 py-2 text-slate-500">{{ it.minimum_stock }}</td>
-            <td class="px-4 py-2 text-slate-700">{{ it.storage_location or '—' }}</td>
+            <td class="px-4 py-2 text-slate-700">{{ locations.get(it.id, '—') }}</td>
           </tr>
         {% endfor %}
       </tbody>
@@ -105,8 +103,7 @@
       {% if search %}
         No items match &ldquo;{{ search }}&rdquo;.
       {% else %}
-        The inventory is empty. Phase 1c will add an
-        &ldquo;Add item&rdquo; screen.
+        The pantry inventory is empty. {% if current_user.is_admin %}<a class="font-semibold text-emerald-800 underline" href="{{ url_for('inventory.new') }}">Add the first item</a> to get started.{% else %}Ask a pantry administrator to add items before scanning them in.{% endif %}
       {% endif %}
     </p>
   </div>

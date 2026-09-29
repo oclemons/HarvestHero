@@ -34,6 +34,8 @@ class AddItem(unittest.TestCase):
         from database import Database
         from auth import hash_password
         db = Database()
+        section_id = db.create_pantry_section("Section 3")
+        self.shelf_id = db.create_pantry_shelf(section_id, "Shelf A")
         ph, salt = hash_password(ADMIN_PW)
         db.create_user("admin", ph, salt, "admin")
 
@@ -79,7 +81,8 @@ class AddItem(unittest.TestCase):
             "category": "Grain",
             "current_quantity": "12",
             "minimum_stock": "5",
-            "storage_location": "Section 3, Shelf A",
+            "shelf_id": str(self.shelf_id),
+            "unit_weight_lb": "0.625",
             "notes": "",
         }, follow_redirects=False)
         self.assertEqual(r.status_code, 302)  # -> detail
@@ -91,6 +94,16 @@ class AddItem(unittest.TestCase):
         self.assertEqual(int(row["current_quantity"]), 12)
         self.assertEqual(int(row["minimum_stock"]), 5)
         self.assertEqual(row["storage_location"], "Section 3, Shelf A")
+        self.assertEqual(row["unit_weight_milli_lb"], 625)
+        self.assertEqual(Database().get_item_shelf_stock(row["id"])[0]["quantity"], 12)
+
+    def test_unit_weight_rejects_unbounded_or_nonfinite_values(self):
+        from routes.inventory import _parse_unit_weight
+        for raw in ("NaN", "Infinity", "1e999999", "-1", "0.00001"):
+            value, error = _parse_unit_weight(raw)
+            self.assertIsNone(value)
+            self.assertIsNotNone(error)
+        self.assertEqual(_parse_unit_weight("0.625"), (625, None))
 
     def test_missing_barcode_is_rejected(self):
         self._login()
@@ -123,9 +136,10 @@ class AddItem(unittest.TestCase):
             "barcode": "DUPE1",
             "item_name": "Trying to overwrite",
             "current_quantity": "1", "minimum_stock": "0",
+            "shelf_id": str(self.shelf_id),
         })
         self.assertEqual(r.status_code, 400)
-        self.assertIn(b"already used", r.data)
+        self.assertIn(b"already assigned", r.data)
 
     def test_non_numeric_quantity_is_rejected(self):
         self._login()

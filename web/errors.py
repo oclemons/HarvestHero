@@ -60,6 +60,20 @@ def install_error_handlers(app) -> None:
                                message="That action isn't allowed on this URL."
                                ), 405
 
+    @app.errorhandler(413)
+    def _413(e):
+        _log.info("413 %s %s", request.method, request.path)
+        return render_template("errors/generic.html",
+                               code=413, title="Request too large",
+                               message="The submitted form is too large."), 413
+
+    @app.errorhandler(503)
+    def _503(e):
+        _log.info("503 %s %s", request.method, request.path)
+        return render_template("errors/generic.html",
+                               code=503, title="Workflow unavailable",
+                               message="This workflow is not enabled yet. Contact your pantry administrator."), 503
+
     # ── 429 Too Many Requests (from Flask-Limiter) ─────────────
     @app.errorhandler(429)
     def _429(e):

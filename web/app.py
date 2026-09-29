@@ -123,10 +123,20 @@ def create_app(config: type = Config) -> Flask:
     from routes.dashboard import bp as dashboard_bp
     from routes.account   import bp as account_bp
     from routes.inventory import bp as inventory_bp
+    from routes.users import bp as users_bp
+    from routes.scan import bp as scan_bp
+    from routes.sections import bp as sections_bp
+    from routes.clients import bp as clients_bp
+    from routes.reports import bp as reports_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(account_bp)
     app.register_blueprint(inventory_bp)
+    app.register_blueprint(users_bp)
+    app.register_blueprint(scan_bp)
+    app.register_blueprint(sections_bp)
+    app.register_blueprint(clients_bp)
+    app.register_blueprint(reports_bp)
 
     # ── Root redirect ───────────────────────────────────────────
     @app.route("/")
@@ -143,19 +153,18 @@ def create_app(config: type = Config) -> Flask:
 
     # ── First-launch admin bootstrap ─────────────────────────────
     #   The Fly.io volume starts empty on first deploy, so the users
-    #   table has no rows and no one could log in. Detect that case
-    #   and mint a random admin password, printing it to stdout so
-    #   it shows up in `flyctl logs`. Idempotent: subsequent starts
-    #   see the existing admin and do nothing.
+    #   table has no rows and no one could log in. Require a password
+    #   supplied via the secrets manager; never print it to logs.
+    #   Idempotent: subsequent starts see the existing admin and
+    #   do nothing.
     _bootstrap_default_admin()
 
     return app
 
 
 def _bootstrap_default_admin() -> None:
-    import secrets as _secrets
     from database import Database
-    from auth import hash_password as _hp
+    from auth import hash_password as _hp, validate_password_strength
     db = Database()
     try:
         if db.get_all_users():
@@ -163,21 +172,16 @@ def _bootstrap_default_admin() -> None:
     except Exception as exc:  # pragma: no cover - defensive
         print(f"[bootstrap] could not query users table: {exc}")
         return
-    pw = _secrets.token_urlsafe(12)
+    pw = os.environ.get("HARVESTHERO_BOOTSTRAP_PASSWORD", "")
+    valid, _ = validate_password_strength(pw)
+    if not valid:
+        print("[bootstrap] Set a strong HARVESTHERO_BOOTSTRAP_PASSWORD secret before creating the first administrator.")
+        return
     ph, salt = _hp(pw)
-    ok, msg = db.create_user("admin", ph, salt, "admin")
-    if ok:
-        print("=" * 72)
-        print("  HARVEST HERO -- FIRST-LAUNCH ADMIN CREATED")
-        print("     username: admin")
-        print(f"     password: {pw}")
-        print("  Log in at your app URL and change this password immediately.")
-        print("  This password will NEVER be shown again -- save it now.")
-        print("=" * 72)
-    else:
+    ok, _ = db.create_user("admin", ph, salt, "admin")
+    if not ok:
         # Race with a sibling worker: harmless, someone else already made it.
-        print(f"[bootstrap] admin not created ({msg}); assuming another "
-              f"worker beat us to it")
+        print("[bootstrap] admin already exists.")
 
 
 # WSGI entry point — used by gunicorn in production.

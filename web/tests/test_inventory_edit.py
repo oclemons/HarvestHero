@@ -82,7 +82,7 @@ class EditItem(unittest.TestCase):
         r = self.client.get("/inventory/99999/edit")
         self.assertEqual(r.status_code, 404)
 
-    def test_happy_path_updates_all_fields(self):
+    def test_profile_edit_does_not_move_shelf_stock(self):
         self._login()
         row = self._row()
         r = self.client.post(f"/inventory/{row['id']}/edit", data={
@@ -90,9 +90,10 @@ class EditItem(unittest.TestCase):
             "item_name": "Renamed item",
             "brand": "NewBrand",
             "category": "NewCat",
-            "current_quantity": "9",
+            "current_quantity": "5",
             "minimum_stock": "4",
             "storage_location": "Section 9, Shelf Z",
+            "unit_weight_lb": "0.625",
             "notes": "edited",
         }, follow_redirects=False)
         self.assertEqual(r.status_code, 302)
@@ -101,12 +102,22 @@ class EditItem(unittest.TestCase):
         self.assertEqual(new_row["item_name"],        "Renamed item")
         self.assertEqual(new_row["brand"],            "NewBrand")
         self.assertEqual(new_row["category"],         "NewCat")
-        self.assertEqual(int(new_row["current_quantity"]), 9)
+        self.assertEqual(int(new_row["current_quantity"]), 5)
         self.assertEqual(int(new_row["minimum_stock"]),    4)
-        self.assertEqual(new_row["storage_location"], "Section 9, Shelf Z")
+        self.assertEqual(new_row["storage_location"], "Section 1, Shelf A")
+        self.assertEqual(new_row["unit_weight_milli_lb"], 625)
         self.assertEqual(new_row["notes"],            "edited")
         # Barcode still the original — client can't rewrite it.
         self.assertEqual(new_row["barcode"], "EDIT1")
+
+    def test_profile_edit_cannot_change_quantity(self):
+        self._login()
+        row = self._row()
+        response = self.client.post(f"/inventory/{row['id']}/edit", data={
+            "item_name": "Original name", "current_quantity": "9", "minimum_stock": "2",
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self._row()["current_quantity"], 5)
 
     def test_missing_item_name_rejected(self):
         self._login()

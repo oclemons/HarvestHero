@@ -15,14 +15,14 @@ likely threats and how we defend against each are:
 | Session hijack (fixation / theft) | Full account takeover | Session cookie is `HttpOnly` + `Secure` + `SameSite=Lax`; session ID regenerated on every login (2A.4); password change kicks other sessions |
 | CSRF on write routes | Silent data modification via forged form | Flask-WTF CSRF token on every POST form (2A.1) |
 | XSS via inventory / user input | Session cookie theft, arbitrary JS | Jinja auto-escaping (default) + strict CSP (2A.2) with `frame-ancestors 'none'` |
-| SQL injection | Full DB read/write | Every query uses `sqlite3` parameterized queries (`?` placeholders); grep-audit runs in CI |
+| SQL injection | Full DB read/write | User-provided query values use SQLite parameters; query construction and migration SQL still require review and tests. |
 | Broken access control (student → admin) | PII exposure, inventory tampering | Server-side `@admin_required` decorator (Phase 2B); every admin route has a raw-HTTP RBAC test |
 | Traceback / stack leak on error | System info to attacker | `errors.py` renders a generic template; 500 handler logs traceback server-side only (2A.5) |
 | Rate-limit bypass via forged headers | Brute force | Rate limiter keys on `X-Forwarded-For` only because `ProxyFix(x_for=1)` trusts exactly one hop of proxy (Fly's edge) |
 | Hard-coded credential in source | Instant compromise | `web/tools/check_secrets.py` scans tracked files in CI (2A.6/7); no secrets committed |
 | Vulnerable dependency | RCE / data leak via lib | `pip-audit --strict` in CI (2A.6); failing scan blocks deploy |
 
-## Controls in place (as of v3.1.0)
+## Security controls (live baseline and locally tested changes; verify again after release)
 
 ### Transport
 * **HTTPS terminated at Fly.io edge.** All prod traffic is HTTPS.
@@ -55,11 +55,10 @@ likely threats and how we defend against each are:
   default 200 req/min.
 
 ### Authorization
-* Every write route is `@login_required`.
-* Role split into admin/student lands in Phase 2B; `@admin_required`
-  decorator + raw-HTTP RBAC tests will enforce server-side.
-* Note: currently every authenticated user can add/edit/delete
-  inventory. This is deliberate for v3.0/3.1 (single-admin pilot).
+* Existing inventory writes require `@admin_required`; only intake scan-in uses `@student_or_admin_required`.
+* The locally tested pantry/client/scan-out/weight-report routes are Admin-only. Student raw-HTTP requests to those routes receive 403; Admin-only client data is not rendered in Student responses.
+* Client intake and scan-out additionally fail closed (503 for Admin) unless `HARVESTHERO_CLIENT_RECORDS_ENABLED=1` is explicitly set after the college's data-retention policy and key-custody process are confirmed. It defaults off.
+* The local changes have not been deployed yet. Verify authorization against the live site after release rather than inferring it from tests.
 
 ### CSRF
 * Flask-WTF `CSRFProtect` enabled globally.
@@ -116,17 +115,16 @@ Verified by `web/tests/test_security_headers.py` on every push.
   rest** — confirmed via `flyctl volumes list`.
 * Automated snapshots running: 5 daily snapshots on a 5-day rolling
   retention. Confirmed 2025-09 via `flyctl volumes snapshots list`.
-* **Off-Fly encrypted backups** and a tested restore drill are the
-  Phase 2N deliverable. Until then, a total Fly.io region outage
-  would take the data with it.
+* One encrypted off-Fly backup of the existing production database was made with SQLite's backup API and tested by decrypting and migrating a temporary local copy; SQLite integrity/foreign-key checks and core row counts passed. Only the current operator holds the private key. This is a pre-migration safety copy, **not** an automated recurring backup or proof of institution-approved retention.
+* Arrange separate institutional custody of the private key and recurring encrypted off-Fly backups before collecting real student DOB and visit history. Five-day Fly snapshots alone do not cover regional loss or long-term recovery.
 
 ## OWASP Top 10 (2021) coverage matrix
 
 | # | Category | Status | Where it's addressed |
 |---|---|---|---|
-| **A01** | Broken Access Control | 🟡 partial | Every route `@login_required`. Role split + `@admin_required` lands in Phase 2B; raw-HTTP RBAC tests come with it. |
+| **A01** | Broken Access Control | 🟡 partial | Server-side RBAC and direct-request tests cover existing inventory writes plus locally added client, scan-out and reporting routes; live smoke tests are still required for the new release. |
 | **A02** | Cryptographic Failures | 🟢 ok | HTTPS + HSTS; PBKDF2-HMAC-SHA256 (600k) for passwords; Fernet for stored secrets; session cookies signed with `SECRET_KEY`. |
-| **A03** | Injection | 🟢 ok | 100% parameterized SQL queries in `database.py`. Jinja auto-escaping on every rendered variable. Grep audit for `execute(f"...")` runs in CI. |
+| **A03** | Injection | � partial | User-input values are bound as SQL parameters; Jinja auto-escaping covers rendered values. Review and automated fuzzing of dynamic filters remain to be done. |
 | **A04** | Insecure Design | 🟡 partial | Threat model above. Full architecture review + STRIDE-style analysis scheduled for Phase 2O sign-off. |
 | **A05** | Security Misconfiguration | 🟢 ok | Talisman headers + Flask debug forced off in production + generic error pages + secure cookie flags. |
 | **A06** | Vulnerable Components | 🟢 ok | `pip-audit --strict` in CI blocks any known-CVE dependency. Requirements pinned. |
@@ -135,23 +133,20 @@ Verified by `web/tests/test_security_headers.py` on every push.
 | **A09** | Security Logging and Monitoring Failures | 🟡 partial | Structured JSON request log (`logging_config.py`). Rich audit log with before/after values lands in Phase 2I. Alerting via Fly.io only for now. |
 | **A10** | SSRF | 🟢 ok | No user-controlled URLs are fetched by the server today. When AI (Phase 2L) or webhooks are added, we allowlist explicitly. |
 
-🟢 = fully covered in v3.1.0 &nbsp;&nbsp; 🟡 = partially covered; remainder scheduled &nbsp;&nbsp; 🔴 = not covered
+Status indicators describe the documented controls, not a final certification or a deployed version tag. Partial areas need release verification and operating procedures.
 
 ## What's still open
 
-Tracked in `/Users/octayviaclemons/.devin/plans/plan-8429f1f9fb7f924d.md`
-under the numbered phase items. The security-relevant open items:
+The inventory-first rollout plan is maintained outside the repository. Remaining security work:
 
-| Phase | What lands |
+| Area | Next gate |
 |---|---|
-| 2A.12 | Verify Fly.io volume snapshot retention (currently Fly default) |
-| 2A.13 | Set `FLY_API_TOKEN` GitHub secret so CI can auto-deploy |
-| 2A.14 | Confirm bootstrap admin password is rotated |
-| 2B | Server-side RBAC decorator + role split + raw-HTTP RBAC tests (A01) |
-| 2C | LDAP as primary auth (A07 stronger) |
-| 2I | Audit log with before/after values (A09 stronger) |
-| 2N | Off-Fly encrypted backups + tested restore drill |
-| 2O | Formal security-testing sweep (SQLi/XSS/session/URL/header fuzz) before v4.0.0 sign-off |
+| Release | Run CI, Docker build and live Admin/Student authorization smoke tests before calling new workflows usable. |
+| Recovery | Confirm institutional custody of the encryption private key and repeat encrypted backups and restore drills on a schedule. |
+| Privacy | Agree on client-data retention and access policy before entering real DOB and student IDs. |
+| Authentication | LDAP needs school IT connectivity and mapping; local passwords remain active until tested. |
+| Audit | Extend account and client-change history to before/after values without storing DOB or student IDs in logs. |
+| Operations | Monitor errors and backup freshness; complete a broader security pass before formal production sign-off. |
 
 ## Rotating secrets
 

@@ -75,7 +75,12 @@ def login():
             from security import mark_login
             mark_login(row)
             _db.update_last_login(username)
-            return redirect(request.args.get("next") or url_for("dashboard.home"))
+            destination = request.args.get("next") or ""
+            if (destination.startswith("/") and not destination.startswith("//") and
+                    "\\" not in destination and len(destination) <= 1024 and
+                    all(ord(char) >= 32 for char in destination)):
+                return redirect(destination)
+            return redirect(url_for("dashboard.home"))
         flash("Invalid username or password.", "error")
     return render_template("auth/login.html")
 

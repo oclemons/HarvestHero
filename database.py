@@ -1,8 +1,15 @@
 import datetime
+import json
 import os
 import sqlite3
+from uuid import uuid4
 
 from paths import DB_PATH
+
+
+def _utc_date() -> datetime.date:
+    return datetime.datetime.now(datetime.timezone.utc).date()
+
 
 _SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -55,6 +62,7 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     expiration_date  TEXT    DEFAULT '',
     nutrition_data   TEXT    DEFAULT '{}',
     weight_per_unit  REAL    DEFAULT 0.0,
+    unit_weight_milli_lb INTEGER CHECK(unit_weight_milli_lb >= 0),
     notes            TEXT    DEFAULT '',
     current_pounds   REAL    DEFAULT 0.0,
     donated_pounds   REAL    DEFAULT 0.0,
@@ -63,6 +71,29 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     created_at       TEXT    DEFAULT (datetime('now', 'localtime')),
     updated_at       TEXT    DEFAULT (datetime('now', 'localtime'))
 );
+
+CREATE TABLE IF NOT EXISTS pantry_sections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    system INTEGER NOT NULL DEFAULT 0 CHECK(system IN (0, 1))
+);
+
+CREATE TABLE IF NOT EXISTS pantry_shelves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    section_id INTEGER NOT NULL REFERENCES pantry_sections(id),
+    name TEXT NOT NULL COLLATE NOCASE,
+    is_overflow INTEGER NOT NULL DEFAULT 0 CHECK(is_overflow IN (0, 1)),
+    UNIQUE(section_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS item_shelf_stock (
+    item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+    shelf_id INTEGER NOT NULL REFERENCES pantry_shelves(id),
+    quantity INTEGER NOT NULL DEFAULT 0 CHECK(quantity >= 0),
+    PRIMARY KEY(item_id, shelf_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_shelf_stock_shelf ON item_shelf_stock(shelf_id);
 
 CREATE TABLE IF NOT EXISTS transactions (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,6 +147,8 @@ CREATE TABLE IF NOT EXISTS pantry_clients (
     semester                TEXT    DEFAULT '',
     enrollment_status       TEXT    NOT NULL DEFAULT 'full_time'
                             CHECK(enrollment_status IN ('full_time', 'part_time')),
+    birth_date              TEXT,
+    expected_graduation_semester TEXT DEFAULT '',
     household_size          INTEGER DEFAULT 1,
     notes                   TEXT    DEFAULT '',
     waiver_signed           INTEGER DEFAULT 0,
@@ -125,16 +158,78 @@ CREATE TABLE IF NOT EXISTS pantry_clients (
     updated_at              TEXT    DEFAULT (datetime('now', 'localtime'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_pantry_client_student_id ON pantry_clients(student_id);
+
+CREATE TABLE IF NOT EXISTS client_verifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES pantry_clients(id),
+    term TEXT NOT NULL,
+    verified_at TEXT NOT NULL DEFAULT (datetime('now')),
+    verified_until TEXT NOT NULL,
+    verified_by TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('verified', 'revoked'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_client_verifications_client ON client_verifications(client_id, id);
+
 CREATE TABLE IF NOT EXISTS pantry_visits (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     client_id      INTEGER NOT NULL,
     visit_date     TEXT    DEFAULT (datetime('now', 'localtime')),
     pounds_received REAL   DEFAULT 0,
     items_json     TEXT    DEFAULT '[]',
+    known_weight_milli_lb INTEGER,
+    pending_weight_lines INTEGER NOT NULL DEFAULT 0,
+    weight_complete INTEGER NOT NULL DEFAULT 0,
+    cart_id TEXT UNIQUE REFERENCES pantry_carts(id),
     notes          TEXT    DEFAULT '',
     recorded_by    TEXT    DEFAULT '',
     FOREIGN KEY (client_id) REFERENCES pantry_clients(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS pantry_carts (
+    id TEXT PRIMARY KEY,
+    owner_id INTEGER NOT NULL,
+    direction TEXT NOT NULL CHECK(direction IN ('IN', 'OUT')),
+    client_id INTEGER REFERENCES pantry_clients(id),
+    status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT', 'COMPLETED', 'CANCELLED')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_active_pantry_cart
+    ON pantry_carts(owner_id, direction) WHERE status = 'DRAFT';
+
+CREATE TABLE IF NOT EXISTS pantry_cart_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cart_id TEXT NOT NULL REFERENCES pantry_carts(id),
+    item_id INTEGER NOT NULL REFERENCES inventory_items(id),
+    shelf_id INTEGER NOT NULL REFERENCES pantry_shelves(id),
+    quantity INTEGER NOT NULL CHECK(quantity BETWEEN 1 AND 1000000),
+    weight_override_milli_lb INTEGER CHECK(weight_override_milli_lb > 0),
+    override_reason TEXT DEFAULT '',
+    UNIQUE(cart_id, item_id, shelf_id)
+);
+
+CREATE TABLE IF NOT EXISTS inventory_movements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cart_id TEXT REFERENCES pantry_carts(id),
+    item_id INTEGER REFERENCES inventory_items(id),
+    item_name TEXT NOT NULL,
+    shelf_id INTEGER NOT NULL REFERENCES pantry_shelves(id),
+    client_id INTEGER REFERENCES pantry_clients(id),
+    visit_id INTEGER REFERENCES pantry_visits(id),
+    direction TEXT NOT NULL CHECK(direction IN ('IN', 'OUT', 'OPENING', 'ADJUST', 'TRANSFER')),
+    quantity_delta INTEGER NOT NULL,
+    weight_milli_lb INTEGER,
+    weight_override_reason TEXT DEFAULT '',
+    recorded_by TEXT NOT NULL,
+    timestamp_utc TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_time ON inventory_movements(timestamp_utc);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_cart ON inventory_movements(cart_id);
 
 CREATE TABLE IF NOT EXISTS archived_inventory (
     archive_id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -278,6 +373,7 @@ class Database:
             "ALTER TABLE inventory_items ADD COLUMN nutrition_data TEXT DEFAULT '{}'",
             "ALTER TABLE inventory_items ADD COLUMN overstock_threshold INTEGER DEFAULT 0",
             "ALTER TABLE inventory_items ADD COLUMN weight_per_unit REAL DEFAULT 0.0",
+            "ALTER TABLE inventory_items ADD COLUMN unit_weight_milli_lb INTEGER CHECK(unit_weight_milli_lb >= 0)",
             "ALTER TABLE pantry_visits ADD COLUMN items_json TEXT DEFAULT '[]'",
             "ALTER TABLE users ADD COLUMN has_completed_tour INTEGER DEFAULT 0",
             "ALTER TABLE users ADD COLUMN full_name TEXT DEFAULT ''",
@@ -311,8 +407,121 @@ class Database:
                 pass
 
         self._migrate_pantry_visits_cascade(conn)
+        self._migrate_visit_columns(conn)
         self._migrate_users_role_to_fk(conn)
+        self._migrate_client_columns(conn)
+        self._migrate_item_unit_weights(conn)
+        self._migrate_shelf_stock(conn)
         conn.close()
+
+    def _migrate_visit_columns(self, conn: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(pantry_visits)")}
+        additions = {
+            "known_weight_milli_lb": "INTEGER",
+            "pending_weight_lines": "INTEGER NOT NULL DEFAULT 0",
+            "weight_complete": "INTEGER NOT NULL DEFAULT 0",
+            "cart_id": "TEXT REFERENCES pantry_carts(id)",
+        }
+        try:
+            for name, column_type in additions.items():
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE pantry_visits ADD COLUMN {name} {column_type}")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_pantry_visit_cart ON pantry_visits(cart_id) "
+                "WHERE cart_id IS NOT NULL"
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    def _migrate_client_columns(self, conn: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(pantry_clients)")}
+        if "birth_date" in columns and "expected_graduation_semester" in columns:
+            return
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            if "birth_date" not in columns:
+                conn.execute("ALTER TABLE pantry_clients ADD COLUMN birth_date TEXT")
+            if "expected_graduation_semester" not in columns:
+                conn.execute("ALTER TABLE pantry_clients ADD COLUMN expected_graduation_semester TEXT DEFAULT ''")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    def _migrate_item_unit_weights(self, conn: sqlite3.Connection) -> None:
+        if conn.execute(
+            "SELECT 1 FROM app_settings WHERE key = 'unit_weight_migrated'"
+        ).fetchone():
+            return
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "UPDATE inventory_items SET unit_weight_milli_lb = CAST(ROUND(weight_per_unit * 1000) AS INTEGER) "
+                "WHERE unit_weight_milli_lb IS NULL AND weight_per_unit >= 0.0005"
+            )
+            conn.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('unit_weight_migrated', '1')"
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    def _migrate_shelf_stock(self, conn: sqlite3.Connection) -> None:
+        if conn.execute(
+            "SELECT 1 FROM app_settings WHERE key = 'shelf_stock_migrated'"
+        ).fetchone():
+            return
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("INSERT OR IGNORE INTO pantry_sections (name, system) VALUES ('Unassigned', 1)")
+            section_id = conn.execute(
+                "SELECT id FROM pantry_sections WHERE name = 'Unassigned'"
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT OR IGNORE INTO pantry_shelves (section_id, name) VALUES (?, 'Unassigned')",
+                (section_id,),
+            )
+            shelf_id = conn.execute(
+                "SELECT id FROM pantry_shelves WHERE section_id = ? AND name = 'Unassigned'",
+                (section_id,),
+            ).fetchone()[0]
+            migrated = conn.execute(
+                "SELECT value FROM app_settings WHERE key = 'shelf_stock_migrated'"
+            ).fetchone()
+            if not migrated:
+                for item in conn.execute(
+                    "SELECT i.id, i.item_name, i.unit_weight_milli_lb, i.current_quantity, "
+                    "COALESCE(SUM(s.quantity), 0) AS allocated "
+                    "FROM inventory_items i LEFT JOIN item_shelf_stock s ON s.item_id = i.id "
+                    "GROUP BY i.id"
+                ).fetchall():
+                    remainder = item["current_quantity"] - item["allocated"]
+                    if remainder < 0:
+                        raise ValueError("Existing shelf stock exceeds catalog quantity")
+                    if remainder:
+                        conn.execute(
+                            "INSERT INTO item_shelf_stock (item_id, shelf_id, quantity) VALUES (?, ?, ?) "
+                            "ON CONFLICT(item_id, shelf_id) DO UPDATE SET quantity = quantity + excluded.quantity",
+                            (item["id"], shelf_id, remainder),
+                        )
+                        conn.execute(
+                            "INSERT INTO inventory_movements (item_id, item_name, shelf_id, direction, "
+                            "quantity_delta, weight_milli_lb, recorded_by) "
+                            "VALUES (?, ?, ?, 'OPENING', ?, ?, 'migration')",
+                            (item["id"], item["item_name"], shelf_id, remainder,
+                             remainder * item["unit_weight_milli_lb"]
+                             if item["unit_weight_milli_lb"] is not None else None),
+                        )
+                conn.execute(
+                    "INSERT INTO app_settings (key, value) VALUES ('shelf_stock_migrated', '1')"
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     def _migrate_users_role_to_fk(self, conn: sqlite3.Connection) -> None:
         """Replace ``users.role`` CHECK('admin','staff') with a FK to
@@ -355,14 +564,14 @@ class Database:
                 );
 
                 -- Green-field data is expected, but be defensive: any
-                -- legacy 'staff' user is promoted to 'admin' rather than
-                -- silently dropped or left with a value the FK rejects.
+                -- legacy 'staff' user becomes 'student' rather than
+                -- silently gaining administrator access.
                 INSERT INTO users_new
                     (id, username, password_hash, salt, role,
                      full_name, created_at, is_active,
                      has_completed_tour, last_login, created_by)
                 SELECT id, username, password_hash, salt,
-                       CASE role WHEN 'staff' THEN 'admin' ELSE role END,
+                       CASE role WHEN 'staff' THEN 'student' ELSE role END,
                        COALESCE(full_name, ''),
                        created_at,
                        is_active,
@@ -376,12 +585,12 @@ class Database:
 
                 COMMIT;
             """)
-        except Exception as exc:  # pragma: no cover - safety net
-            print(f"[db] users role->FK migration skipped: {exc}")
+        except Exception:  # pragma: no cover - safety net
             try:
                 conn.execute("ROLLBACK")
-            except Exception:
+            except sqlite3.OperationalError:
                 pass
+            raise
 
     def _migrate_pantry_visits_cascade(self, conn: sqlite3.Connection) -> None:
         """Rebuild pantry_visits so its FK to pantry_clients uses ON DELETE
@@ -410,19 +619,21 @@ class Database:
                 );
                 INSERT INTO pantry_visits_new
                     (id, client_id, visit_date, pounds_received, items_json, notes, recorded_by)
-                SELECT id, client_id, visit_date, pounds_received, '[]', notes, recorded_by
+                SELECT id, client_id, visit_date, pounds_received,
+                       COALESCE(items_json, '[]'), notes, recorded_by
                 FROM pantry_visits;
                 DROP TABLE pantry_visits;
                 ALTER TABLE pantry_visits_new RENAME TO pantry_visits;
                 COMMIT;
             """)
         except Exception:
-            # If migration fails, roll back and leave the table alone;
-            # cascade still works for any freshly-created database.
+            # If migration fails, roll back and keep the old table;
+            # never silently continue with an incomplete schema.
             try:
                 conn.execute("ROLLBACK")
-            except Exception:
+            except sqlite3.OperationalError:
                 pass
+            raise
 
     # ------------------------------------------------------------------
     # User operations
@@ -509,6 +720,358 @@ class Database:
         conn.commit()
         conn.close()
 
+    def manage_user_active(self, actor_id: int, target_id: int, active: bool) -> None:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            actor = conn.execute(
+                "SELECT username, role, is_active FROM users WHERE id = ?", (actor_id,)
+            ).fetchone()
+            target = conn.execute(
+                "SELECT role FROM users WHERE id = ?", (target_id,)
+            ).fetchone()
+            if not actor or not actor["is_active"] or actor["role"] != "admin" or not target:
+                raise ValueError("Only an active administrator may change team access.")
+            if not active and actor_id == target_id:
+                raise ValueError("You cannot deactivate your own account.")
+            if not active and target["role"] == "admin":
+                count = conn.execute(
+                    "SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1"
+                ).fetchone()[0]
+                if count <= 1:
+                    raise ValueError("At least one active administrator is required.")
+            conn.execute("UPDATE users SET is_active = ? WHERE id = ?", (int(active), target_id))
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'USER_STATUS', ?)",
+                (actor["username"], f"user={target_id} active={int(active)}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def create_item_on_shelf(self, barcode: str, item_name: str, category: str,
+                             quantity: int, minimum_stock: int, shelf_id: int,
+                             username: str, unit_weight_milli_lb: int | None = None,
+                             barcode_out: str = "", brand: str = "", notes: str = "") -> int:
+        barcode = barcode.strip()
+        barcode_out = barcode_out.strip()
+        item_name = item_name.strip()
+        if not barcode or not item_name or len(barcode) > 128 or len(item_name) > 200:
+            raise ValueError("Barcode and item name are required.")
+        if (not isinstance(quantity, int) or not 0 <= quantity <= 1_000_000 or
+                not isinstance(minimum_stock, int) or not 0 <= minimum_stock <= 1_000_000):
+            raise ValueError("Quantities must be non-negative whole numbers up to one million.")
+        if len(barcode_out) > 128 or len(category) > 120 or len(brand) > 120 or len(notes) > 2000:
+            raise ValueError("Item details exceed the allowed length.")
+        if unit_weight_milli_lb is not None and (
+                not isinstance(unit_weight_milli_lb, int) or not 0 < unit_weight_milli_lb <= 10_000_000):
+            raise ValueError("Unit weight must be positive or left unknown.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            shelf = conn.execute(
+                "SELECT shelf.name AS shelf_name, section.name AS section_name "
+                "FROM pantry_shelves shelf JOIN pantry_sections section ON section.id = shelf.section_id "
+                "WHERE shelf.id = ? AND section.system = 0", (shelf_id,),
+            ).fetchone()
+            if not shelf:
+                raise ValueError("Choose a pantry shelf first.")
+            if conn.execute(
+                "SELECT 1 FROM inventory_items WHERE barcode IN (?, ?) "
+                "OR barcode_out IN (?, ?) LIMIT 1",
+                (barcode, barcode_out or barcode, barcode, barcode_out or barcode),
+            ).fetchone():
+                raise ValueError("A barcode is already assigned to another item.")
+            if barcode_out and barcode_out == barcode:
+                raise ValueError("Scan-in and scan-out barcodes must differ.")
+            cursor = conn.execute(
+                "INSERT INTO inventory_items (barcode, barcode_out, item_name, brand, category, "
+                "current_quantity, minimum_stock, storage_location, weight_per_unit, "
+                "unit_weight_milli_lb, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (barcode, barcode_out or None, item_name, brand, category, quantity,
+                 minimum_stock, f"{shelf['section_name']}, {shelf['shelf_name']}",
+                 (unit_weight_milli_lb or 0) / 1000, unit_weight_milli_lb, notes),
+            )
+            conn.execute(
+                "INSERT INTO item_shelf_stock (item_id, shelf_id, quantity) VALUES (?, ?, ?)",
+                (cursor.lastrowid, shelf_id, quantity),
+            )
+            if quantity:
+                conn.execute(
+                    "INSERT INTO inventory_movements (item_id, item_name, shelf_id, direction, "
+                    "quantity_delta, weight_milli_lb, recorded_by) "
+                    "VALUES (?, ?, ?, 'OPENING', ?, ?, ?)",
+                    (cursor.lastrowid, item_name, shelf_id, quantity,
+                     quantity * unit_weight_milli_lb if unit_weight_milli_lb is not None else None,
+                     username),
+                )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'ITEM_OPENING', ?)",
+                (username, f"item={cursor.lastrowid} shelf={shelf_id} units={quantity}"),
+            )
+            conn.commit()
+            return cursor.lastrowid
+        except sqlite3.IntegrityError as exc:
+            conn.rollback()
+            raise ValueError("An item with this barcode already exists.") from exc
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def update_item_profile(self, item_id: int, item_name: str, category: str,
+                            minimum_stock: int, notes: str, barcode_out: str,
+                            brand: str, unit_weight_milli_lb: int | None,
+                            username: str) -> None:
+        if (not item_name.strip() or len(item_name) > 200 or
+                not isinstance(minimum_stock, int) or not 0 <= minimum_stock <= 1_000_000):
+            raise ValueError("Item name and a valid minimum are required.")
+        if len(category) > 120 or len(brand) > 120 or len(notes) > 2000 or len(barcode_out) > 128:
+            raise ValueError("Item details exceed the allowed length.")
+        if unit_weight_milli_lb is not None and (
+                not isinstance(unit_weight_milli_lb, int) or not 0 < unit_weight_milli_lb <= 10_000_000):
+            raise ValueError("Unit weight must be positive or left unknown.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            item = conn.execute(
+                "SELECT id, barcode FROM inventory_items WHERE id = ?", (item_id,)
+            ).fetchone()
+            if not item:
+                raise ValueError("Item not found.")
+            if barcode_out and barcode_out == item["barcode"]:
+                raise ValueError("Scan-in and scan-out barcodes must differ.")
+            if barcode_out and conn.execute(
+                "SELECT 1 FROM inventory_items WHERE id != ? "
+                "AND (barcode = ? OR barcode_out = ?)", (item_id, barcode_out, barcode_out)
+            ).fetchone():
+                raise ValueError("That scan-out barcode already belongs to another item.")
+            conn.execute(
+                "UPDATE inventory_items SET item_name = ?, category = ?, minimum_stock = ?, "
+                "notes = ?, barcode_out = ?, brand = ?, unit_weight_milli_lb = ?, weight_per_unit = ?, "
+                "updated_at = datetime('now', 'localtime') WHERE id = ?",
+                (item_name.strip(), category, minimum_stock, notes, barcode_out or None,
+                 brand, unit_weight_milli_lb, (unit_weight_milli_lb or 0) / 1000, item_id),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'ITEM_EDIT', ?)",
+                (username, f"item={item_id}"),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError as exc:
+            conn.rollback()
+            raise ValueError("Barcode is already assigned.") from exc
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def create_pantry_section(self, name: str) -> int:
+        name = name.strip()
+        if not name or len(name) > 80 or name.casefold() == "unassigned":
+            raise ValueError("Enter a unique section name (up to 80 characters).")
+        conn = self._connect()
+        try:
+            cursor = conn.execute("INSERT INTO pantry_sections (name) VALUES (?)", (name,))
+            conn.commit()
+            return cursor.lastrowid
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("This section already exists.") from exc
+        finally:
+            conn.close()
+
+    def create_pantry_shelf(self, section_id: int, name: str, is_overflow: bool = False) -> int:
+        name = name.strip()
+        if not name or len(name) > 80:
+            raise ValueError("Enter a shelf name (up to 80 characters).")
+        conn = self._connect()
+        try:
+            section = conn.execute(
+                "SELECT system FROM pantry_sections WHERE id = ?", (section_id,)
+            ).fetchone()
+            if not section or section["system"]:
+                raise ValueError("Select a valid section.")
+            cursor = conn.execute(
+                "INSERT INTO pantry_shelves (section_id, name, is_overflow) VALUES (?, ?, ?)",
+                (section_id, name, int(is_overflow)),
+            )
+            conn.commit()
+            return cursor.lastrowid
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("This shelf already exists in the section.") from exc
+        finally:
+            conn.close()
+
+    def get_pantry_layout(self):
+        conn = self._connect()
+        sections = conn.execute(
+            "SELECT id, name, system FROM pantry_sections ORDER BY system, name COLLATE NOCASE"
+        ).fetchall()
+        shelves = conn.execute(
+            "SELECT s.id, s.section_id, s.name, s.is_overflow, "
+            "COALESCE(SUM(stock.quantity), 0) AS units "
+            "FROM pantry_shelves s LEFT JOIN item_shelf_stock stock ON stock.shelf_id = s.id "
+            "GROUP BY s.id ORDER BY s.is_overflow, s.name COLLATE NOCASE"
+        ).fetchall()
+        conn.close()
+        return [dict(section, shelves=[dict(shelf) for shelf in shelves
+                                      if shelf["section_id"] == section["id"]])
+                for section in sections]
+
+    def get_item_locations(self, item_ids: list[int]) -> dict[int, str]:
+        if not item_ids:
+            return {}
+        conn = self._connect()
+        placeholders = ", ".join("?" for _ in item_ids)
+        rows = conn.execute(
+            "SELECT stock.item_id, stock.quantity, section.name AS section_name, "
+            "shelf.name AS shelf_name FROM item_shelf_stock stock "
+            "JOIN pantry_shelves shelf ON shelf.id = stock.shelf_id "
+            "JOIN pantry_sections section ON section.id = shelf.section_id "
+            f"WHERE stock.item_id IN ({placeholders}) "
+            "ORDER BY section.system, section.name, shelf.name", item_ids,
+        ).fetchall()
+        conn.close()
+        locations = {}
+        for row in rows:
+            label = f"{row['section_name']} / {row['shelf_name']}"
+            locations.setdefault(row["item_id"], []).append((row["quantity"], label))
+        return {item_id: ", ".join(label for qty, label in entries if qty > 0) or
+                entries[0][1] for item_id, entries in locations.items()}
+
+    def get_item_shelf_stock(self, item_id: int):
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT stock.shelf_id, stock.quantity, shelf.name AS shelf_name, "
+            "section.name AS section_name, shelf.is_overflow "
+            "FROM item_shelf_stock stock JOIN pantry_shelves shelf ON shelf.id = stock.shelf_id "
+            "JOIN pantry_sections section ON section.id = shelf.section_id "
+            "WHERE stock.item_id = ? ORDER BY section.system, section.name, shelf.name",
+            (item_id,),
+        ).fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    def adjust_shelf_stock(self, item_id: int, shelf_id: int, delta: int,
+                           username: str, reason: str, expected_quantity: int | None = None) -> int:
+        if not isinstance(delta, int) or not delta or not reason.strip():
+            raise ValueError("An adjustment and reason are required.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            item = conn.execute(
+                "SELECT item_name, unit_weight_milli_lb, current_quantity "
+                "FROM inventory_items WHERE id = ?", (item_id,)
+            ).fetchone()
+            shelf = conn.execute("SELECT id FROM pantry_shelves WHERE id = ?", (shelf_id,)).fetchone()
+            if not item or not shelf:
+                raise ValueError("Item or shelf not found.")
+            allocated = conn.execute(
+                "SELECT COALESCE(SUM(quantity), 0) FROM item_shelf_stock WHERE item_id = ?",
+                (item_id,),
+            ).fetchone()[0]
+            if allocated != item["current_quantity"]:
+                raise ValueError("Item has unmapped stock. Reconcile its location first.")
+            row = conn.execute(
+                "SELECT quantity FROM item_shelf_stock WHERE item_id = ? AND shelf_id = ?",
+                (item_id, shelf_id),
+            ).fetchone()
+            previous = row[0] if row else 0
+            if expected_quantity is not None and previous != expected_quantity:
+                raise ValueError("This shelf changed since you opened the page. Refresh and retry.")
+            quantity = previous + delta
+            if quantity < 0:
+                raise ValueError("The shelf does not have enough stock.")
+            if quantity > 1_000_000 or item["current_quantity"] + delta > 1_000_000:
+                raise ValueError("The stock count exceeds the allowed range.")
+            conn.execute(
+                "INSERT INTO item_shelf_stock (item_id, shelf_id, quantity) VALUES (?, ?, ?) "
+                "ON CONFLICT(item_id, shelf_id) DO UPDATE SET quantity = excluded.quantity",
+                (item_id, shelf_id, quantity),
+            )
+            conn.execute(
+                "UPDATE inventory_items SET current_quantity = current_quantity + ?, "
+                "updated_at = datetime('now', 'localtime') WHERE id = ?", (delta, item_id)
+            )
+            conn.execute(
+                "INSERT INTO inventory_movements (item_id, item_name, shelf_id, direction, "
+                "quantity_delta, weight_milli_lb, recorded_by) VALUES (?, ?, ?, 'ADJUST', ?, ?, ?)",
+                (item_id, item["item_name"], shelf_id, delta,
+                 delta * item["unit_weight_milli_lb"]
+                 if item["unit_weight_milli_lb"] is not None else None, username),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'STOCK_ADJUST', ?)",
+                (username, f"item={item_id} shelf={shelf_id} delta={delta} reason={reason.strip()[:200]}"),
+            )
+            conn.commit()
+            return quantity
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def transfer_shelf_stock(self, item_id: int, source_id: int, destination_id: int,
+                             quantity: int, username: str) -> None:
+        if not isinstance(quantity, int) or quantity <= 0 or source_id == destination_id:
+            raise ValueError("Select two different shelves and a positive quantity.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            item = conn.execute(
+                "SELECT item_name, unit_weight_milli_lb, current_quantity FROM inventory_items WHERE id = ?",
+                (item_id,),
+            ).fetchone()
+            source = conn.execute(
+                "SELECT quantity FROM item_shelf_stock WHERE item_id = ? AND shelf_id = ?",
+                (item_id, source_id),
+            ).fetchone()
+            target = conn.execute("SELECT id FROM pantry_shelves WHERE id = ?", (destination_id,)).fetchone()
+            allocated = conn.execute(
+                "SELECT COALESCE(SUM(quantity), 0) FROM item_shelf_stock WHERE item_id = ?",
+                (item_id,),
+            ).fetchone()[0]
+            if not item or not target or allocated != item["current_quantity"]:
+                raise ValueError("Item or shelf stock needs reconciliation.")
+            if not source or source["quantity"] < quantity:
+                raise ValueError("The source shelf does not have enough stock.")
+            conn.execute(
+                "UPDATE item_shelf_stock SET quantity = quantity - ? WHERE item_id = ? AND shelf_id = ?",
+                (quantity, item_id, source_id),
+            )
+            conn.execute(
+                "INSERT INTO item_shelf_stock (item_id, shelf_id, quantity) VALUES (?, ?, ?) "
+                "ON CONFLICT(item_id, shelf_id) DO UPDATE SET quantity = quantity + excluded.quantity",
+                (item_id, destination_id, quantity),
+            )
+            weight = item["unit_weight_milli_lb"]
+            moved_at = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            conn.executemany(
+                "INSERT INTO inventory_movements (item_id, item_name, shelf_id, direction, "
+                "quantity_delta, weight_milli_lb, recorded_by, timestamp_utc) "
+                "VALUES (?, ?, ?, 'TRANSFER', ?, ?, ?, ?)",
+                [(item_id, item["item_name"], source_id, -quantity,
+                  -quantity * weight if weight is not None else None, username, moved_at),
+                 (item_id, item["item_name"], destination_id, quantity,
+                  quantity * weight if weight is not None else None, username, moved_at)],
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'STOCK_TRANSFER', ?)",
+                (username, f"item={item_id} from={source_id} to={destination_id} units={quantity}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     # ------------------------------------------------------------------
     # Inventory operations
     # ------------------------------------------------------------------
@@ -530,7 +1093,7 @@ class Database:
     ):
         conn = self._connect()
         try:
-            conn.execute(
+            cursor = conn.execute(
                 """INSERT INTO inventory_items
                        (barcode, barcode_out, item_name, brand, category,
                         current_quantity, minimum_stock, storage_location,
@@ -540,6 +1103,20 @@ class Database:
                  quantity, minimum_stock, storage_location,
                  shelf_life_days, expiration_date, nutrition_data, notes),
             )
+            shelf = conn.execute(
+                "SELECT shelf.id FROM pantry_shelves shelf JOIN pantry_sections section "
+                "ON section.id = shelf.section_id WHERE section.system = 1"
+            ).fetchone()
+            conn.execute(
+                "INSERT INTO item_shelf_stock (item_id, shelf_id, quantity) VALUES (?, ?, ?)",
+                (cursor.lastrowid, shelf[0], quantity),
+            )
+            if quantity:
+                conn.execute(
+                    "INSERT INTO inventory_movements (item_id, item_name, shelf_id, direction, "
+                    "quantity_delta, recorded_by) VALUES (?, ?, ?, 'OPENING', ?, 'legacy')",
+                    (cursor.lastrowid, item_name, shelf[0], quantity),
+                )
             conn.commit()
             return True, "Item added successfully."
         except sqlite3.IntegrityError as e:
@@ -581,6 +1158,9 @@ class Database:
                     category = row.get("category", "")
                     qty      = int(row.get("current_quantity", 0) or 0)
                     mstk     = int(row.get("minimum_stock", 0) or 0)
+                    if not 0 <= qty <= 1_000_000 or not 0 <= mstk <= 1_000_000:
+                        errors.append(f"Row {i}: quantities must be between zero and one million")
+                        continue
                     notes    = row.get("notes", "") or ""
                     brand    = row.get("brand", "") or ""
                     loc      = row.get("storage_location", "") or ""
@@ -589,7 +1169,7 @@ class Database:
                     nutr     = row.get("nutrition_data", "{}") or "{}"
 
                     existing = conn.execute(
-                        "SELECT id, shelf_life_days, nutrition_data "
+                        "SELECT id, shelf_life_days, nutrition_data, current_quantity "
                         "FROM inventory_items WHERE barcode = ?",
                         (barcode,),
                     ).fetchone()
@@ -610,6 +1190,9 @@ class Database:
                              keep_shelf, exp, keep_nutr, eid),
                         )
                         if qty > 0:
+                            self._apply_legacy_stock_delta(
+                                conn, eid, existing["current_quantity"], qty - existing["current_quantity"]
+                            )
                             conn.execute(
                                 "UPDATE inventory_items SET current_quantity=?, "
                                 "updated_at=datetime('now','localtime') WHERE id=?",
@@ -617,7 +1200,7 @@ class Database:
                             )
                         updated += 1
                     else:
-                        conn.execute(
+                        cursor = conn.execute(
                             """INSERT INTO inventory_items
                                 (barcode, barcode_out, item_name, brand, category,
                                  current_quantity, minimum_stock, storage_location,
@@ -626,6 +1209,20 @@ class Database:
                             (barcode, b_out, name, brand, category,
                              qty, mstk, loc, shelf, exp, nutr, notes),
                         )
+                        unassigned = conn.execute(
+                            "SELECT shelf.id FROM pantry_shelves shelf JOIN pantry_sections section "
+                            "ON section.id = shelf.section_id WHERE section.system = 1"
+                        ).fetchone()[0]
+                        conn.execute(
+                            "INSERT INTO item_shelf_stock (item_id, shelf_id, quantity) VALUES (?, ?, ?)",
+                            (cursor.lastrowid, unassigned, qty),
+                        )
+                        if qty:
+                            conn.execute(
+                                "INSERT INTO inventory_movements (item_id, item_name, shelf_id, direction, "
+                                "quantity_delta, recorded_by) VALUES (?, ?, ?, 'OPENING', ?, 'legacy')",
+                                (cursor.lastrowid, name, unassigned, qty),
+                            )
                         added += 1
                 except sqlite3.IntegrityError as ex:
                     errors.append(f"Row {i}: {ex}")
@@ -721,26 +1318,143 @@ class Database:
         conn.commit()
         conn.close()
 
-    def set_stock(self, item_id: int, quantity: int) -> None:
-        conn = self._connect()
+    def _apply_legacy_stock_delta(self, conn: sqlite3.Connection, item_id: int,
+                                  current: int, delta: int) -> None:
+        allocations = conn.execute(
+            "SELECT stock.shelf_id, stock.quantity, section.system FROM item_shelf_stock stock "
+            "JOIN pantry_shelves shelf ON shelf.id = stock.shelf_id "
+            "JOIN pantry_sections section ON section.id = shelf.section_id "
+            "WHERE stock.item_id = ?", (item_id,),
+        ).fetchall()
+        if sum(row["quantity"] for row in allocations) != current:
+            raise ValueError("Stock locations need reconciliation before changing quantities.")
+        if not delta:
+            return
+        unassigned = next((row for row in allocations if row["system"]), None)
+        if delta > 0:
+            shelf_id = unassigned["shelf_id"] if unassigned else conn.execute(
+                "SELECT shelf.id FROM pantry_shelves shelf JOIN pantry_sections section "
+                "ON section.id = shelf.section_id WHERE section.system = 1"
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO item_shelf_stock (item_id, shelf_id, quantity) VALUES (?, ?, ?) "
+                "ON CONFLICT(item_id, shelf_id) DO UPDATE SET quantity = quantity + excluded.quantity",
+                (item_id, shelf_id, delta),
+            )
+        else:
+            candidates = [row for row in allocations if row["quantity"] >= -delta]
+            source = unassigned if unassigned and unassigned["quantity"] >= -delta else (
+                candidates[0] if len(candidates) == 1 else None
+            )
+            if not source:
+                raise ValueError("Choose a shelf to reduce; stock is split across shelves.")
+            shelf_id = source["shelf_id"]
+            conn.execute(
+                "UPDATE item_shelf_stock SET quantity = quantity + ? "
+                "WHERE item_id = ? AND shelf_id = ?", (delta, item_id, source["shelf_id"]),
+            )
+        item = conn.execute(
+            "SELECT item_name, unit_weight_milli_lb FROM inventory_items WHERE id = ?", (item_id,)
+        ).fetchone()
         conn.execute(
-            "UPDATE inventory_items SET current_quantity = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
-            (quantity, item_id),
+            "INSERT INTO inventory_movements (item_id, item_name, shelf_id, direction, "
+            "quantity_delta, weight_milli_lb, recorded_by) VALUES (?, ?, ?, 'ADJUST', ?, ?, 'legacy')",
+            (item_id, item["item_name"], shelf_id, delta,
+             delta * item["unit_weight_milli_lb"]
+             if item["unit_weight_milli_lb"] is not None else None),
         )
-        conn.commit()
-        conn.close()
+
+    def set_stock(self, item_id: int, quantity: int) -> None:
+        if not isinstance(quantity, int) or not 0 <= quantity <= 1_000_000:
+            raise ValueError("Quantity must be between zero and one million.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            item = conn.execute(
+                "SELECT current_quantity FROM inventory_items WHERE id = ?", (item_id,)
+            ).fetchone()
+            if not item:
+                raise ValueError("Item not found.")
+            self._apply_legacy_stock_delta(conn, item_id, item["current_quantity"],
+                                           quantity - item["current_quantity"])
+            conn.execute(
+                "UPDATE inventory_items SET current_quantity = ?, "
+                "updated_at = datetime('now', 'localtime') WHERE id = ?", (quantity, item_id),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES ('legacy', 'STOCK_LEGACY', ?)",
+                (f"item={item_id} new_quantity={quantity}",),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def adjust_stock(self, barcode: str, delta: int) -> None:
+        if not isinstance(delta, int):
+            raise ValueError("Quantity change must be a whole number.")
         conn = self._connect()
-        conn.execute(
-            """UPDATE inventory_items
-               SET current_quantity = current_quantity + ?,
-                   updated_at = datetime('now', 'localtime')
-               WHERE barcode = ?""",
-            (delta, barcode),
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            item = conn.execute(
+                "SELECT id, current_quantity FROM inventory_items WHERE barcode = ?", (barcode,)
+            ).fetchone()
+            if not item or not 0 <= item["current_quantity"] + delta <= 1_000_000:
+                raise ValueError("Item missing or stock count outside the allowed range.")
+            self._apply_legacy_stock_delta(conn, item["id"], item["current_quantity"], delta)
+            conn.execute(
+                "UPDATE inventory_items SET current_quantity = current_quantity + ?, "
+                "updated_at = datetime('now', 'localtime') WHERE id = ?", (delta, item["id"]),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES ('legacy', 'STOCK_LEGACY', ?)",
+                (f"item={item['id']} delta={delta}",),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def delete_empty_item(self, item_id: int, confirm_barcode: str, username: str) -> str:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            item = conn.execute(
+                "SELECT barcode, item_name, current_quantity FROM inventory_items WHERE id = ?",
+                (item_id,),
+            ).fetchone()
+            if not item:
+                raise ValueError("Item not found.")
+            if item["barcode"] != confirm_barcode:
+                raise ValueError("Enter the item barcode to confirm deletion.")
+            if item["current_quantity"] != 0:
+                raise ValueError("Items with stock cannot be deleted. Correct the shelf count first.")
+            if (conn.execute(
+                    "SELECT 1 FROM transactions WHERE barcode = ? LIMIT 1", (item["barcode"],)
+                ).fetchone() or conn.execute(
+                    "SELECT 1 FROM inventory_movements WHERE item_id = ? LIMIT 1", (item_id,)
+                ).fetchone() or conn.execute(
+                    "SELECT 1 FROM pantry_cart_lines WHERE item_id = ? LIMIT 1", (item_id,)
+                ).fetchone() or conn.execute(
+                    "SELECT 1 FROM archived_transactions WHERE barcode = ? LIMIT 1", (item["barcode"],)
+                ).fetchone()):
+                raise ValueError("Items in a cart or with movement history cannot be deleted.")
+            conn.execute("DELETE FROM inventory_items WHERE id = ?", (item_id,))
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'ITEM_DELETE', ?)",
+                (username, f"item={item_id} barcode={item['barcode']}"),
+            )
+            conn.commit()
+            return item["item_name"]
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def delete_item(self, item_id: int) -> None:
         conn = self._connect()
@@ -823,6 +1537,630 @@ class Database:
     # ------------------------------------------------------------------
     # Transaction operations
     # ------------------------------------------------------------------
+
+    def get_active_cart(self, owner_id: int, direction: str = "IN"):
+        conn = self._connect()
+        cart = conn.execute(
+            "SELECT * FROM pantry_carts WHERE owner_id = ? AND direction = ? AND status = 'DRAFT'",
+            (owner_id, direction),
+        ).fetchone()
+        if not cart:
+            conn.close()
+            return None
+        lines = conn.execute(
+            "SELECT line.id, line.item_id, line.shelf_id, line.quantity, "
+            "line.weight_override_milli_lb, line.override_reason, item.item_name, "
+            "item.barcode, item.unit_weight_milli_lb, shelf.name AS shelf_name, "
+            "section.name AS section_name FROM pantry_cart_lines line "
+            "JOIN inventory_items item ON item.id = line.item_id "
+            "JOIN pantry_shelves shelf ON shelf.id = line.shelf_id "
+            "JOIN pantry_sections section ON section.id = shelf.section_id "
+            "WHERE line.cart_id = ? ORDER BY line.id", (cart["id"],),
+        ).fetchall()
+        conn.close()
+        result = dict(cart)
+        result["lines"] = []
+        for row in lines:
+            entry = dict(row)
+            entry["weight_milli_lb"] = (
+                entry["weight_override_milli_lb"] if entry["weight_override_milli_lb"] is not None
+                else entry["quantity"] * entry["unit_weight_milli_lb"]
+                if entry["unit_weight_milli_lb"] is not None else None
+            )
+            result["lines"].append(entry)
+        return result
+
+    def add_scan_to_cart(self, owner_id: int, barcode: str, shelf_id: int) -> str:
+        barcode = barcode.strip()
+        if not barcode or len(barcode) > 128:
+            raise ValueError("Scan an item barcode.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            item = conn.execute(
+                "SELECT id FROM inventory_items WHERE barcode = ?", (barcode,)
+            ).fetchone()
+            if not item:
+                if conn.execute(
+                    "SELECT 1 FROM inventory_items WHERE barcode_out = ?", (barcode,)
+                ).fetchone():
+                    raise ValueError("This barcode is for scan-out. Use the scan-in barcode.")
+                raise ValueError("Item not found. Ask an administrator to add it first.")
+            shelf = conn.execute(
+                "SELECT shelf.id FROM pantry_shelves shelf JOIN pantry_sections section "
+                "ON section.id = shelf.section_id WHERE shelf.id = ? AND section.system = 0",
+                (shelf_id,),
+            ).fetchone()
+            if not shelf:
+                raise ValueError("Select an existing pantry shelf.")
+            cart = conn.execute(
+                "SELECT id FROM pantry_carts WHERE owner_id = ? AND direction = 'IN' "
+                "AND status = 'DRAFT'", (owner_id,),
+            ).fetchone()
+            cart_id = cart["id"] if cart else uuid4().hex
+            if not cart:
+                conn.execute(
+                    "INSERT INTO pantry_carts (id, owner_id, direction) VALUES (?, ?, 'IN')",
+                    (cart_id, owner_id),
+                )
+            existing = conn.execute(
+                "SELECT quantity FROM pantry_cart_lines WHERE cart_id = ? AND item_id = ? AND shelf_id = ?",
+                (cart_id, item["id"], shelf_id),
+            ).fetchone()
+            if existing and existing["quantity"] >= 1_000_000:
+                raise ValueError("Cart line has reached its quantity limit.")
+            conn.execute(
+                "INSERT INTO pantry_cart_lines (cart_id, item_id, shelf_id, quantity) "
+                "VALUES (?, ?, ?, 1) ON CONFLICT(cart_id, item_id, shelf_id) "
+                "DO UPDATE SET quantity = quantity + 1, weight_override_milli_lb = NULL, override_reason = ''",
+                (cart_id, item["id"], shelf_id),
+            )
+            conn.execute(
+                "UPDATE pantry_carts SET updated_at = datetime('now') WHERE id = ?", (cart_id,)
+            )
+            conn.commit()
+            return cart_id
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def remove_cart_line(self, owner_id: int, line_id: int, direction: str = "IN") -> None:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT line.cart_id FROM pantry_cart_lines line "
+                "JOIN pantry_carts cart ON cart.id = line.cart_id "
+                "WHERE line.id = ? AND cart.owner_id = ? AND cart.direction = ? "
+                "AND cart.status = 'DRAFT'",
+                (line_id, owner_id, direction),
+            ).fetchone()
+            if not row:
+                raise ValueError("Cart item is no longer available.")
+            conn.execute("DELETE FROM pantry_cart_lines WHERE id = ?", (line_id,))
+            conn.execute(
+                "UPDATE pantry_carts SET updated_at = datetime('now') WHERE id = ?", (row["cart_id"],)
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def set_cart_line_weight(self, owner_id: int, line_id: int, measured_milli_lb: int,
+                             reason: str, username: str, direction: str = "IN") -> None:
+        if (not isinstance(measured_milli_lb, int) or not 0 < measured_milli_lb <= 10_000_000
+                or not reason.strip()):
+            raise ValueError("Measured pounds and an override reason are required.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            line = conn.execute(
+                "SELECT line.item_id FROM pantry_cart_lines line "
+                "JOIN pantry_carts cart ON cart.id = line.cart_id "
+                "WHERE line.id = ? AND cart.owner_id = ? AND cart.direction = ? "
+                "AND cart.status = 'DRAFT'",
+                (line_id, owner_id, direction),
+            ).fetchone()
+            if not line:
+                raise ValueError("Cart item is no longer available.")
+            conn.execute(
+                "UPDATE pantry_cart_lines SET weight_override_milli_lb = ?, override_reason = ? "
+                "WHERE id = ?", (measured_milli_lb, reason.strip()[:200], line_id),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'WEIGHT_OVERRIDE', ?)",
+                (username, f"item={line['item_id']} line={line_id}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def cancel_scan_cart(self, owner_id: int, cart_id: str, direction: str = "IN") -> None:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            changed = conn.execute(
+                "UPDATE pantry_carts SET status = 'CANCELLED', updated_at = datetime('now') "
+                "WHERE id = ? AND owner_id = ? AND direction = ? AND status = 'DRAFT'",
+                (cart_id, owner_id, direction),
+            ).rowcount
+            if not changed:
+                raise ValueError("Cart is no longer active.")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_cart_receipt(self, owner_id: int, cart_id: str):
+        conn = self._connect()
+        cart = conn.execute(
+            "SELECT * FROM pantry_carts WHERE id = ? AND owner_id = ? "
+            "AND status = 'COMPLETED'", (cart_id, owner_id),
+        ).fetchone()
+        if not cart:
+            conn.close()
+            return None
+        lines = conn.execute(
+            "SELECT item_name, quantity_delta, weight_milli_lb FROM inventory_movements "
+            "WHERE cart_id = ? ORDER BY id", (cart_id,),
+        ).fetchall()
+        visit = conn.execute(
+            "SELECT id FROM pantry_visits WHERE cart_id = ?", (cart_id,)
+        ).fetchone()
+        conn.close()
+        result = dict(cart)
+        result["lines"] = [dict(line) for line in lines]
+        result["visit_id"] = visit["id"] if visit else None
+        result["known_weight_milli_lb"] = sum(abs(line["weight_milli_lb"] or 0) for line in lines)
+        result["pending_lines"] = sum(line["weight_milli_lb"] is None for line in lines)
+        return result
+
+    def complete_scan_in_cart(self, owner_id: int, cart_id: str, username: str):
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cart = conn.execute(
+                "SELECT status FROM pantry_carts WHERE id = ? AND owner_id = ? AND direction = 'IN'",
+                (cart_id, owner_id),
+            ).fetchone()
+            if not cart:
+                raise ValueError("Cart not found.")
+            if cart["status"] == "COMPLETED":
+                conn.rollback()
+                return self.get_cart_receipt(owner_id, cart_id)
+            if cart["status"] != "DRAFT":
+                raise ValueError("Cart is no longer active.")
+            lines = conn.execute(
+                "SELECT line.*, item.barcode, item.item_name, item.category, "
+                "item.current_quantity, item.unit_weight_milli_lb FROM pantry_cart_lines line "
+                "JOIN inventory_items item ON item.id = line.item_id WHERE line.cart_id = ?",
+                (cart_id,),
+            ).fetchall()
+            if not lines:
+                raise ValueError("Add an item before completing intake.")
+            for line in lines:
+                shelf = conn.execute(
+                    "SELECT section.system FROM pantry_shelves shelf JOIN pantry_sections section "
+                    "ON section.id = shelf.section_id WHERE shelf.id = ?", (line["shelf_id"],),
+                ).fetchone()
+                if not shelf or shelf["system"]:
+                    raise ValueError("A cart shelf is no longer available.")
+                allocated = conn.execute(
+                    "SELECT COALESCE(SUM(quantity), 0) FROM item_shelf_stock WHERE item_id = ?",
+                    (line["item_id"],),
+                ).fetchone()[0]
+                current = conn.execute(
+                    "SELECT current_quantity FROM inventory_items WHERE id = ?", (line["item_id"],)
+                ).fetchone()[0]
+                if allocated != current:
+                    raise ValueError("Stock needs administrator reconciliation before intake.")
+                if current + line["quantity"] > 1_000_000:
+                    raise ValueError("The stock count would exceed the allowed range.")
+                if line["weight_override_milli_lb"] is not None and not line["override_reason"]:
+                    raise ValueError("Measured weight must include a reason.")
+                weight = (line["weight_override_milli_lb"] if line["weight_override_milli_lb"] is not None
+                          else line["quantity"] * line["unit_weight_milli_lb"]
+                          if line["unit_weight_milli_lb"] is not None else None)
+                conn.execute(
+                    "INSERT INTO item_shelf_stock (item_id, shelf_id, quantity) VALUES (?, ?, ?) "
+                    "ON CONFLICT(item_id, shelf_id) DO UPDATE SET quantity = quantity + excluded.quantity",
+                    (line["item_id"], line["shelf_id"], line["quantity"]),
+                )
+                conn.execute(
+                    "UPDATE inventory_items SET current_quantity = current_quantity + ?, "
+                    "updated_at = datetime('now', 'localtime') WHERE id = ?",
+                    (line["quantity"], line["item_id"]),
+                )
+                conn.execute(
+                    "INSERT INTO inventory_movements (cart_id, item_id, item_name, shelf_id, "
+                    "direction, quantity_delta, weight_milli_lb, weight_override_reason, recorded_by) "
+                    "VALUES (?, ?, ?, ?, 'IN', ?, ?, ?, ?)",
+                    (cart_id, line["item_id"], line["item_name"], line["shelf_id"],
+                     line["quantity"], weight, line["override_reason"], username),
+                )
+                conn.execute(
+                    "INSERT INTO transactions (transaction_type, barcode, item_name, category, "
+                    "quantity, recipient, username) VALUES ('SCAN_IN', ?, ?, ?, ?, '', ?)",
+                    (line["barcode"], line["item_name"], line["category"], line["quantity"], username),
+                )
+                needed = conn.execute(
+                    "SELECT id, quantity_needed FROM shopping_list_items WHERE barcode = ?",
+                    (line["barcode"],),
+                ).fetchone()
+                if needed:
+                    remainder = max(0, needed["quantity_needed"] - line["quantity"])
+                    if remainder:
+                        conn.execute(
+                            "UPDATE shopping_list_items SET quantity_needed = ? WHERE id = ?",
+                            (remainder, needed["id"]),
+                        )
+                    else:
+                        conn.execute("DELETE FROM shopping_list_items WHERE id = ?", (needed["id"],))
+            conn.execute(
+                "UPDATE pantry_carts SET status = 'COMPLETED', completed_at = datetime('now'), "
+                "updated_at = datetime('now') WHERE id = ?", (cart_id,),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'CART_IN', ?)",
+                (username, f"cart={cart_id} lines={len(lines)}"),
+            )
+            conn.commit()
+            return self.get_cart_receipt(owner_id, cart_id)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _eligible_client_on_connection(self, conn: sqlite3.Connection, client_id: int):
+        client = conn.execute(
+            "SELECT c.id, c.is_active, c.student_id, c.birth_date, "
+            "c.expected_graduation_semester, v.status, v.verified_until "
+            "FROM pantry_clients c LEFT JOIN client_verifications v ON v.id = "
+            "(SELECT id FROM client_verifications WHERE client_id = c.id ORDER BY id DESC LIMIT 1) "
+            "WHERE c.id = ?", (client_id,),
+        ).fetchone()
+        if (not client or not client["is_active"] or not client["student_id"] or
+                not client["birth_date"] or not client["expected_graduation_semester"] or
+                client["status"] != "verified" or
+                client["verified_until"] < _utc_date().isoformat()):
+            raise ValueError("Verify this client's current-semester enrollment before checkout.")
+        return client
+
+    def start_scan_out_cart(self, owner_id: int, client_id: int) -> str:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            owner = conn.execute(
+                "SELECT role, is_active FROM users WHERE id = ?", (owner_id,)
+            ).fetchone()
+            if not owner or owner["role"] != "admin" or not owner["is_active"]:
+                raise ValueError("Only an active administrator may distribute food.")
+            self._eligible_client_on_connection(conn, client_id)
+            existing = conn.execute(
+                "SELECT id, client_id FROM pantry_carts WHERE owner_id = ? AND direction = 'OUT' "
+                "AND status = 'DRAFT'", (owner_id,),
+            ).fetchone()
+            if existing:
+                if existing["client_id"] != client_id:
+                    raise ValueError("Finish or cancel the current visitor's cart first.")
+                conn.commit()
+                return existing["id"]
+            cart_id = uuid4().hex
+            conn.execute(
+                "INSERT INTO pantry_carts (id, owner_id, direction, client_id) "
+                "VALUES (?, ?, 'OUT', ?)", (cart_id, owner_id, client_id),
+            )
+            conn.commit()
+            return cart_id
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def add_scan_out_to_cart(self, owner_id: int, barcode: str, shelf_id: int) -> str:
+        barcode = barcode.strip()
+        if not barcode or len(barcode) > 128:
+            raise ValueError("Scan an item barcode.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            owner = conn.execute(
+                "SELECT role, is_active FROM users WHERE id = ?", (owner_id,)
+            ).fetchone()
+            if not owner or owner["role"] != "admin" or not owner["is_active"]:
+                raise ValueError("Only an active administrator may distribute food.")
+            cart = conn.execute(
+                "SELECT id, client_id FROM pantry_carts WHERE owner_id = ? AND direction = 'OUT' "
+                "AND status = 'DRAFT'", (owner_id,),
+            ).fetchone()
+            if not cart:
+                raise ValueError("Choose an eligible client before scanning out.")
+            self._eligible_client_on_connection(conn, cart["client_id"])
+            matches = conn.execute(
+                "SELECT id FROM inventory_items WHERE barcode_out = ? OR "
+                "(barcode = ? AND (barcode_out IS NULL OR barcode_out = ''))",
+                (barcode, barcode),
+            ).fetchall()
+            if len(matches) != 1:
+                raise ValueError("Scan-out barcode not found or ambiguous. Ask an Admin to check it.")
+            item = matches[0]
+            shelf = conn.execute(
+                "SELECT stock.quantity FROM item_shelf_stock stock "
+                "JOIN pantry_shelves shelf ON shelf.id = stock.shelf_id "
+                "JOIN pantry_sections section ON section.id = shelf.section_id "
+                "WHERE stock.item_id = ? AND stock.shelf_id = ? AND section.system = 0",
+                (item["id"], shelf_id),
+            ).fetchone()
+            prior = conn.execute(
+                "SELECT quantity FROM pantry_cart_lines WHERE cart_id = ? AND item_id = ? AND shelf_id = ?",
+                (cart["id"], item["id"], shelf_id),
+            ).fetchone()
+            if not shelf or (prior["quantity"] if prior else 0) >= shelf["quantity"]:
+                raise ValueError("The selected shelf does not have enough stock.")
+            conn.execute(
+                "INSERT INTO pantry_cart_lines (cart_id, item_id, shelf_id, quantity) "
+                "VALUES (?, ?, ?, 1) ON CONFLICT(cart_id, item_id, shelf_id) "
+                "DO UPDATE SET quantity = quantity + 1, weight_override_milli_lb = NULL, override_reason = ''",
+                (cart["id"], item["id"], shelf_id),
+            )
+            conn.execute(
+                "UPDATE pantry_carts SET updated_at = datetime('now') WHERE id = ?", (cart["id"],)
+            )
+            conn.commit()
+            return cart["id"]
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_client_weight_summary(self, client_id: int) -> dict:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT COUNT(*) AS total_visits, "
+            "COALESCE(SUM(COALESCE(known_weight_milli_lb, "
+            "CAST(ROUND(COALESCE(pounds_received, 0) * 1000) AS INTEGER))), 0) "
+            "AS known_weight_milli_lb, "
+            "COALESCE(SUM(CASE WHEN weight_complete = 0 THEN 1 ELSE 0 END), 0) "
+            "AS pending_visits FROM pantry_visits WHERE client_id = ?", (client_id,),
+        ).fetchone()
+        conn.close()
+        return dict(row)
+
+    def get_monthly_weight_report(self, month: str) -> dict:
+        if len(month) != 7 or month[4] != "-" or not (month[:4] + month[5:]).isdigit():
+            raise ValueError("Enter a month in YYYY-MM format.")
+        try:
+            first = datetime.date.fromisoformat(f"{month}-01")
+        except ValueError as exc:
+            raise ValueError("Enter a valid reporting month.") from exc
+        following = (first.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+        start = f"{month}-01T"
+        end = f"{following.isoformat()}T"
+        conn = self._connect()
+        opening = conn.execute(
+            "SELECT COALESCE(SUM(weight_milli_lb), 0) AS pounds, "
+            "COALESCE(SUM(CASE WHEN weight_milli_lb IS NULL AND direction != 'TRANSFER' "
+            "THEN 1 ELSE 0 END), 0) AS pending "
+            "FROM inventory_movements WHERE timestamp_utc < ?", (start,),
+        ).fetchone()
+        period = conn.execute(
+            "SELECT COALESCE(SUM(CASE WHEN direction = 'OPENING' THEN weight_milli_lb END), 0) AS baseline, "
+            "COALESCE(SUM(CASE WHEN direction = 'IN' THEN weight_milli_lb END), 0) AS donated, "
+            "COALESCE(SUM(CASE WHEN direction = 'OUT' THEN ABS(weight_milli_lb) END), 0) AS distributed, "
+            "COALESCE(SUM(CASE WHEN direction = 'ADJUST' THEN weight_milli_lb END), 0) AS adjustments, "
+            "COALESCE(SUM(CASE WHEN weight_milli_lb IS NULL AND direction != 'TRANSFER' "
+            "THEN 1 ELSE 0 END), 0) AS pending "
+            "FROM inventory_movements WHERE timestamp_utc >= ? AND timestamp_utc < ?",
+            (start, end),
+        ).fetchone()
+        earliest = conn.execute("SELECT MIN(timestamp_utc) FROM inventory_movements").fetchone()[0]
+        conn.close()
+        closing = opening["pounds"] + period["baseline"] + period["donated"] - period["distributed"] + period["adjustments"]
+        return {
+            "month": month, "timezone": "UTC", "first_movement": earliest,
+            "opening_milli_lb": opening["pounds"], "opening_baseline_milli_lb": period["baseline"],
+            "donated_milli_lb": period["donated"], "distributed_milli_lb": period["distributed"],
+            "adjustment_milli_lb": period["adjustments"], "closing_milli_lb": closing,
+            "pending_lines": opening["pending"] + period["pending"],
+            "history_available": earliest is not None and earliest[:7] <= month,
+        }
+
+    def get_pending_weight_movements(self, limit: int = 100):
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT movement.id, movement.item_name, movement.direction, "
+            "movement.quantity_delta, movement.timestamp_utc, movement.client_id, "
+            "section.name AS section_name, shelf.name AS shelf_name "
+            "FROM inventory_movements movement "
+            "JOIN pantry_shelves shelf ON shelf.id = movement.shelf_id "
+            "JOIN pantry_sections section ON section.id = shelf.section_id "
+            "WHERE movement.weight_milli_lb IS NULL "
+            "AND movement.direction IN ('OPENING', 'IN', 'OUT', 'ADJUST') "
+            "ORDER BY movement.id DESC LIMIT ?", (limit,),
+        ).fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    def resolve_movement_weight(self, movement_id: int, measured_milli_lb: int,
+                                reason: str, username: str) -> None:
+        reason = reason.strip()
+        if (not isinstance(measured_milli_lb, int) or not 0 < measured_milli_lb <= 10_000_000 or
+                not reason or len(reason) > 200):
+            raise ValueError("Enter positive measured pounds and a reason (up to 200 characters).")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            movement = conn.execute(
+                "SELECT item_id, shelf_id, visit_id, direction, quantity_delta, weight_milli_lb "
+                "FROM inventory_movements WHERE id = ?", (movement_id,),
+            ).fetchone()
+            if not movement or movement["weight_milli_lb"] is not None or movement["direction"] == "TRANSFER":
+                raise ValueError("This movement has already been weighed or cannot be reconciled.")
+            signed_weight = (-measured_milli_lb if movement["quantity_delta"] < 0
+                             else measured_milli_lb)
+            conn.execute(
+                "UPDATE inventory_movements SET weight_milli_lb = ?, weight_override_reason = ? "
+                "WHERE id = ? AND weight_milli_lb IS NULL",
+                (signed_weight, reason, movement_id),
+            )
+            if movement["visit_id"]:
+                amounts = conn.execute(
+                    "SELECT COALESCE(SUM(ABS(weight_milli_lb)), 0) AS known, "
+                    "COALESCE(SUM(CASE WHEN weight_milli_lb IS NULL THEN 1 ELSE 0 END), 0) AS pending "
+                    "FROM inventory_movements WHERE visit_id = ?", (movement["visit_id"],),
+                ).fetchone()
+                visit = conn.execute(
+                    "SELECT items_json FROM pantry_visits WHERE id = ?", (movement["visit_id"],)
+                ).fetchone()
+                items = json.loads(visit["items_json"] or "[]")
+                for entry in items:
+                    if entry.get("item_id") == movement["item_id"] and entry.get("shelf_id") == movement["shelf_id"]:
+                        entry["weight_milli_lb"] = measured_milli_lb
+                        break
+                conn.execute(
+                    "UPDATE pantry_visits SET known_weight_milli_lb = ?, pending_weight_lines = ?, "
+                    "weight_complete = ?, pounds_received = ?, items_json = ? WHERE id = ?",
+                    (amounts["known"], amounts["pending"], int(not amounts["pending"]),
+                     amounts["known"] / 1000 if not amounts["pending"] else None,
+                     json.dumps(items), movement["visit_id"]),
+                )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'WEIGHT_RESOLVE', ?)",
+                (username, f"movement={movement_id} pounds_milli={measured_milli_lb}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def complete_scan_out_cart(self, owner_id: int, cart_id: str, username: str):
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            owner = conn.execute(
+                "SELECT role, is_active FROM users WHERE id = ?", (owner_id,)
+            ).fetchone()
+            if not owner or owner["role"] != "admin" or not owner["is_active"]:
+                raise ValueError("Only an active administrator may distribute food.")
+            cart = conn.execute(
+                "SELECT status, client_id FROM pantry_carts WHERE id = ? AND owner_id = ? "
+                "AND direction = 'OUT'", (cart_id, owner_id),
+            ).fetchone()
+            if not cart:
+                raise ValueError("Cart not found.")
+            if cart["status"] == "COMPLETED":
+                conn.rollback()
+                return self.get_cart_receipt(owner_id, cart_id)
+            if cart["status"] != "DRAFT":
+                raise ValueError("Cart is no longer active.")
+            self._eligible_client_on_connection(conn, cart["client_id"])
+            lines = conn.execute(
+                "SELECT line.*, item.barcode, item.item_name, item.category, "
+                "item.current_quantity, item.unit_weight_milli_lb "
+                "FROM pantry_cart_lines line JOIN inventory_items item ON item.id = line.item_id "
+                "WHERE line.cart_id = ? ORDER BY line.id", (cart_id,),
+            ).fetchall()
+            if not lines:
+                raise ValueError("Add an item before completing distribution.")
+            prepared = []
+            for line in lines:
+                shelf = conn.execute(
+                    "SELECT stock.quantity, section.system FROM item_shelf_stock stock "
+                    "JOIN pantry_shelves shelf ON shelf.id = stock.shelf_id "
+                    "JOIN pantry_sections section ON section.id = shelf.section_id "
+                    "WHERE stock.item_id = ? AND stock.shelf_id = ?",
+                    (line["item_id"], line["shelf_id"]),
+                ).fetchone()
+                allocated = conn.execute(
+                    "SELECT COALESCE(SUM(quantity), 0) FROM item_shelf_stock WHERE item_id = ?",
+                    (line["item_id"],),
+                ).fetchone()[0]
+                if allocated != line["current_quantity"]:
+                    raise ValueError("Stock needs administrator reconciliation before checkout.")
+                if (not shelf or shelf["system"] or shelf["quantity"] < line["quantity"] or
+                        line["current_quantity"] < line["quantity"]):
+                    raise ValueError("A cart item is no longer in stock on its selected shelf.")
+                if line["weight_override_milli_lb"] is not None and not line["override_reason"]:
+                    raise ValueError("Measured weight must include a reason.")
+                weight = (line["weight_override_milli_lb"] if line["weight_override_milli_lb"] is not None
+                          else line["quantity"] * line["unit_weight_milli_lb"]
+                          if line["unit_weight_milli_lb"] is not None else None)
+                prepared.append((line, weight))
+            known = sum(weight or 0 for _, weight in prepared)
+            pending = sum(weight is None for _, weight in prepared)
+            items = json.dumps([
+                {"item_id": line["item_id"], "item_name": line["item_name"],
+                 "shelf_id": line["shelf_id"], "quantity": line["quantity"],
+                 "weight_milli_lb": weight} for line, weight in prepared
+            ])
+            visit = conn.execute(
+                "INSERT INTO pantry_visits (client_id, pounds_received, items_json, recorded_by, "
+                "known_weight_milli_lb, pending_weight_lines, weight_complete, cart_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (cart["client_id"], known / 1000 if not pending else None, items,
+                 username, known, pending, int(not pending), cart_id),
+            )
+            visit_id = visit.lastrowid
+            for line, weight in prepared:
+                conn.execute(
+                    "UPDATE item_shelf_stock SET quantity = quantity - ? WHERE item_id = ? AND shelf_id = ?",
+                    (line["quantity"], line["item_id"], line["shelf_id"]),
+                )
+                conn.execute(
+                    "UPDATE inventory_items SET current_quantity = current_quantity - ?, "
+                    "updated_at = datetime('now', 'localtime') WHERE id = ?",
+                    (line["quantity"], line["item_id"]),
+                )
+                conn.execute(
+                    "INSERT INTO inventory_movements (cart_id, item_id, item_name, shelf_id, "
+                    "client_id, visit_id, direction, quantity_delta, weight_milli_lb, "
+                    "weight_override_reason, recorded_by) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'OUT', ?, ?, ?, ?)",
+                    (cart_id, line["item_id"], line["item_name"], line["shelf_id"],
+                     cart["client_id"], visit_id, -line["quantity"],
+                     -weight if weight is not None else None, line["override_reason"], username),
+                )
+                conn.execute(
+                    "INSERT INTO transactions (transaction_type, barcode, item_name, category, "
+                    "quantity, recipient, username) VALUES ('SCAN_OUT', ?, ?, ?, ?, '', ?)",
+                    (line["barcode"], line["item_name"], line["category"],
+                     line["quantity"], username),
+                )
+                conn.execute(
+                    "INSERT INTO shopping_list_items (barcode, item_name, category, quantity_needed) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(barcode) DO UPDATE SET "
+                    "quantity_needed = quantity_needed + excluded.quantity_needed",
+                    (line["barcode"], line["item_name"], line["category"], line["quantity"]),
+                )
+            conn.execute(
+                "UPDATE pantry_carts SET status = 'COMPLETED', completed_at = datetime('now'), "
+                "updated_at = datetime('now') WHERE id = ?", (cart_id,),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'CART_OUT', ?)",
+                (username, f"cart={cart_id} visit={visit_id}"),
+            )
+            conn.commit()
+            return self.get_cart_receipt(owner_id, cart_id)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def add_transaction(
         self,
@@ -1427,6 +2765,244 @@ class Database:
     # Pantry clients (student profiles)
     # ------------------------------------------------------------------
 
+    def register_pantry_client(self, student_id: str, first_name: str, last_name: str,
+                               birth_date: str, graduation_semester: str,
+                               enrollment_status: str, username: str) -> int:
+        student_id = student_id.strip().upper()
+        first_name, last_name = first_name.strip(), last_name.strip()
+        graduation_semester = graduation_semester.strip()
+        if (not student_id or len(student_id) > 64 or not first_name or not last_name or
+                len(first_name) > 80 or len(last_name) > 80 or not graduation_semester or
+                len(graduation_semester) > 40 or enrollment_status not in ("full_time", "part_time")):
+            raise ValueError("Complete the student ID, name, graduation term and enrollment type.")
+        try:
+            born = datetime.date.fromisoformat(birth_date)
+        except ValueError as exc:
+            raise ValueError("Enter a valid birth date.") from exc
+        if born > _utc_date():
+            raise ValueError("Birth date cannot be in the future.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute(
+                "SELECT 1 FROM pantry_clients WHERE UPPER(TRIM(student_id)) = ? LIMIT 1",
+                (student_id,),
+            ).fetchone():
+                raise ValueError("A client with this student ID already exists.")
+            cursor = conn.execute(
+                "INSERT INTO pantry_clients (student_id, first_name, last_name, birth_date, "
+                "expected_graduation_semester, enrollment_status) VALUES (?, ?, ?, ?, ?, ?)",
+                (student_id, first_name, last_name, birth_date, graduation_semester, enrollment_status),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'CLIENT_CREATE', ?)",
+                (username, f"client={cursor.lastrowid}"),
+            )
+            conn.commit()
+            return cursor.lastrowid
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def update_registered_client(self, client_id: int, student_id: str, first_name: str,
+                                 last_name: str, birth_date: str, graduation_semester: str,
+                                 enrollment_status: str, username: str) -> None:
+        student_id = student_id.strip().upper()
+        first_name, last_name = first_name.strip(), last_name.strip()
+        graduation_semester = graduation_semester.strip()
+        if (not student_id or len(student_id) > 64 or not first_name or not last_name or
+                len(first_name) > 80 or len(last_name) > 80 or not graduation_semester or
+                len(graduation_semester) > 40 or enrollment_status not in ("full_time", "part_time")):
+            raise ValueError("Complete the student ID, name, graduation term and enrollment type.")
+        try:
+            born = datetime.date.fromisoformat(birth_date)
+        except ValueError as exc:
+            raise ValueError("Enter a valid birth date.") from exc
+        if born > _utc_date():
+            raise ValueError("Birth date cannot be in the future.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            original = conn.execute(
+                "SELECT student_id, birth_date FROM pantry_clients WHERE id = ?", (client_id,)
+            ).fetchone()
+            if not original:
+                raise ValueError("Client not found.")
+            if conn.execute(
+                "SELECT 1 FROM pantry_clients WHERE id != ? AND UPPER(TRIM(student_id)) = ? LIMIT 1",
+                (client_id, student_id),
+            ).fetchone():
+                raise ValueError("A client with this student ID already exists.")
+            conn.execute(
+                "UPDATE pantry_clients SET student_id = ?, first_name = ?, last_name = ?, "
+                "birth_date = ?, expected_graduation_semester = ?, enrollment_status = ?, "
+                "updated_at = datetime('now', 'localtime') WHERE id = ?",
+                (student_id, first_name, last_name, birth_date, graduation_semester,
+                 enrollment_status, client_id),
+            )
+            if original["student_id"] != student_id or original["birth_date"] != birth_date:
+                previous = conn.execute(
+                    "SELECT term FROM client_verifications WHERE client_id = ? ORDER BY id DESC LIMIT 1",
+                    (client_id,),
+                ).fetchone()
+                if previous:
+                    conn.execute(
+                        "INSERT INTO client_verifications (client_id, term, verified_until, verified_by, status) "
+                        "VALUES (?, ?, ?, ?, 'revoked')",
+                        (client_id, previous["term"], _utc_date().isoformat(), username),
+                    )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'CLIENT_EDIT', ?)",
+                (username, f"client={client_id}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def list_private_clients(self):
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT id, first_name, last_name, student_id, is_active "
+            "FROM pantry_clients ORDER BY last_name, first_name"
+        ).fetchall()
+        conn.close()
+        return [dict(id=row["id"], first_name=row["first_name"], last_name=row["last_name"],
+                     student_id_last4=(row["student_id"] or "")[-4:], is_active=row["is_active"])
+                for row in rows]
+
+    def get_client_eligibility(self, client_id: int):
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT verification.term, verification.verified_at, verification.verified_until, "
+            "verification.verified_by, verification.status "
+            "FROM client_verifications verification WHERE verification.client_id = ? "
+            "ORDER BY verification.id DESC LIMIT 1", (client_id,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def verify_client_term(self, client_id: int, term: str, verified_until: str,
+                           username: str) -> None:
+        term = term.strip()
+        if not term or len(term) > 40:
+            raise ValueError("Enter the verified academic term.")
+        try:
+            expiry = datetime.date.fromisoformat(verified_until)
+        except ValueError as exc:
+            raise ValueError("Enter a valid semester end date.") from exc
+        if expiry < _utc_date() or expiry > _utc_date() + datetime.timedelta(days=185):
+            raise ValueError("Verification must expire during the current semester (within 185 days).")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            client = conn.execute(
+                "SELECT id, is_active, birth_date, student_id, expected_graduation_semester "
+                "FROM pantry_clients WHERE id = ?",
+                (client_id,),
+            ).fetchone()
+            if not client or not client["is_active"] or not client["birth_date"] or not client["student_id"] or not client["expected_graduation_semester"]:
+                raise ValueError("Complete an active client's intake record before verifying enrollment.")
+            conn.execute(
+                "INSERT INTO client_verifications (client_id, term, verified_until, verified_by, status) "
+                "VALUES (?, ?, ?, ?, 'verified')",
+                (client_id, term, verified_until, username),
+            )
+            conn.execute(
+                "UPDATE pantry_clients SET semester = ?, updated_at = datetime('now', 'localtime') "
+                "WHERE id = ?", (term, client_id),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'CLIENT_VERIFY', ?)",
+                (username, f"client={client_id} term={term} valid_until={verified_until}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def set_client_record_active(self, client_id: int, active: bool, username: str) -> None:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            client = conn.execute(
+                "SELECT id, is_active FROM pantry_clients WHERE id = ?", (client_id,)
+            ).fetchone()
+            if not client:
+                raise ValueError("Client not found.")
+            conn.execute(
+                "UPDATE pantry_clients SET is_active = ?, updated_at = datetime('now', 'localtime') "
+                "WHERE id = ?", (int(active), client_id),
+            )
+            if not active and client["is_active"]:
+                previous = conn.execute(
+                    "SELECT term, status FROM client_verifications WHERE client_id = ? "
+                    "ORDER BY id DESC LIMIT 1", (client_id,),
+                ).fetchone()
+                if previous and previous["status"] == "verified":
+                    conn.execute(
+                        "INSERT INTO client_verifications "
+                        "(client_id, term, verified_until, verified_by, status) "
+                        "VALUES (?, ?, ?, ?, 'revoked')",
+                        (client_id, previous["term"], _utc_date().isoformat(), username),
+                    )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'CLIENT_STATUS', ?)",
+                (username, f"client={client_id} active={int(active)}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def revoke_client_term(self, client_id: int, username: str) -> None:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            previous = conn.execute(
+                "SELECT term, status FROM client_verifications WHERE client_id = ? ORDER BY id DESC LIMIT 1",
+                (client_id,),
+            ).fetchone()
+            if not previous or previous["status"] != "verified":
+                raise ValueError("This client has no active term verification to revoke.")
+            conn.execute(
+                "INSERT INTO client_verifications (client_id, term, verified_until, verified_by, status) "
+                "VALUES (?, ?, ?, ?, 'revoked')",
+                (client_id, previous["term"], _utc_date().isoformat(), username),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'CLIENT_REVOKE', ?)",
+                (username, f"client={client_id}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def is_client_eligible(self, client_id: int) -> bool:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT client.is_active, client.student_id, client.birth_date, "
+            "client.expected_graduation_semester, verification.status, verification.verified_until "
+            "FROM pantry_clients client LEFT JOIN client_verifications verification "
+            "ON verification.id = (SELECT id FROM client_verifications "
+            "WHERE client_id = client.id ORDER BY id DESC LIMIT 1) "
+            "WHERE client.id = ?", (client_id,),
+        ).fetchone()
+        conn.close()
+        return bool(row and row["is_active"] and row["student_id"] and row["birth_date"]
+                    and row["expected_graduation_semester"] and row["status"] == "verified" and row["verified_until"] >= _utc_date().isoformat())
+
     def create_pantry_client(self, first_name: str, last_name: str,
                               student_id: str = "", email: str = "",
                               phone: str = "", semester: str = "",
@@ -1685,7 +3261,16 @@ class Database:
     def get_recent_transactions(self, limit: int = 12):
         conn = self._connect()
         rows = conn.execute(
-            "SELECT * FROM transactions ORDER BY timestamp DESC LIMIT ?", (limit,)
+            "SELECT * FROM transactions ORDER BY timestamp DESC, id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def get_recent_transactions_by_user(self, username: str, limit: int = 5):
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT * FROM transactions WHERE username = ? AND transaction_type = 'SCAN_IN' "
+            "ORDER BY timestamp DESC, id DESC LIMIT ?", (username, limit)
         ).fetchall()
         conn.close()
         return [dict(r) for r in rows]

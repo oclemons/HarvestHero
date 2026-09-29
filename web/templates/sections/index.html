@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Pantry layout · Harvest Hero{% endblock %}
+{% block content %}
+<div class="mb-8">
+  <p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">Pantry layout</p>
+  <h1 class="text-3xl font-bold mt-2">Sections and shelves</h1>
+  <p class="text-slate-600 mt-2">Give every item a place. Empty shelves stay visible so you can plan ahead.</p>
+</div>
+<div class="grid gap-6 lg:grid-cols-3">
+  <div class="lg:col-span-2 space-y-5">
+    {% for section in sections %}
+      <section class="rounded-xl bg-white border border-emerald-100 shadow-sm p-6" aria-label="{{ section.name }}">
+        <div class="flex flex-wrap justify-between gap-3 items-center">
+          <h2 class="text-xl font-bold">{{ section.name }}</h2>
+          {% if section.system %}<span class="text-xs font-semibold text-amber-900 bg-amber-100 rounded px-2 py-1">Needs shelf assignment</span>{% endif %}
+        </div>
+        {% if section.system %}<p class="text-sm text-slate-600 mt-2">Existing stock without a confirmed shelf stays here until an administrator moves it.</p>{% endif %}
+        {% if section.shelves %}
+          <ul class="mt-5 grid gap-3 sm:grid-cols-2">
+          {% for shelf in section.shelves %}
+            <li class="rounded-lg border border-slate-200 bg-stone-50 px-4 py-3 flex items-center justify-between gap-3">
+              <div><span class="font-semibold">{{ shelf.name }}</span>
+                {% if shelf.is_overflow %}<span class="block text-xs text-amber-800">Overflow</span>{% endif %}
+              </div>
+              <span class="text-sm text-slate-600">{{ shelf.units }} unit{{ '' if shelf.units == 1 else 's' }}</span>
+            </li>
+          {% endfor %}
+          </ul>
+        {% else %}<p class="mt-5 text-slate-600">No shelves yet. Create one to start arranging this section.</p>{% endif %}
+      </section>
+    {% endfor %}
+  </div>
+  <aside class="space-y-5">
+    <form method="post" action="{{ url_for('sections.create_section') }}" class="bg-white rounded-xl shadow-sm border border-emerald-100 p-6 space-y-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <h2 class="text-lg font-bold">Create a section</h2>
+      <label for="section-name" class="block text-sm font-semibold">Section name</label>
+      <input id="section-name" name="name" maxlength="80" required placeholder="e.g. Dry goods" class="w-full rounded border border-slate-300 px-3 py-2">
+      <button class="rounded bg-emerald-800 text-white px-4 py-2 font-semibold hover:bg-emerald-900" type="submit">Add section</button>
+    </form>
+    <form method="post" action="{{ url_for('sections.create_shelf') }}" class="bg-white rounded-xl shadow-sm border border-emerald-100 p-6 space-y-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <h2 class="text-lg font-bold">Create a shelf</h2>
+      <label for="shelf-section" class="block text-sm font-semibold">Section</label>
+      <select id="shelf-section" name="section_id" required class="w-full rounded border border-slate-300 px-3 py-2">
+        <option value="">Choose a section</option>
+        {% for section in sections if not section.system %}<option value="{{ section.id }}">{{ section.name }}</option>{% endfor %}
+      </select>
+      <label for="shelf-name" class="block text-sm font-semibold">Shelf name</label>
+      <input id="shelf-name" name="name" maxlength="80" required placeholder="e.g. Shelf A" class="w-full rounded border border-slate-300 px-3 py-2">
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="is_overflow"> Overflow storage</label>
+      <button class="rounded bg-emerald-800 text-white px-4 py-2 font-semibold hover:bg-emerald-900" type="submit">Add shelf</button>
+    </form>
+  </aside>
+</div>
+{% endblock %}

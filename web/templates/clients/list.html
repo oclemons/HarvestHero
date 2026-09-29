@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Pantry clients · Harvest Hero{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-end justify-between gap-4 mb-8">
+  <div><p class="uppercase tracking-widest text-sm font-semibold text-emerald-700">Admin · private</p>
+    <h1 class="text-3xl font-bold mt-2">Pantry clients</h1>
+    <p class="text-slate-600 mt-2">Only administrators can see student client records.</p>
+  </div>
+  <a href="{{ url_for('clients.new') }}" class="rounded bg-emerald-800 text-white font-semibold px-5 py-3 hover:bg-emerald-900">Register a student client</a>
+</div>
+{% if clients %}
+<div class="bg-white rounded-xl shadow-sm border border-emerald-100 overflow-x-auto">
+  <table class="min-w-full text-left text-sm">
+    <thead class="bg-stone-50"><tr><th class="px-4 py-3">Name</th><th class="px-4 py-3">Student ID</th><th class="px-4 py-3">Record</th></tr></thead>
+    <tbody>{% for client in clients %}<tr class="border-t border-slate-100">
+      <td class="px-4 py-3 font-semibold"><a class="text-emerald-800 underline" href="{{ url_for('clients.detail', client_id=client.id) }}">{{ client.first_name }} {{ client.last_name }}</a></td>
+      <td class="px-4 py-3">Ending {{ client.student_id_last4 }}</td>
+      <td class="px-4 py-3">{{ 'Active record' if client.is_active else 'Inactive record' }}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% else %}<div class="rounded-xl border border-dashed border-slate-300 p-10 text-slate-600">No client records yet. Register a student and verify current enrollment before their first checkout.</div>{% endif %}
+{% endblock %}

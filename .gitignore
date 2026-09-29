@@ -41,6 +41,8 @@ inventory.db
 *.migrated
 config.json
 license.json
+*.hhb
+*.private
 
 # OS junk
 .DS_Store

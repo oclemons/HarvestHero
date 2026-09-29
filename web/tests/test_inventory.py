@@ -109,7 +109,7 @@ class InventoryRoutes(unittest.TestCase):
         body = self.client.get(f"/inventory/{item['id']}").data.decode("utf-8")
         self.assertIn("Peanut butter",         body)
         self.assertIn("Skippy",                 body)
-        self.assertIn("Section 1, Shelf A",     body)
+        self.assertIn("Unassigned", body)
         self.assertIn("Pantry",                 body)
         # Not-low: badge should NOT appear
         self.assertNotIn("Low stock", body)

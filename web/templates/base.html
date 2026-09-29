@@ -19,19 +19,27 @@
     /* Font stack matches the desktop app's Times-New-Roman preference
        so users switching from the .exe don't feel a jarring redesign. */
     html { font-family: "Times New Roman", Times, Georgia, serif; }
+    :root { --soil: #382f25; --leaf: #185b42; --cream: #fbf8f0; --gold: #ecc77a; }
+    body { background-color: var(--cream); }
+    a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   </style>
 </head>
 <body class="h-full flex flex-col min-h-screen text-slate-900">
-
   {% if current_user.is_authenticated %}
-  <header class="bg-emerald-800 text-white">
-    <div class="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
-      <a href="{{ url_for('dashboard.home') }}" class="text-lg font-bold tracking-tight">
-        Harvest Hero
+  <header class="bg-emerald-900 text-white border-b-4 border-amber-300">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+      <a href="{{ url_for('dashboard.home') }}" class="text-xl font-bold tracking-tight">
+        Harvest Hero <span class="block text-xs tracking-widest uppercase text-amber-200">Community pantry</span>
       </a>
-      <nav class="flex items-center gap-4 text-sm">
+      <nav aria-label="Main navigation" class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
         <a href="{{ url_for('dashboard.home') }}" class="hover:underline">Dashboard</a>
+        {% if current_user.is_admin %}<a href="{{ url_for('sections.index') }}" class="hover:underline">Pantry</a>{% endif %}
         <a href="{{ url_for('inventory.list_items') }}" class="hover:underline">Inventory</a>
+        <a href="{{ url_for('scan.scan_in') }}" class="hover:underline">Scan in</a>
+        {% if current_user.is_admin and config.CLIENT_RECORDS_ENABLED %}<a href="{{ url_for('scan.scan_out') }}" class="hover:underline">Scan out</a>{% endif %}
+        {% if current_user.is_admin and config.CLIENT_RECORDS_ENABLED %}<a href="{{ url_for('clients.index') }}" class="hover:underline">Clients</a>{% endif %}
+        {% if current_user.is_admin %}<a href="{{ url_for('reports.weights') }}" class="hover:underline">Pounds</a>{% endif %}
+        {% if current_user.is_admin %}<a href="{{ url_for('users.index') }}" class="hover:underline">Team</a>{% endif %}
         <a href="{{ url_for('account.settings') }}" class="hover:underline">Settings</a>
         <span class="opacity-60">|</span>
         <span>

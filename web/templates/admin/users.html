@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Team · Harvest Hero{% endblock %}
+{% block content %}
+<header class="mb-8">
+  <p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">Pantry team</p>
+  <h1 class="text-3xl font-bold">Give your team a place to start.</h1>
+  <p class="text-slate-600 mt-2">Create an account, then ask the person to change their temporary password under Settings.</p>
+</header>
+<div class="grid gap-6 lg:grid-cols-5">
+  <section class="lg:col-span-2 rounded-xl bg-white shadow p-6" aria-labelledby="create-user">
+    <h2 id="create-user" class="text-xl font-semibold mb-5">Create account</h2>
+    <form method="post" class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="block text-sm font-semibold">Username
+        <input required name="username" minlength="3" maxlength="64" autocomplete="off" class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
+      </label>
+      <label class="block text-sm font-semibold">Name
+        <input name="full_name" maxlength="120" class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
+      </label>
+      <label class="block text-sm font-semibold">Role
+        <select name="role" required class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
+          <option value="student">Student (intake and viewing)</option>
+          <option value="admin">Admin (pantry management)</option>
+        </select>
+      </label>
+      <label class="block text-sm font-semibold">Temporary password
+        <input type="password" name="password" required autocomplete="new-password" class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
+      </label>
+      <button type="submit" class="rounded bg-emerald-800 text-white font-semibold px-5 py-3 hover:bg-emerald-900">Create account</button>
+    </form>
+  </section>
+  <section class="lg:col-span-3 rounded-xl bg-white shadow p-6" aria-labelledby="team-list">
+    <h2 id="team-list" class="text-xl font-semibold mb-5">Current accounts</h2>
+    <div class="overflow-x-auto"><table class="w-full text-left text-sm">
+      <thead class="text-slate-500 border-b"><tr><th class="py-2">Name</th><th>Username</th><th>Role</th><th>Status</th><th>Access</th></tr></thead>
+      <tbody>{% for account in users %}<tr class="border-b border-slate-100">
+        <td class="py-3">{{ account.full_name or '—' }}</td><td>{{ account.username }}</td>
+        <td class="capitalize">{{ account.role }}</td><td>{{ 'Active' if account.is_active else 'Inactive' }}</td>
+        <td>{% if account.username != current_user.username %}
+          <form method="post" action="{{ url_for('users.status', user_id=account.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="active" value="{{ '0' if account.is_active else '1' }}">
+            <button type="submit" class="text-sm text-emerald-800 underline">{{ 'Deactivate' if account.is_active else 'Reactivate' }}</button>
+          </form>
+        {% else %}Your account{% endif %}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+</div>
+{% endblock %}

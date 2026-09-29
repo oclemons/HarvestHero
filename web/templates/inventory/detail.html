@@ -41,9 +41,11 @@
     <div class="text-3xl font-bold text-slate-700 mt-1">{{ item.minimum_stock }}</div>
   </div>
   <div class="bg-white rounded-lg shadow p-5">
-    <div class="text-slate-500 text-sm">Storage location</div>
-    <div class="text-2xl font-semibold text-slate-700 mt-1">
-      {{ item.storage_location or '—' }}
+    <div class="text-slate-500 text-sm">Shelves</div>
+    <div class="text-sm font-semibold text-slate-700 mt-2">
+      {% for stock in allocations if stock.quantity > 0 %}
+        <div>{{ stock.section_name }} / {{ stock.shelf_name }}: {{ stock.quantity }} unit{{ '' if stock.quantity == 1 else 's' }}</div>
+      {% else %}No stock on shelves yet.{% endfor %}
     </div>
   </div>
 </div>
@@ -56,7 +58,7 @@
       <dt class="text-slate-500">Primary barcode</dt>
       <dd class="font-mono text-slate-900">{{ item.barcode }}</dd>
     </div>
-    {% if item.barcode_out %}
+    {% if current_user.is_admin and item.barcode_out %}
     <div>
       <dt class="text-slate-500">Scan-out barcode</dt>
       <dd class="font-mono text-slate-900">{{ item.barcode_out }}</dd>
@@ -83,43 +85,18 @@
     <div>
       <dt class="text-slate-500">Weight per unit</dt>
       <dd class="text-slate-900">
-        {% if item.weight_per_unit %}
-          {{ '%.2f'|format(item.weight_per_unit) }} lb
-        {% else %}—{% endif %}
+        {% if item.unit_weight_milli_lb %}
+          {{ '%.3f'|format(item.unit_weight_milli_lb / 1000) }} lb
+        {% else %}Pending Admin measurement{% endif %}
       </dd>
     </div>
 
-    <div>
-      <dt class="text-slate-500">Current pounds on hand</dt>
-      <dd class="text-slate-900">
-        {% if item.current_pounds %}
-          {{ '%.1f'|format(item.current_pounds) }} lb
-        {% else %}—{% endif %}
-      </dd>
-    </div>
-    <div>
-      <dt class="text-slate-500">Discarded pounds</dt>
-      <dd class="text-slate-900">
-        {% if item.discarded_pounds %}
-          {{ '%.1f'|format(item.discarded_pounds) }} lb
-        {% else %}—{% endif %}
-      </dd>
-    </div>
-
-    <div>
-      <dt class="text-slate-500">Donated pounds</dt>
-      <dd class="text-slate-900">
-        {% if item.donated_pounds %}
-          {{ '%.1f'|format(item.donated_pounds) }} lb
-        {% else %}—{% endif %}
-      </dd>
-    </div>
     <div>
       <dt class="text-slate-500">Added on</dt>
       <dd class="text-slate-900">{{ item.created_at }}</dd>
     </div>
 
-    {% if item.notes %}
+    {% if current_user.is_admin and item.notes %}
     <div class="sm:col-span-2">
       <dt class="text-slate-500">Notes</dt>
       <dd class="whitespace-pre-line text-slate-900">{{ item.notes }}</dd>
@@ -137,42 +114,61 @@
     Edit item
   </a>
 
-  {# Small inline "correct the quantity" form. For daily +1/-1
-     workflow the Scan page (Phase 2F) is the right tool. #}
-  <form method="post"
-        action="{{ url_for('inventory.adjust', item_id=item.id) }}"
-        class="flex items-center gap-2 bg-white rounded border border-slate-200 px-3 py-2">
+  {# Shelf-specific corrections require a reason; regular stock movements
+     belong in the scan carts rather than a quantity edit. #}
+  {% for stock in allocations %}
+    <form method="post" action="{{ url_for('inventory.adjust', item_id=item.id) }}"
+          class="w-full flex flex-wrap items-end gap-3 bg-white rounded border border-slate-200 px-4 py-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="shelf_id" value="{{ stock.shelf_id }}">
+      <input type="hidden" name="expected_quantity" value="{{ stock.quantity }}">
+      <label for="adjust-qty-{{ stock.shelf_id }}" class="text-sm font-semibold">
+        {{ stock.section_name }} / {{ stock.shelf_name }} count
+        <input id="adjust-qty-{{ stock.shelf_id }}" name="quantity" type="number" min="0" required
+               value="{{ stock.quantity }}" class="block w-24 rounded border border-slate-300 px-2 py-1 mt-1">
+      </label>
+      <label for="reason-{{ stock.shelf_id }}" class="text-sm font-semibold flex-1 min-w-40">
+        Correction reason
+        <input id="reason-{{ stock.shelf_id }}" name="reason" required maxlength="200"
+               class="block w-full rounded border border-slate-300 px-2 py-1 mt-1">
+      </label>
+      <button type="submit" class="bg-emerald-800 text-white font-semibold px-4 py-2 rounded hover:bg-emerald-900">Correct count</button>
+    </form>
+  {% endfor %}
+  <form method="post" action="{{ url_for('inventory.transfer', item_id=item.id) }}"
+        class="w-full flex flex-wrap items-end gap-3 bg-white rounded border border-slate-200 px-4 py-3">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label for="adjust-qty" class="text-sm text-slate-600">
-      Set quantity to
+    <label class="text-sm font-semibold">From
+      <select name="source_id" required class="block rounded border border-slate-300 px-2 py-1 mt-1">
+        <option value="">Choose shelf</option>
+        {% for stock in allocations if stock.quantity > 0 %}<option value="{{ stock.shelf_id }}">{{ stock.section_name }} / {{ stock.shelf_name }} ({{ stock.quantity }})</option>{% endfor %}
+      </select>
     </label>
-    <input id="adjust-qty" name="quantity" type="number" min="0"
-           value="{{ item.current_quantity }}"
-           class="w-24 rounded border border-slate-300 px-2 py-1
-                  focus:outline-none focus:ring-2 focus:ring-emerald-600">
-    <button type="submit"
-            class="bg-emerald-700 text-white font-semibold px-3 py-1.5 rounded
-                   hover:bg-emerald-800 transition text-sm">
-      Save
-    </button>
+    <label class="text-sm font-semibold">To
+      <select name="destination_id" required class="block rounded border border-slate-300 px-2 py-1 mt-1">
+        <option value="">Choose shelf</option>
+        {% for section in sections if not section.system %}{% for shelf in section.shelves %}
+          <option value="{{ shelf.id }}">{{ section.name }} / {{ shelf.name }}</option>
+        {% endfor %}{% endfor %}
+      </select>
+    </label>
+    <label class="text-sm font-semibold">Units
+      <input name="quantity" type="number" min="1" required class="block w-24 rounded border border-slate-300 px-2 py-1 mt-1">
+    </label>
+    <button type="submit" class="bg-emerald-800 text-white font-semibold px-4 py-2 rounded hover:bg-emerald-900">Move stock</button>
   </form>
 
-  <form method="post"
-        action="{{ url_for('inventory.delete', item_id=item.id) }}"
-        onsubmit="return confirm('Delete {{ item.item_name|e }}? This cannot be undone.');"
-        class="inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button type="submit"
-            class="bg-red-700 text-white font-semibold px-4 py-2 rounded
-                   hover:bg-red-800 transition">
-      Delete item
-    </button>
-  </form>
+  {% if item.current_quantity == 0 %}
+    <form method="post" action="{{ url_for('inventory.delete', item_id=item.id) }}"
+          class="w-full flex flex-wrap items-end gap-3 rounded border border-red-200 bg-red-50 p-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="text-sm font-semibold">Delete an unused item by entering its barcode
+        <input name="confirm_barcode" required autocomplete="off" class="block rounded border border-red-300 px-3 py-2 mt-1">
+      </label>
+      <button type="submit" class="bg-red-800 text-white font-semibold px-4 py-2 rounded hover:bg-red-900">Delete empty item</button>
+    </form>
+  {% endif %}
 </div>
-
-<p class="text-xs text-slate-400 mt-2">
-  Deleting removes the row permanently. For daily +1 / -1 stock
-  changes, use the Scan page (Phase 2F).
-</p>
+<p class="text-sm text-slate-600 mt-3">Items with stock, cart entries or movement history cannot be deleted. Corrections must name a shelf and reason.</p>
 {% endif %}
 {% endblock %}

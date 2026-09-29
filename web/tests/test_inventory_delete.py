@@ -36,7 +36,7 @@ class DeleteItem(unittest.TestCase):
         db = Database()
         ph, salt = hash_password(PW); db.create_user("admin", ph, salt, "admin")
         db.add_item("DEL1", "Doomed item", "Cat",
-                    quantity=3, minimum_stock=0, notes="")
+                    quantity=0, minimum_stock=0, notes="")
 
         from app import create_app
         self.app = create_app()
@@ -86,7 +86,7 @@ class DeleteItem(unittest.TestCase):
         self._login()
         row = self._row()
         r = self.client.post(f"/inventory/{row['id']}/delete",
-                             follow_redirects=False)
+                             data={"confirm_barcode": "DEL1"}, follow_redirects=False)
         self.assertEqual(r.status_code, 302)
         self.assertIn("/inventory", r.headers["Location"])
 
@@ -101,12 +101,37 @@ class DeleteItem(unittest.TestCase):
         self.assertIn("Deleted",      body)
         self.assertIn("Doomed item",  body)
 
+    def test_nonempty_item_cannot_be_deleted(self):
+        from database import Database
+        db = Database()
+        item = self._row()
+        shelf = db.get_item_shelf_stock(item["id"])[0]
+        db.adjust_shelf_stock(item["id"], shelf["shelf_id"], 2, "admin", "Opening count")
+        self._login()
+        self.client.post(f"/inventory/{item['id']}/delete", data={"confirm_barcode": "DEL1"})
+        self.assertIsNotNone(self._row())
+
+    def test_item_in_cart_cannot_be_deleted(self):
+        from database import Database
+        db = Database()
+        section_id = db.create_pantry_section("Dry goods")
+        shelf_id = db.create_pantry_shelf(section_id, "Shelf A")
+        db.add_scan_to_cart(db.get_user("admin")["id"], "DEL1", shelf_id)
+        self._login()
+        self.client.post(f"/inventory/{self._row()['id']}/delete", data={"confirm_barcode": "DEL1"})
+        self.assertIsNotNone(self._row())
+
+    def test_wrong_confirmation_does_not_delete(self):
+        self._login()
+        self.client.post(f"/inventory/{self._row()['id']}/delete", data={"confirm_barcode": "WRONG"})
+        self.assertIsNotNone(self._row())
+
     def test_detail_page_shows_delete_button_with_confirm(self):
         self._login()
         body = self.client.get(f"/inventory/{self._row()['id']}").data.decode("utf-8")
-        self.assertIn("Delete item", body)
-        # Confirm() call embedded so a bare click can't destroy the row.
-        self.assertIn("This cannot be undone", body)
+        self.assertIn("Delete empty item", body)
+        # Barcode confirmation prevents an accidental click from deleting the row.
+        self.assertIn('name="confirm_barcode"', body)
 
 
 if __name__ == "__main__":

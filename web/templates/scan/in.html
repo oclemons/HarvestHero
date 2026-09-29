@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Scan in · Harvest Hero{% endblock %}
+{% block content %}
+<div class="mb-8">
+  <p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">Inventory intake</p>
+  <h1 class="text-3xl font-bold mt-2">Scan food in</h1>
+  <p class="text-slate-600 mt-2">Scan each item into a destination shelf. Review the cart before completing intake.</p>
+</div>
+<div class="grid gap-6 lg:grid-cols-5">
+  <section class="lg:col-span-2 rounded-xl bg-white shadow-sm border border-emerald-100 p-6" aria-label="Add item to intake">
+    <h2 class="text-xl font-bold mb-4">Add to cart</h2>
+    <form method="post" action="{{ url_for('scan.add_in') }}" class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="barcode" class="block font-semibold">Scan-in barcode</label>
+      <input id="barcode" name="barcode" required autofocus autocomplete="off" maxlength="128"
+             class="w-full rounded-lg border border-slate-300 px-4 py-3 text-lg" placeholder="Scan or type a barcode">
+      <label for="destination-shelf" class="block font-semibold">Destination shelf</label>
+      <select id="destination-shelf" name="shelf_id" required class="w-full rounded-lg border border-slate-300 px-4 py-3">
+        <option value="">Choose a shelf</option>
+        {% for section in sections if not section.system %}{% for shelf in section.shelves %}
+          <option value="{{ shelf.id }}">{{ section.name }} / {{ shelf.name }}{% if shelf.is_overflow %} (overflow){% endif %}</option>
+        {% endfor %}{% endfor %}
+      </select>
+      <button type="submit" class="w-full rounded-lg bg-emerald-800 text-white font-semibold py-3 hover:bg-emerald-900">Add scanned item</button>
+    </form>
+    <p class="mt-4 text-sm text-slate-600">No barcode or shelf? Ask an administrator to set up the item first.</p>
+  </section>
+  <section class="lg:col-span-3 rounded-xl bg-white shadow-sm border border-emerald-100 p-6" aria-label="Intake cart">
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <h2 class="text-xl font-bold">Intake cart</h2>
+      {% if cart %}<span class="text-sm text-slate-600">{{ cart.lines|length }} item type{{ '' if cart.lines|length == 1 else 's' }}</span>{% endif %}
+    </div>
+    {% if cart and cart.lines %}
+      <ul class="divide-y divide-slate-200">
+        {% for line in cart.lines %}
+          <li class="py-4">
+            <div class="flex justify-between items-start gap-3">
+              <div><strong>{{ line.item_name }}</strong><span class="block text-sm text-slate-600">{{ line.section_name }} / {{ line.shelf_name }} · {{ line.barcode }}</span></div>
+              <span class="font-semibold whitespace-nowrap">{{ line.quantity }} unit{{ '' if line.quantity == 1 else 's' }}</span>
+            </div>
+            <div class="mt-2 flex flex-wrap items-center gap-3 text-sm">
+              {% if line.weight_milli_lb is not none %}
+                <span>{{ '%.3f'|format(line.weight_milli_lb / 1000) }} lb {% if line.weight_override_milli_lb is not none %}(measured){% else %}(unit weight){% endif %}</span>
+              {% else %}<span class="text-amber-800 font-semibold">Pounds pending Admin measurement</span>{% endif %}
+              <form method="post" action="{{ url_for('scan.remove_in', line_id=line.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="text-red-800 underline">Remove</button>
+              </form>
+            </div>
+            {% if current_user.is_admin %}
+              <form method="post" action="{{ url_for('scan.weigh_in', line_id=line.id) }}" class="mt-3 flex flex-wrap gap-2 items-end text-sm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label>Measured line weight (lb)
+                  <input name="measured_lb" type="number" min="0.001" max="10000" step="0.001" required class="block w-36 border border-slate-300 rounded px-2 py-1 mt-1">
+                </label>
+                <label class="flex-1 min-w-36">Reason for override
+                  <input name="reason" maxlength="200" required class="block w-full border border-slate-300 rounded px-2 py-1 mt-1">
+                </label>
+                <button type="submit" class="rounded bg-slate-700 text-white px-3 py-2">Use measured weight</button>
+              </form>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+      {% set totals = namespace(units=0, pounds=0, pending=0) %}
+      {% for line in cart.lines %}
+        {% set totals.units = totals.units + line.quantity %}
+        {% if line.weight_milli_lb is none %}{% set totals.pending = totals.pending + 1 %}
+        {% else %}{% set totals.pounds = totals.pounds + line.weight_milli_lb %}{% endif %}
+      {% endfor %}
+      <div class="mt-4 rounded-lg bg-emerald-50 p-4 font-semibold">{{ totals.units }} units · {{ '%.3f'|format(totals.pounds / 1000) }} known lb
+        {% if totals.pending %}<span class="block text-sm text-amber-900">{{ totals.pending }} line{{ '' if totals.pending == 1 else 's' }} pending weight; pounds are incomplete.</span>{% endif %}
+      </div>
+      <div class="mt-5 flex flex-wrap gap-3">
+        <form method="post" action="{{ url_for('scan.complete_in') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="cart_id" value="{{ cart.id }}">
+          <button type="submit" class="rounded bg-emerald-800 text-white px-5 py-3 font-bold hover:bg-emerald-900">Complete intake</button>
+        </form>
+        <form method="post" action="{{ url_for('scan.cancel_in') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="cart_id" value="{{ cart.id }}">
+          <button type="submit" class="rounded border border-slate-300 px-5 py-3 font-semibold">Cancel cart</button>
+        </form>
+      </div>
+    {% else %}<p class="rounded-lg bg-stone-50 p-6 text-slate-600">Your cart is empty. Scans will appear here before any stock is changed.</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

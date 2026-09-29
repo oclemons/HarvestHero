@@ -65,6 +65,11 @@ class ErrorHandlers(unittest.TestCase):
         self.assertEqual(r.status_code, 405)
         self.assertIn(b"Method not allowed", r.data)
 
+    def test_oversized_form_returns_413(self):
+        r = self.client.post("/login", data={"username": "x" * (65 * 1024), "password": "test"})
+        self.assertEqual(r.status_code, 413)
+        self.assertIn(b"submitted form is too large", r.data)
+
     # ─── 500 doesn't leak the exception message or a traceback ─
 
     def test_500_hides_exception_details(self):

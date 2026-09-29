@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Pounds ledger · Harvest Hero{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-end justify-between gap-4 mb-8">
+  <div><p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">Admin · inventory reports</p>
+    <h1 class="text-3xl font-bold mt-2">Pounds, month by month</h1>
+    <p class="text-slate-600 mt-2">Inbound donated food, distribution to clients and remaining pantry stock. Reporting month: UTC.</p>
+  </div>
+  <form method="get" class="flex flex-wrap items-end gap-2">
+    <label class="block font-semibold text-sm">Month (UTC)<input name="month" type="month" value="{{ month }}" required class="block rounded border border-slate-300 px-3 py-2 mt-1"></label>
+    <button type="submit" class="rounded bg-emerald-800 text-white px-4 py-2 font-semibold">View month</button>
+  </form>
+</div>
+{% if summary %}
+  {% if not summary.history_available %}
+    <p class="rounded bg-amber-50 border border-amber-200 p-4 text-amber-950">No ledger history is available for this month. Historical stock before the first recorded movement cannot be reconstructed.</p>
+  {% else %}
+    {% if summary.pending_lines %}
+      <p role="status" class="rounded bg-amber-50 border border-amber-300 p-4 text-amber-950 font-semibold mb-5">{{ summary.pending_lines }} movement{{ '' if summary.pending_lines == 1 else 's' }} with unknown pounds in this month or earlier. Figures below count only known pounds and are not final.</p>
+    {% endif %}
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <section class="bg-white rounded-xl border border-emerald-100 p-5"><h2 class="text-sm text-slate-600">Opening (from prior months)</h2><p class="text-2xl font-bold mt-2">{{ '%.3f'|format(summary.opening_milli_lb / 1000) }} lb</p></section>
+      <section class="bg-white rounded-xl border border-emerald-100 p-5"><h2 class="text-sm text-slate-600">Initial stock counted this month</h2><p class="text-2xl font-bold mt-2">+{{ '%.3f'|format(summary.opening_baseline_milli_lb / 1000) }} lb</p></section>
+      <section class="bg-white rounded-xl border border-emerald-100 p-5"><h2 class="text-sm text-slate-600">Donated food received (scan in)</h2><p class="text-2xl font-bold mt-2">+{{ '%.3f'|format(summary.donated_milli_lb / 1000) }} lb</p></section>
+      <section class="bg-white rounded-xl border border-emerald-100 p-5"><h2 class="text-sm text-slate-600">Food distributed (scan out)</h2><p class="text-2xl font-bold mt-2">−{{ '%.3f'|format(summary.distributed_milli_lb / 1000) }} lb</p></section>
+      <section class="bg-white rounded-xl border border-emerald-100 p-5"><h2 class="text-sm text-slate-600">Stock corrections (net)</h2><p class="text-2xl font-bold mt-2">{{ '%+.3f'|format(summary.adjustment_milli_lb / 1000) }} lb</p></section>
+      <section class="bg-emerald-900 text-white rounded-xl p-5"><h2 class="text-sm text-emerald-100">Remaining at month end{% if summary.pending_lines %} (known portion only){% endif %}</h2><p class="text-2xl font-bold mt-2">{{ '%.3f'|format(summary.closing_milli_lb / 1000) }} lb</p></section>
+    </div>
+    <p class="mt-5 text-sm text-slate-600">Remainder = opening + initial stock + donated in − distributed out ± corrections. Shelf transfers cancel out. Records before ledger adoption are an initial stock baseline, not backdated donations.</p>
+  {% endif %}
+{% endif %}
+<section class="mt-9 bg-white rounded-xl border border-emerald-100 p-6">
+  <h2 class="text-xl font-bold">Pounds needing review</h2>
+  <p class="text-sm text-slate-600 mt-1 mb-5">Resolve a historic line with its measured <strong>total line weight</strong>, not an estimated per-unit value. Most recent 100 lines are shown.</p>
+  {% if pending %}<ul class="divide-y divide-slate-200">{% for line in pending %}
+    <li class="py-4">
+      <div class="flex flex-wrap justify-between gap-2"><strong>{{ line.item_name }} · {{ line.direction }} {{ line.quantity_delta|abs }} unit{{ '' if line.quantity_delta|abs == 1 else 's' }}</strong><span class="text-sm text-slate-600">{{ line.timestamp_utc }} · {{ line.section_name }} / {{ line.shelf_name }}</span></div>
+      {% if config.CLIENT_RECORDS_ENABLED and line.client_id %}<a href="{{ url_for('clients.detail', client_id=line.client_id) }}" class="text-sm text-emerald-800 underline">Private visitor record</a>{% endif %}
+      <form method="post" action="{{ url_for('reports.resolve_weight', movement_id=line.id) }}" class="mt-3 flex flex-wrap items-end gap-2 text-sm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="month" value="{{ month }}">
+        <label>Measured total (lb)<input name="measured_lb" type="number" min="0.001" max="10000" step="0.001" required class="block w-32 rounded border border-slate-300 px-2 py-1 mt-1"></label>
+        <label class="flex-1 min-w-36">Reason<input name="reason" maxlength="200" required class="block w-full rounded border border-slate-300 px-2 py-1 mt-1"></label>
+        <button type="submit" class="rounded bg-emerald-800 text-white px-4 py-2 font-semibold">Confirm weight</button>
+      </form>
+    </li>
+  {% endfor %}</ul>
+  {% else %}<p class="text-slate-600">No known pending-weight lines in the current ledger.</p>{% endif %}
+</section>
+{% endblock %}
