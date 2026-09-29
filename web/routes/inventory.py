@@ -17,8 +17,9 @@ from decimal import Decimal, InvalidOperation
 from math import ceil
 
 from flask import (
-    Blueprint, abort, flash, redirect, render_template, request, url_for,
+    Blueprint, Response, abort, current_app, flash, redirect, render_template, request, url_for,
 )
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 from flask_login import current_user, login_required
 
 from database import Database
@@ -81,19 +82,105 @@ def detail(item_id: int):
 
 
 # ─────────────────────────────────────────────────────────────────
-# Add a new item
+# Inventory entry, catalog import, and labels
 # ─────────────────────────────────────────────────────────────────
+
+def _catalog_signer():
+    return URLSafeTimedSerializer(current_app.secret_key, salt="inventory-catalog-review-v1")
+
+
+@bp.route("/import")
+@login_required
+@admin_required
+def import_catalog():
+    return render_template("inventory/import_upload.html")
+
+
+@bp.route("/import/preview", methods=["POST"])
+@login_required
+@admin_required
+def import_preview():
+    from catalog_import import parse_catalog
+    uploaded = request.files.get("file")
+    if not uploaded:
+        flash("Choose an inventory CSV file to review.", "error")
+        return render_template("inventory/import_upload.html"), 400
+    try:
+        rows = parse_catalog(uploaded.read())
+    except ValueError as error:
+        flash(str(error), "error")
+        return render_template("inventory/import_upload.html"), 400
+    token = _catalog_signer().dumps({"owner": current_user.id, "rows": rows})
+    return render_template("inventory/import_preview.html", rows=rows, preview_token=token)
+
+
+@bp.route("/import/confirm", methods=["POST"])
+@login_required
+@admin_required
+def import_confirm():
+    try:
+        payload = _catalog_signer().loads(request.form.get("preview_token") or "", max_age=1800)
+    except BadSignature:
+        flash("This catalog preview expired or was changed. Upload it again.", "error")
+        return render_template("inventory/import_upload.html"), 400
+    if payload.get("owner") != current_user.id:
+        abort(403)
+    rows = payload.get("rows")
+    if not isinstance(rows, list) or len(rows) > 150:
+        abort(400)
+    selected = request.form.getlist("selected")
+    try:
+        indexes = sorted({int(value) for value in selected})
+    except ValueError:
+        indexes = []
+    if not indexes or any(index < 0 or index >= len(rows) or rows[index].get("problem") for index in indexes):
+        flash("Select one or more valid rows from the preview.", "error")
+        return render_template("inventory/import_preview.html", rows=rows, preview_token=request.form["preview_token"]), 400
+    try:
+        count = _db.import_catalog_rows([rows[index] for index in indexes], current_user.username)
+    except ValueError as error:
+        flash(str(error), "error")
+        return render_template("inventory/import_preview.html", rows=rows, preview_token=request.form["preview_token"]), 400
+    flash(f"Imported {count} catalog item(s) with zero stock. Review item weights and count shelves before scanning.", "success")
+    return redirect(url_for("inventory.list_items"))
+
+
+@bp.route("/<int:item_id>/labels")
+@login_required
+@admin_required
+def labels(item_id: int):
+    item = _db.get_item_by_id(item_id)
+    if not item:
+        abort(404)
+    response = render_template("inventory/labels.html", item=item,
+                               locations=_db.get_item_locations([item_id]).get(item_id, "Unassigned"))
+    return response, 200, {"Cache-Control": "private, no-store"}
+
+
+@bp.route("/<int:item_id>/barcode/<direction>.svg")
+@login_required
+@admin_required
+def barcode_image(item_id: int, direction: str):
+    item = _db.get_item_by_id(item_id)
+    if not item or direction not in ("in", "out"):
+        abort(404)
+    value = item["barcode"] if direction == "in" else item["barcode_out"]
+    if not value:
+        abort(404)
+    from barcode_labels import render_barcode
+    try:
+        image = render_barcode(value)
+    except ValueError:
+        abort(404)
+    return Response(image, mimetype="image/svg+xml",
+                    headers={"Cache-Control": "private, no-store"})
+
 
 @bp.route("/new", methods=["GET", "POST"])
 @login_required
 @admin_required
 def new():
-    """Show the add-item form (GET) or create one (POST).
-
-    Role gating: none for now. When user management lands in a later
-    phase we'll add @admin_required. Today, any authenticated user
-    (i.e. anyone with a password from the admin) can add an item.
-    """
+    """Let an Admin add an item with a selected shelf and generated pantry labels."""
     sections = _db.get_pantry_layout()
     if request.method == "GET":
         return render_template("inventory/form.html", mode="new", item=_blank_item(),
@@ -137,16 +224,7 @@ def new():
 @login_required
 @admin_required
 def edit(item_id: int):
-    """Show the edit form (GET) or save changes (POST).
-
-    ``barcode`` is intentionally not editable — changing the primary
-    barcode of an existing item would silently orphan any barcode
-    labels already printed for it. If the barcode is truly wrong,
-    delete + re-add is the safer path.
-
-    Quantity IS editable here (it goes through set_stock). For daily
-    increment/decrement, phase 1c-v's Scan page is the intended tool.
-    """
+    """Edit item metadata without changing printed barcodes or shelf stock."""
     row = _db.get_item_by_id(item_id)
     if not row:
         abort(404)
@@ -335,7 +413,7 @@ def _parse_form(form, *, editing: bool = False,
                 f"{numeric.replace('_', ' ').capitalize()} must be a whole "
                 f"number, got '{raw}'."
             )
-    if not data["barcode"]:
+    if editing and not data["barcode"]:
         return data, "Barcode is required."
     if not data["item_name"]:
         return data, "Item name is required."

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Confirm product catalog · Harvest Hero{% endblock %}
+{% block content %}
+<a href="{{ url_for('inventory.import_catalog') }}" class="text-sm text-emerald-800 underline">&larr; Choose another file</a>
+<h1 class="text-3xl font-bold mt-6">Review before importing</h1>
+<p class="mt-2 text-slate-600">Choose only the products and pantry labels you want to create. Similar names can represent the same food on different shelves; review those rows rather than blindly duplicating products.</p>
+<p class="mt-4 rounded-lg bg-amber-50 border border-amber-300 p-4 font-semibold text-amber-950">Source counts are ignored. Every confirmed item starts with zero stock and an unknown unit weight. Sections and empty shelves are created for selected locations.</p>
+<form method="post" action="{{ url_for('inventory.import_confirm') }}" class="mt-6">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="preview_token" value="{{ preview_token }}">
+  <div class="overflow-x-auto rounded-xl border border-emerald-100 bg-white">
+    <table class="min-w-full text-left text-sm">
+      <thead class="bg-stone-50"><tr><th class="px-3 py-3">Import</th><th class="px-3 py-3">Product</th><th class="px-3 py-3">Pantry label pair</th><th class="px-3 py-3">Location</th><th class="px-3 py-3">Source count</th></tr></thead>
+      <tbody>{% for row in rows %}<tr class="border-t border-slate-100">
+        <td class="px-3 py-3"><input type="checkbox" name="selected" value="{{ loop.index0 }}" aria-label="Import row {{ row.row_number }}" {% if row.problem %}disabled{% elif not row.duplicate_name %}checked{% endif %}></td>
+        <td class="px-3 py-3 font-semibold">{{ row.item_name or 'Missing name' }}
+          {% if row.problem %}<span class="block text-red-800">{{ row.problem }}</span>{% endif %}
+          {% if row.duplicate_name %}<span class="block text-amber-900">Possible duplicate name — inspect before choosing.</span>{% endif %}
+        </td>
+        <td class="px-3 py-3 font-mono text-xs">IN {{ row.barcode }}<br>OUT {{ row.barcode_out }}</td>
+        <td class="px-3 py-3">{{ row.section_name }} / {{ row.shelf_name }}</td>
+        <td class="px-3 py-3">{{ row.source_quantity or '0' }} <span class="text-amber-900">ignored</span></td>
+      </tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  <button type="submit" class="mt-6 rounded bg-emerald-800 text-white px-6 py-3 font-semibold hover:bg-emerald-900">Import selected zero-stock items</button>
+</form>
+{% endblock %}

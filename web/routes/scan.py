@@ -1,6 +1,8 @@
-"""Server-owned inventory intake carts with role-restricted weight overrides."""
+"""Server-owned intake carts and Admin-only visitor distribution sessions."""
 
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
+from uuid import uuid4
+
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required
 
 from decorators import admin_required, student_or_admin_required
@@ -23,6 +25,7 @@ def scan_in():
     from database import Database
     db = Database()
     return render_template("scan/in.html", sections=db.get_pantry_layout(),
+                           selected_shelf_id=session.get("last_intake_shelf"),
                            cart=db.get_active_cart(int(current_user.id), "IN"))
 
 
@@ -32,8 +35,10 @@ def scan_in():
 def add_in():
     from database import Database
     try:
+        shelf_id = int(request.form.get("shelf_id") or "")
         Database().add_scan_to_cart(int(current_user.id), request.form.get("barcode") or "",
-                                    int(request.form.get("shelf_id") or ""))
+                                    shelf_id)
+        session["last_intake_shelf"] = shelf_id
     except ValueError as error:
         flash(str(error) if request.form.get("shelf_id") else "Choose a destination shelf.", "error")
     return redirect(url_for("scan.scan_in"))
@@ -120,6 +125,7 @@ def scan_out():
         for person in people:
             person["eligible"] = db.is_client_eligible(person["id"])
     return render_template("scan/out.html", cart=cart, client=client, clients=people,
+                           scan_token=uuid4().hex,
                            stats=db.get_client_weight_summary(cart["client_id"]) if cart else None,
                            sections=db.get_pantry_layout())
 
@@ -131,7 +137,8 @@ def start_out():
     from database import Database
     try:
         client_id = int(request.form.get("client_id") or "")
-        Database().start_scan_out_cart(int(current_user.id), client_id)
+        Database().start_scan_out_cart(int(current_user.id), client_id,
+                                       request.form.get("mode") or "REVIEW")
     except ValueError as error:
         flash(str(error) if request.form.get("client_id") else "Choose a verified client.", "error")
     return redirect(url_for("scan.scan_out"))
@@ -142,11 +149,25 @@ def start_out():
 @admin_required
 def add_out():
     from database import Database
+    db = Database()
     try:
         shelf_id = int(request.form.get("shelf_id") or "")
-        Database().add_scan_out_to_cart(
-            int(current_user.id), request.form.get("barcode") or "", shelf_id
-        )
+        cart = db.get_active_cart(int(current_user.id), "OUT")
+        if cart and cart["mode"] == "IMMEDIATE":
+            measured_raw = (request.form.get("measured_lb") or "").strip()
+            measured, error = _parse_unit_weight(measured_raw)
+            if error:
+                raise ValueError(error)
+            db.record_immediate_scan_out(
+                int(current_user.id), request.form.get("barcode") or "", shelf_id,
+                current_user.username, request.form.get("scan_token") or "",
+                measured, request.form.get("reason") or "",
+            )
+            flash("Item scanned out and recorded in this customer's visit.", "success")
+        else:
+            db.add_scan_out_to_cart(
+                int(current_user.id), request.form.get("barcode") or "", shelf_id
+            )
     except ValueError as error:
         flash(str(error) if request.form.get("shelf_id") else "Choose a source shelf.", "error")
     return redirect(url_for("scan.scan_out"))
@@ -157,11 +178,36 @@ def add_out():
 @admin_required
 def remove_out(line_id: int):
     from database import Database
+    db = Database()
     try:
-        Database().remove_cart_line(int(current_user.id), line_id, "OUT")
+        cart = db.get_active_cart(int(current_user.id), "OUT")
+        if cart and cart["mode"] == "IMMEDIATE":
+            db.undo_immediate_scan(int(current_user.id), line_id,
+                                   request.form.get("reason") or "", current_user.username)
+            flash("Scan corrected; stock and visitor pounds were updated.", "success")
+        else:
+            db.remove_cart_line(int(current_user.id), line_id, "OUT")
     except ValueError as error:
         flash(str(error), "error")
     return redirect(url_for("scan.scan_out"))
+
+
+@bp.route("/out/undo/<int:movement_id>", methods=["POST"])
+@login_required
+@admin_required
+def undo_out(movement_id: int):
+    from database import Database
+    db = Database()
+    try:
+        cart_id = db.undo_immediate_scan(int(current_user.id), movement_id,
+                                         request.form.get("reason") or "", current_user.username)
+        flash("Scan corrected; stock and visitor pounds were updated.", "success")
+    except ValueError as error:
+        flash(str(error), "error")
+        return redirect(url_for("scan.scan_out"))
+    receipt = db.get_cart_receipt(int(current_user.id), cart_id)
+    return redirect(url_for("scan.distribution_receipt", cart_id=cart_id)
+                    if receipt else url_for("scan.scan_out"))
 
 
 @bp.route("/out/weight/<int:line_id>", methods=["POST"])
@@ -169,6 +215,10 @@ def remove_out(line_id: int):
 @admin_required
 def weigh_out(line_id: int):
     from database import Database
+    cart = Database().get_active_cart(int(current_user.id), "OUT")
+    if cart and cart["mode"] == "IMMEDIATE":
+        flash("Enter measured weight before scanning, or reconcile it in Pounds afterward.", "error")
+        return redirect(url_for("scan.scan_out"))
     measured, error = _parse_unit_weight((request.form.get("measured_lb") or "").strip())
     if error or measured is None:
         flash(error or "Enter measured pounds.", "error")

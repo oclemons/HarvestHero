@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Private data exports · Harvest Hero{% endblock %}
+{% block content %}
+<a href="{{ url_for('clients.index') }}" class="text-emerald-800 underline text-sm">&larr; Back to clients</a>
+<p class="text-sm uppercase tracking-widest text-emerald-700 font-semibold mt-6">Admin · sensitive data</p>
+<h1 class="text-3xl font-bold mt-2">Export pantry records</h1>
+<p class="text-slate-700 mt-3">Downloads are limited to authorized Admins. Re-enter your Admin password for each CSV. Store the downloaded files under your college's approved retention rules; do not email them or save them to a shared computer.</p>
+<div class="grid gap-5 md:grid-cols-3 mt-8">
+  {% for label, description, endpoint in [
+      ('Customer records', 'Student IDs, birth dates, graduation and current term verification.', 'clients.export_customers'),
+      ('Visits and pounds', 'Visitor history, known pounds and incomplete-weight indicators.', 'clients.export_visits'),
+      ('Monthly pounds', 'UTC opening, donated, distributed and remaining pounds.', 'clients.export_monthly')
+  ] %}
+  <form method="post" action="{{ url_for(endpoint) }}" class="bg-white rounded-xl border border-emerald-100 p-6 shadow-sm space-y-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <h2 class="text-xl font-bold">{{ label }}</h2>
+    <p class="text-sm text-slate-600">{{ description }}</p>
+    <label class="block text-sm font-semibold">Your Admin password
+      <input name="admin_password" type="password" required autocomplete="current-password" class="mt-1 block w-full rounded border border-slate-300 px-3 py-2">
+    </label>
+    <button type="submit" class="rounded bg-emerald-800 text-white px-4 py-2 font-semibold hover:bg-emerald-900">Download CSV</button>
+  </form>
+  {% endfor %}
+</div>
+{% endblock %}

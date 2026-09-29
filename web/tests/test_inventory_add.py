@@ -105,15 +105,14 @@ class AddItem(unittest.TestCase):
             self.assertIsNotNone(error)
         self.assertEqual(_parse_unit_weight("0.625"), (625, None))
 
-    def test_missing_barcode_is_rejected(self):
+    def test_shelf_is_required_even_with_generated_barcode(self):
         self._login()
         r = self.client.post("/inventory/new", data={
-            "barcode": "",  # empty
-            "item_name": "Nameless",
+            "barcode": "", "item_name": "Nameless",
             "current_quantity": "1", "minimum_stock": "0",
         })
         self.assertEqual(r.status_code, 400)
-        self.assertIn(b"Barcode is required", r.data)
+        self.assertIn(b"Choose a shelf", r.data)
 
     def test_missing_item_name_is_rejected(self):
         self._login()

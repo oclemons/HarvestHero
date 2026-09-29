@@ -58,7 +58,9 @@ class ClientAccess(unittest.TestCase):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 503, path)
             self.assertNotIn(b"0001234567", response.data)
-        for path in ("/clients/new", f"/clients/{client_id}/verify", "/scan/out/start"):
+        for path in ("/clients/new", f"/clients/{client_id}/verify", "/scan/out/start",
+                     "/scan/out/add", "/scan/out/complete", "/scan/out/undo/1",
+                     "/clients/exports/customers.csv"):
             self.assertEqual(self.client.post(path, data={"client_id": client_id}).status_code, 503)
         self.assertNotIn(b"/clients/", self.client.get("/app").data)
         self.assertNotIn(b"/scan/out", self.client.get("/app").data)

@@ -58,7 +58,8 @@ likely threats and how we defend against each are:
 ### Authorization
 * Existing inventory writes require `@admin_required`; only intake scan-in uses `@student_or_admin_required`.
 * The locally tested pantry/client/scan-out/weight-report routes are Admin-only. Student raw-HTTP requests to those routes receive 403; Admin-only client data is not rendered in Student responses.
-* Client intake and scan-out additionally fail closed (503 for Admin) unless `HARVESTHERO_CLIENT_RECORDS_ENABLED=1` is explicitly set after the college's data-retention policy and key-custody process are confirmed. It defaults off.
+* Client intake, scan-out and sensitive customer/visit exports fail closed (503 for Admin) unless `HARVESTHERO_CLIENT_RECORDS_ENABLED=1` is explicitly set after the college's data-retention/export policy and key-custody process are confirmed. It defaults off.
+* When enabled, CSV exports require Admin password re-entry, CSRF protection and no-store responses; spreadsheet formula prefixes are escaped. Immediate out-scans require an Admin-selected verified client, a physical shelf and a unique request ID; an error is corrected by a separate audited reversal rather than deleting visit or stock history.
 * The local changes have not been deployed yet. Verify authorization against the live site after release rather than inferring it from tests.
 
 ### CSRF

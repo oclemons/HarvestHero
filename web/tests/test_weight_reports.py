@@ -105,7 +105,7 @@ class WeightReports(unittest.TestCase):
         expiry = (datetime.date.today() + datetime.timedelta(days=100)).isoformat()
         self.db.verify_client_term(client_id, "Fall 2026", expiry, "admin_a")
         self.db.start_scan_out_cart(self.admin_id, client_id)
-        self.db.add_scan_out_to_cart(self.admin_id, "BEANS1", self.shelf_id)
+        self.db.add_scan_out_to_cart(self.admin_id, self.db.get_item_by_id(unknown_id)["barcode_out"], self.shelf_id)
         cart = self.db.get_active_cart(self.admin_id, "OUT")
         self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a")
         before = self.db.get_monthly_weight_report(self.month)

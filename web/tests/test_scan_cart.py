@@ -61,6 +61,7 @@ class ScanCart(unittest.TestCase):
         page = self.client.get("/scan/in").data
         self.assertIn(b"Rice", page)
         self.assertIn(b"2 units", page)
+        self.assertIn(f'value="{self.shelf_id}" selected'.encode(), page)
         cart = self.db.get_active_cart(self.student_id, "IN")
         response = self.client.post("/scan/in/complete", data={"cart_id": cart["id"]})
         self.assertEqual(response.status_code, 302)

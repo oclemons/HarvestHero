@@ -31,7 +31,7 @@ def home():
     }
     if current_user.is_admin:
         stats["active_users"] = sum(1 for u in _db.get_all_users() if u.get("is_active"))
-        activity = _db.get_recent_transactions(8)
+        activity = _db.get_recent_movements(8)
     else:
         activity = _db.get_recent_transactions_by_user(current_user.username, 5)
     return render_template("dashboard.html", user=current_user, stats=stats, activity=activity)

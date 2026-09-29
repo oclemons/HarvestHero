@@ -1,9 +1,15 @@
 """Administrator-only pantry-client intake and semester verification."""
 
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
+import csv
+import io
+import json
+
+from flask import Blueprint, Response, abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
+from auth import verify_password
 from decorators import admin_required
+from extensions import limiter
 
 bp = Blueprint("clients", __name__, url_prefix="/clients")
 
@@ -13,6 +19,116 @@ def _require_policy():
     if (current_user.is_authenticated and current_user.is_admin and
             not current_app.config.get("CLIENT_RECORDS_ENABLED", False)):
         abort(503)
+
+
+def _safe_cell(value):
+    text = "" if value is None else str(value)
+    leading = text.lstrip(" \t\r\n")
+    if text.startswith(("\t", "\r", "\n")) or (leading and leading[0] in "=+-@"):
+        return "'" + text
+    return text
+
+
+def _csv_download(headers, rows, filename):
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, quoting=csv.QUOTE_ALL)
+    writer.writerow(headers)
+    writer.writerows([_safe_cell(value) for value in row] for row in rows)
+    return Response(output.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={filename}",
+                             "Cache-Control": "private, no-store"})
+
+
+def _authorize_export(db):
+    actor = db.get_user(current_user.username)
+    if not actor or not verify_password(request.form.get("admin_password") or "",
+                                        actor["password_hash"], actor["salt"]):
+        abort(403)
+
+
+@bp.route("/exports")
+@login_required
+@admin_required
+def exports():
+    return render_template("clients/exports.html")
+
+
+@bp.route("/exports/customers.csv", methods=["POST"])
+@login_required
+@admin_required
+@limiter.limit("10 per 15 minutes", methods=["POST"])
+def export_customers():
+    from database import Database
+    db = Database()
+    _authorize_export(db)
+    fields = ("student_id", "first_name", "last_name", "birth_date",
+              "expected_graduation_semester", "enrollment_status", "is_active",
+              "verified_term", "verified_until", "verification_status", "created_at")
+    records = db.get_client_export_rows()
+    db.log_activity(current_user.username, "CLIENT_EXPORT", f"type=customers rows={len(records)}")
+    return _csv_download(fields, ([record[field] for field in fields] for record in records),
+                         "pantry-customers.csv")
+
+
+@bp.route("/exports/visits.csv", methods=["POST"])
+@login_required
+@admin_required
+@limiter.limit("10 per 15 minutes", methods=["POST"])
+def export_visits():
+    from database import Database
+    db = Database()
+    _authorize_export(db)
+    fields = ("visit_id", "student_id", "first_name", "last_name", "visit_date",
+              "known_pounds", "pending_weight_lines", "weight_complete", "visit_status",
+              "lifetime_known_pounds", "lifetime_pending_visits", "recorded_by", "items")
+    records = db.get_visit_export_rows()
+    totals = {record["client_id"]: db.get_client_weight_summary(record["client_id"])
+              for record in records}
+    rows = []
+    for record in records:
+        try:
+            items = json.loads(record["items_json"] or "[]")
+            item_summary = "; ".join(
+                f"{item.get('item_name', 'Item')} x{item.get('quantity', 0)}"
+                f"{' (undone)' if item.get('undone') else ''}"
+                for item in items if isinstance(item, dict)
+            )
+        except (ValueError, TypeError):
+            item_summary = "Item detail unavailable"
+        known = record["known_weight_milli_lb"]
+        if known is None and record["pounds_received"] is not None:
+            known = round(record["pounds_received"] * 1000)
+        summary = totals[record["client_id"]]
+        rows.append((record["visit_id"], record["student_id"], record["first_name"],
+                     record["last_name"], record["visit_date"],
+                     f"{known / 1000:.3f}" if known is not None else "",
+                     record["pending_weight_lines"], record["weight_complete"],
+                     "void" if record["is_void"] else "recorded",
+                     f"{summary['known_weight_milli_lb'] / 1000:.3f}",
+                     summary["pending_visits"], record["recorded_by"], item_summary))
+    db.log_activity(current_user.username, "CLIENT_EXPORT", f"type=visits rows={len(rows)}")
+    return _csv_download(fields, rows, "pantry-visits.csv")
+
+
+@bp.route("/exports/monthly.csv", methods=["POST"])
+@login_required
+@admin_required
+@limiter.limit("10 per 15 minutes", methods=["POST"])
+def export_monthly():
+    from database import Database
+    db = Database()
+    _authorize_export(db)
+    fields = ("month_utc", "opening_pounds", "initial_stock_pounds", "donated_pounds",
+              "distributed_pounds", "adjustment_pounds", "closing_pounds", "pending_lines")
+    rows = []
+    for month in db.get_report_months():
+        report = db.get_monthly_weight_report(month)
+        rows.append((month, *(f"{report[key] / 1000:.3f}" for key in (
+            "opening_milli_lb", "opening_baseline_milli_lb", "donated_milli_lb",
+            "distributed_milli_lb", "adjustment_milli_lb", "closing_milli_lb")),
+            report["pending_lines"]))
+    db.log_activity(current_user.username, "CLIENT_EXPORT", f"type=monthly rows={len(rows)}")
+    return _csv_download(fields, rows, "pantry-monthly-pounds.csv")
 
 
 @bp.route("/")

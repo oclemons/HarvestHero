@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Print pantry labels · Harvest Hero{% endblock %}
+{% block content %}
+<style>
+  @page { size: letter; margin: .5in; }
+  @media print {
+    header, footer, .no-print { display: none !important; }
+    main { max-width: 100%; padding: 0; }
+    .label-box { break-inside: avoid; box-shadow: none; }
+  }
+</style>
+<div class="no-print mb-6 flex flex-wrap items-center justify-between gap-3">
+  <a href="{{ url_for('inventory.detail', item_id=item.id) }}" class="text-emerald-800 underline">&larr; Back to item</a>
+  <span class="text-sm text-slate-600">Use your browser’s Print command to print these labels.</span>
+</div>
+<div class="max-w-4xl mx-auto">
+  <h1 class="text-3xl font-bold mb-2">{{ item.item_name }}</h1>
+  <p class="text-slate-600 mb-6">{{ locations }} · Pantry Code 128 labels, not manufacturer UPCs</p>
+  <div class="grid gap-6 sm:grid-cols-2">
+    <section class="label-box rounded-xl border-2 border-emerald-700 bg-white p-5 text-center" aria-label="Scan-in label">
+      <h2 class="text-xl font-bold text-emerald-900">SCAN IN · Receive</h2>
+      <p class="mt-2 font-semibold">{{ item.item_name }}</p>
+      <img src="{{ url_for('inventory.barcode_image', item_id=item.id, direction='in') }}" alt="Scan-in Code 128 barcode" class="mt-4 mx-auto w-full max-w-sm h-24 object-contain">
+      <p class="font-mono text-sm mt-3 break-all">{{ item.barcode }}</p>
+    </section>
+    <section class="label-box rounded-xl border-2 border-red-700 bg-white p-5 text-center" aria-label="Scan-out label">
+      <h2 class="text-xl font-bold text-red-900">SCAN OUT · Distribute</h2>
+      <p class="mt-2 font-semibold">{{ item.item_name }}</p>
+      {% if item.barcode_out %}
+        <img src="{{ url_for('inventory.barcode_image', item_id=item.id, direction='out') }}" alt="Scan-out Code 128 barcode" class="mt-4 mx-auto w-full max-w-sm h-24 object-contain">
+        <p class="font-mono text-sm mt-3 break-all">{{ item.barcode_out }}</p>
+      {% else %}<p class="mt-5 text-amber-900">This older item has no separate scan-out barcode. Save its item details to generate one.</p>{% endif %}
+    </section>
+  </div>
+  <p class="mt-6 text-sm text-slate-600">Scan-out requires an Admin-selected, verified customer. Do not distribute food just because a label scans.</p>
+</div>
+{% endblock %}

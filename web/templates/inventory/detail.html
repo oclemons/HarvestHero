@@ -55,7 +55,7 @@
   <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
 
     <div>
-      <dt class="text-slate-500">Primary barcode</dt>
+      <dt class="text-slate-500">Pantry scan-in barcode</dt>
       <dd class="font-mono text-slate-900">{{ item.barcode }}</dd>
     </div>
     {% if current_user.is_admin and item.barcode_out %}
@@ -113,6 +113,7 @@
             hover:bg-slate-800 transition">
     Edit item
   </a>
+  <a href="{{ url_for('inventory.labels', item_id=item.id) }}" class="rounded border border-emerald-700 text-emerald-900 px-4 py-2 font-semibold hover:bg-emerald-50">Print scan labels</a>
 
   {# Shelf-specific corrections require a reason; regular stock movements
      belong in the scan carts rather than a quantity edit. #}

@@ -83,6 +83,44 @@ class ShelfLayout(unittest.TestCase):
         self.assertIsNone(visit["known_weight_milli_lb"])
         self.assertEqual(visit["weight_complete"], 0)
 
+    def test_existing_review_carts_upgrade_to_immediate_mode_schema(self):
+        old_path = str(Path(self.tmp.name) / "review_carts.db")
+        conn = sqlite3.connect(old_path)
+        conn.executescript("""
+            CREATE TABLE pantry_carts (
+                id TEXT PRIMARY KEY, owner_id INTEGER, direction TEXT, client_id INTEGER,
+                status TEXT DEFAULT 'DRAFT', created_at TEXT DEFAULT '',
+                updated_at TEXT DEFAULT '', completed_at TEXT
+            );
+            CREATE TABLE pantry_visits (
+                id INTEGER PRIMARY KEY, client_id INTEGER, visit_date TEXT,
+                pounds_received REAL, items_json TEXT, known_weight_milli_lb INTEGER,
+                pending_weight_lines INTEGER DEFAULT 0, weight_complete INTEGER DEFAULT 0,
+                cart_id TEXT, notes TEXT, recorded_by TEXT,
+                FOREIGN KEY(client_id) REFERENCES pantry_clients(id) ON DELETE CASCADE
+            );
+            CREATE TABLE inventory_movements (
+                id INTEGER PRIMARY KEY, cart_id TEXT, item_id INTEGER, item_name TEXT,
+                shelf_id INTEGER, client_id INTEGER, visit_id INTEGER,
+                direction TEXT, quantity_delta INTEGER, weight_milli_lb INTEGER,
+                weight_override_reason TEXT, recorded_by TEXT, timestamp_utc TEXT
+            );
+            INSERT INTO pantry_carts (id, owner_id, direction, status)
+            VALUES ('existing-cart', 1, 'OUT', 'DRAFT');
+        """)
+        conn.close()
+        Database(old_path)
+        conn = sqlite3.connect(old_path)
+        try:
+            self.assertIn("mode", {row[1] for row in conn.execute("PRAGMA table_info(pantry_carts)")})
+            self.assertIn("is_void", {row[1] for row in conn.execute("PRAGMA table_info(pantry_visits)")})
+            self.assertIn("scan_request_id", {row[1] for row in conn.execute("PRAGMA table_info(inventory_movements)")})
+            self.assertIn("reverses_movement_id", {row[1] for row in conn.execute("PRAGMA table_info(inventory_movements)")})
+            self.assertEqual(conn.execute("SELECT mode FROM pantry_carts WHERE id='existing-cart'").fetchone()[0],
+                             "REVIEW")
+        finally:
+            conn.close()
+
     def test_legacy_weight_is_converted_to_fixed_precision(self):
         self.db.add_item("WEIGHT1", "Oats", "Dry goods", 0, 0, "")
         conn = sqlite3.connect(self.path)
