@@ -1233,28 +1233,21 @@ class Database:
                 raise ValueError("Shelf not found.")
             if shelf["system"]:
                 raise ValueError("The system shelf cannot be deleted.")
-            stock = conn.execute(
+            removed_stock = conn.execute(
                 "SELECT COALESCE(SUM(quantity), 0) AS total FROM item_shelf_stock "
                 "WHERE shelf_id = ?", (shelf_id,),
             ).fetchone()["total"]
-            if stock > 0:
-                raise ValueError(
-                    f"This shelf still has {stock} unit(s) of stock. "
-                    "Transfer or remove all stock before deleting the shelf."
-                )
-            active_lines = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM pantry_cart_lines line "
-                "JOIN pantry_carts cart ON cart.id = line.cart_id "
-                "WHERE line.shelf_id = ? AND cart.status = 'OPEN'",
+            conn.execute(
+                "DELETE FROM pantry_cart_lines WHERE shelf_id = ? AND cart_id IN "
+                "(SELECT id FROM pantry_carts WHERE status = 'OPEN')",
                 (shelf_id,),
-            ).fetchone()["cnt"]
-            if active_lines:
-                raise ValueError("An active cart references this shelf. Complete or cancel it first.")
+            )
             conn.execute("DELETE FROM item_shelf_stock WHERE shelf_id = ?", (shelf_id,))
             conn.execute("DELETE FROM pantry_shelves WHERE id = ?", (shelf_id,))
             conn.execute(
                 "INSERT INTO activity_log (username, action, detail) VALUES (?, 'SHELF_DELETE', ?)",
-                (username, f"shelf={shelf_id} name={shelf['name']} section={shelf['section_id']}"),
+                (username, f"shelf={shelf_id} name={shelf['name']} "
+                 f"section={shelf['section_id']} removed_stock={removed_stock}"),
             )
             conn.commit()
         except Exception:
@@ -1275,27 +1268,28 @@ class Database:
                 raise ValueError("Section not found.")
             if section["system"]:
                 raise ValueError("The system section cannot be deleted.")
-            shelves = conn.execute(
-                "SELECT id, name FROM pantry_shelves WHERE section_id = ?",
+            shelf_ids = [row["id"] for row in conn.execute(
+                "SELECT id FROM pantry_shelves WHERE section_id = ?",
                 (section_id,),
-            ).fetchall()
-            for shelf in shelves:
-                stock = conn.execute(
+            ).fetchall()]
+            removed_stock = 0
+            for sid in shelf_ids:
+                removed_stock += conn.execute(
                     "SELECT COALESCE(SUM(quantity), 0) AS total FROM item_shelf_stock "
-                    "WHERE shelf_id = ?", (shelf["id"],),
+                    "WHERE shelf_id = ?", (sid,),
                 ).fetchone()["total"]
-                if stock > 0:
-                    raise ValueError(
-                        f"Shelf \"{shelf['name']}\" still has {stock} unit(s). "
-                        "Transfer or remove all stock before deleting the section."
-                    )
-            for shelf in shelves:
-                conn.execute("DELETE FROM item_shelf_stock WHERE shelf_id = ?", (shelf["id"],))
+                conn.execute(
+                    "DELETE FROM pantry_cart_lines WHERE shelf_id = ? AND cart_id IN "
+                    "(SELECT id FROM pantry_carts WHERE status = 'OPEN')",
+                    (sid,),
+                )
+                conn.execute("DELETE FROM item_shelf_stock WHERE shelf_id = ?", (sid,))
             conn.execute("DELETE FROM pantry_shelves WHERE section_id = ?", (section_id,))
             conn.execute("DELETE FROM pantry_sections WHERE id = ?", (section_id,))
             conn.execute(
                 "INSERT INTO activity_log (username, action, detail) VALUES (?, 'SECTION_DELETE', ?)",
-                (username, f"section={section_id} name={section['name']} shelves={len(shelves)}"),
+                (username, f"section={section_id} name={section['name']} "
+                 f"shelves={len(shelf_ids)} removed_stock={removed_stock}"),
             )
             conn.commit()
         except Exception:
