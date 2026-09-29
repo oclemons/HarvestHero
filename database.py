@@ -1314,7 +1314,8 @@ class Database:
         contents = {}
         if include_items:
             rows = conn.execute(
-                "SELECT stock.shelf_id, stock.item_id, stock.quantity, item.item_name "
+                "SELECT stock.shelf_id, stock.item_id, stock.quantity, "
+                "item.item_name, item.barcode "
                 "FROM item_shelf_stock stock JOIN inventory_items item ON item.id = stock.item_id "
                 "ORDER BY item.item_name COLLATE NOCASE, item.id"
             ).fetchall()

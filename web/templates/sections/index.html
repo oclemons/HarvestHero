@@ -45,7 +45,19 @@
               <span class="text-sm text-slate-600">{{ shelf.units }} unit{{ '' if shelf.units == 1 else 's' }}</span>
               <ul class="w-full border-t border-slate-200 pt-2 space-y-1 text-sm">
                 {% for food in shelf['items'] %}
-                  <li class="flex justify-between gap-2"><a href="{{ url_for('inventory.detail', item_id=food.item_id) }}" class="text-emerald-800 underline">{{ food.item_name }}</a><span>{{ food.quantity }} unit{{ '' if food.quantity == 1 else 's' }}</span></li>
+                  <li class="flex items-center justify-between gap-2">
+                    <a href="{{ url_for('inventory.detail', item_id=food.item_id) }}" class="text-emerald-800 underline">{{ food.item_name }}</a>
+                    <span class="flex items-center gap-2">
+                      <span>{{ food.quantity }} unit{{ '' if food.quantity == 1 else 's' }}</span>
+                      <form method="post" action="{{ url_for('inventory.delete', item_id=food.item_id) }}" class="inline"
+                            onsubmit="return confirm('Delete {{ food.item_name | e }}?')">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="confirm_barcode" value="{{ food.barcode }}">
+                        <input type="hidden" name="redirect_to" value="pantry">
+                        <button type="submit" class="text-red-700 text-xs font-semibold hover:underline">Delete</button>
+                      </form>
+                    </span>
+                  </li>
                 {% else %}<li class="text-slate-500">No items assigned yet.</li>{% endfor %}
               </ul>
               <details class="w-full text-sm">

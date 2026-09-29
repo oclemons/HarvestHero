@@ -89,6 +89,7 @@
               </a>
             </th>
           {% endfor %}
+          {% if current_user.is_admin %}<th class="px-4 py-2"></th>{% endif %}
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100 text-sm">
@@ -109,6 +110,16 @@
               {% elif column == 'location' %}<td class="px-4 py-2 text-slate-700">{{ locations.get(it.id, '—') }}</td>
               {% endif %}
             {% endfor %}
+            {% if current_user.is_admin %}
+              <td class="px-4 py-2">
+                <form method="post" action="{{ url_for('inventory.delete', item_id=it.id) }}"
+                      onsubmit="return confirm('Delete {{ it.item_name | e }}? This removes all stock and history.')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="confirm_barcode" value="{{ it.barcode }}">
+                  <button type="submit" class="text-red-700 text-xs font-semibold hover:underline">Delete</button>
+                </form>
+              </td>
+            {% endif %}
           </tr>
         {% endfor %}
       </tbody>

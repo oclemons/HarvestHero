@@ -74,7 +74,7 @@ class InventoryColumns(unittest.TestCase):
         })
         self.assertEqual(response.status_code, 302)
         body = self.client.get("/inventory/").get_data(as_text=True)
-        headings = re.findall(r"<th[^>]*>(.*?)</th>", body, flags=re.S)
+        headings = [h for h in re.findall(r"<th[^>]*>(.*?)</th>", body, flags=re.S) if h.strip()]
         self.assertEqual(len(headings), 3)
         self.assertIn("Qty", headings[0])
         self.assertIn("Item", headings[1])

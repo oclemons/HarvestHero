@@ -320,6 +320,8 @@ def delete(item_id: int):
         flash(str(error), "error")
         return redirect(url_for("inventory.detail", item_id=item_id))
     flash(f"Deleted '{name}'.", "success")
+    if request.form.get("redirect_to") == "pantry":
+        return redirect(url_for("sections.index"))
     return redirect(url_for("inventory.list_items"))
 
 
