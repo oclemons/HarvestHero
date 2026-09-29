@@ -22,7 +22,7 @@ from flask import (
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from flask_login import current_user, login_required
 
-from database import Database
+from database import Database, INVENTORY_COLUMNS
 from decorators import admin_required
 
 
@@ -33,15 +33,28 @@ _db = Database()
 # How many items to show per page in the list view. Keeps the initial
 # HTML tiny (< 100 rows) even for pantries that grow to thousands.
 _PAGE_SIZE = 25
+_COLUMN_LABELS = {"barcode": "Barcode", "item": "Item", "category": "Category",
+                  "quantity": "Qty", "minimum": "Min", "location": "Location"}
 
 
 @bp.route("/")
 @login_required
 def list_items():
-    search = (request.args.get("q") or "").strip()
+    search = (request.args.get("q") or "").strip()[:100]
+    columns = (_db.get_inventory_columns(int(current_user.id))
+               if current_user.is_admin else list(INVENTORY_COLUMNS))
+    requested_sort = request.args.get("sort") or "item"
+    sort = requested_sort if requested_sort in columns else "item"
+    direction = ("desc" if requested_sort in columns and
+                 request.args.get("direction") == "desc" else "asc")
 
     # get_all_items handles empty-string search fine (returns everything).
-    all_items = _db.get_all_items(search) or []
+    all_items = _db.get_all_items(search, sort=sort, direction=direction) or []
+    if sort == "location":
+        all_locations = _db.get_item_locations([item["id"] for item in all_items])
+        all_items.sort(key=lambda item: (all_locations.get(item["id"], "").casefold(),
+                                         item["item_name"].casefold(), item["id"]),
+                       reverse=direction == "desc")
 
     total_matches = len(all_items)
     total_pages   = max(1, ceil(total_matches / _PAGE_SIZE))
@@ -65,8 +78,39 @@ def list_items():
         total_matches=total_matches,
         page_size=_PAGE_SIZE,
         low_stock_ids=_low_stock_id_set(),
-        locations=_db.get_item_locations([item["id"] for item in page_items]),
+        locations=(all_locations if sort == "location" else
+                   _db.get_item_locations([item["id"] for item in page_items])),
+        columns=columns, column_labels=_COLUMN_LABELS, all_columns=INVENTORY_COLUMNS,
+        sort=sort, direction=direction,
     )
+
+
+@bp.route("/columns", methods=["POST"])
+@login_required
+@admin_required
+def save_columns():
+    visible = request.form.getlist("visible")
+    if (not visible or "item" not in visible or len(visible) != len(set(visible)) or
+            any(column not in INVENTORY_COLUMNS for column in visible)):
+        abort(400)
+    try:
+        positions = {column: int(request.form.get(f"position_{column}") or "")
+                     for column in visible}
+    except ValueError:
+        abort(400)
+    if any(not 1 <= position <= len(INVENTORY_COLUMNS) for position in positions.values()):
+        abort(400)
+    ordered = sorted(visible, key=lambda column: (positions[column],
+                                                   INVENTORY_COLUMNS.index(column)))
+    try:
+        _db.save_inventory_columns(int(current_user.id), ordered)
+    except ValueError:
+        abort(400)
+    flash("Your inventory columns were saved.", "success")
+    return redirect(url_for("inventory.list_items", q=request.form.get("q") or "",
+                            sort=request.form.get("sort") or "item",
+                            direction=request.form.get("direction") or "asc",
+                            page=request.form.get("page") or "1"))
 
 
 @bp.route("/<int:item_id>")

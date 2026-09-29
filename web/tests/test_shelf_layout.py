@@ -79,6 +79,9 @@ class ShelfLayout(unittest.TestCase):
         visit = upgraded.get_client_visits(1)[0]
         self.assertEqual(client["student_id"], "S123")
         self.assertIsNone(client["birth_date"])
+        self.assertEqual(client["household_size"], 1)
+        self.assertEqual(client["allergies"], "")
+        self.assertEqual(client["religious_restrictions"], "")
         self.assertEqual(visit["items_json"], '[{"name":"Rice"}]')
         self.assertIsNone(visit["known_weight_milli_lb"])
         self.assertEqual(visit["weight_complete"], 0)
@@ -113,11 +116,14 @@ class ShelfLayout(unittest.TestCase):
         conn = sqlite3.connect(old_path)
         try:
             self.assertIn("mode", {row[1] for row in conn.execute("PRAGMA table_info(pantry_carts)")})
+            self.assertIn("fulfillment_type", {row[1] for row in conn.execute("PRAGMA table_info(pantry_carts)")})
             self.assertIn("is_void", {row[1] for row in conn.execute("PRAGMA table_info(pantry_visits)")})
+            self.assertIn("verified_term", {row[1] for row in conn.execute("PRAGMA table_info(pantry_visits)")})
             self.assertIn("scan_request_id", {row[1] for row in conn.execute("PRAGMA table_info(inventory_movements)")})
             self.assertIn("reverses_movement_id", {row[1] for row in conn.execute("PRAGMA table_info(inventory_movements)")})
-            self.assertEqual(conn.execute("SELECT mode FROM pantry_carts WHERE id='existing-cart'").fetchone()[0],
-                             "REVIEW")
+            self.assertEqual(conn.execute("SELECT mode, fulfillment_type FROM pantry_carts "
+                                          "WHERE id='existing-cart'").fetchone(),
+                             ("REVIEW", "in_person"))
         finally:
             conn.close()
 
@@ -156,6 +162,39 @@ class ShelfLayout(unittest.TestCase):
         self.assertEqual(item["unit_weight_milli_lb"], 625)
         self.assertEqual(self.db.get_item_shelf_stock(item_id)[0]["quantity"], 12)
         self.assertEqual(self.db.get_pantry_layout()[0]["shelves"][0]["units"], 12)
+
+    def test_two_foods_share_a_shelf_and_renames_preserve_stock(self):
+        section_id = self.db.create_pantry_section("Section 3")
+        shelf_id = self.db.create_pantry_shelf(section_id, "Shelf 1")
+        veg_id = self.db.create_item_on_shelf("VEGS", "Mixed vegetables", "Canned", 4, 0,
+                                               shelf_id, "admin")
+        potato_id = self.db.create_item_on_shelf("POTATO", "Potatoes", "Produce", 7, 0,
+                                                  shelf_id, "admin")
+        shelf = self.db.get_pantry_layout(include_items=True)[0]["shelves"][0]
+        self.assertEqual(shelf["units"], 11)
+        self.assertEqual({item["item_name"] for item in shelf["items"]},
+                         {"Mixed vegetables", "Potatoes"})
+        self.db.rename_pantry_section(section_id, "Section 3 East", "admin")
+        self.db.update_pantry_shelf(shelf_id, "Shelf 1A", True, "admin")
+        self.assertEqual(self.db.get_item_by_id(veg_id)["current_quantity"], 4)
+        self.assertEqual(self.db.get_item_by_id(potato_id)["current_quantity"], 7)
+        renamed = self.db.get_pantry_layout(include_items=True)[0]["shelves"][0]
+        self.assertEqual(renamed["name"], "Shelf 1A")
+        self.assertEqual(renamed["is_overflow"], 1)
+        self.assertIn("Section 3 East / Shelf 1A", self.db.get_item_locations([veg_id])[veg_id])
+
+    def test_same_shelf_label_is_unique_per_section_not_per_item(self):
+        first = self.db.create_pantry_section("Section 3")
+        shelf_id = self.db.create_pantry_shelf(first, "Shelf 1")
+        with self.assertRaises(ValueError):
+            self.db.create_pantry_shelf(first, "shelf 1")
+        second = self.db.create_pantry_section("Section 4")
+        self.db.create_pantry_shelf(second, "Shelf 1")
+        other = self.db.create_pantry_shelf(first, "Shelf 2")
+        with self.assertRaises(ValueError):
+            self.db.update_pantry_shelf(other, "Shelf 1", False, "admin")
+        self.assertEqual(self.db.get_item_shelf_stock(999), [])
+        self.assertEqual(shelf_id, self.db.get_pantry_layout()[0]["shelves"][0]["id"])
 
     def test_split_shelves_and_transfer_preserve_total(self):
         section_id = self.db.create_pantry_section("Dry goods")

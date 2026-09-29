@@ -236,6 +236,49 @@ class DemoFlow(unittest.TestCase):
         self.assertIn(b"demo_student", admin_page)
         self.assertIn(b"/admin/users/", admin_page)
 
+    def test_admin_sees_multiple_items_on_shelf_and_can_rename_layout(self):
+        section_id = self.db.create_pantry_section("Section 3")
+        shelf_id = self.db.create_pantry_shelf(section_id, "Shelf 1")
+        self.db.create_item_on_shelf("VEGS", "Mixed vegetables", "Canned", 4, 0,
+                                     shelf_id, "demo_admin")
+        self.db.create_item_on_shelf("POTATO", "Potatoes", "Produce", 7, 0,
+                                     shelf_id, "demo_admin")
+        self.login("demo_admin")
+        pantry = self.client.get("/pantry/").data
+        self.assertIn(b"Mixed vegetables", pantry)
+        self.assertIn(b"Potatoes", pantry)
+        self.assertEqual(self.client.post(f"/pantry/sections/{section_id}/edit", data={
+            "name": "Section 3 East",
+        }).status_code, 302)
+        self.assertEqual(self.client.post(f"/pantry/shelves/{shelf_id}/edit", data={
+            "name": "Shelf 1A", "is_overflow": "on",
+        }).status_code, 302)
+        self.assertIn(b"Shelf 1A", self.client.get("/pantry/").data)
+        self.client.get("/logout")
+        self.login("demo_student")
+        self.assertEqual(self.client.post(f"/pantry/sections/{section_id}/edit", data={
+            "name": "Forged",
+        }).status_code, 403)
+        self.assertEqual(self.client.post(f"/pantry/shelves/{shelf_id}/edit", data={
+            "name": "Forged",
+        }).status_code, 403)
+
+    def test_layout_edits_require_csrf(self):
+        section_id = self.db.create_pantry_section("Section 3")
+        shelf_id = self.db.create_pantry_shelf(section_id, "Shelf 1")
+        self.login("demo_admin")
+        self.app.config["WTF_CSRF_ENABLED"] = True
+        self.assertEqual(self.client.post(f"/pantry/sections/{section_id}/edit", data={
+            "name": "Changed",
+        }).status_code, 400)
+        self.assertEqual(self.client.post(f"/pantry/shelves/{shelf_id}/edit", data={
+            "name": "Changed",
+        }).status_code, 400)
+        names = next(section for section in self.db.get_pantry_layout()
+                     if section["id"] == section_id)
+        self.assertEqual(names["name"], "Section 3")
+        self.assertEqual(names["shelves"][0]["name"], "Shelf 1")
+
     def test_admin_creates_empty_shelf_and_student_is_denied(self):
         self.login("demo_admin")
         self.assertEqual(self.client.post("/pantry/sections", data={"name": "Dry goods"}).status_code, 302)

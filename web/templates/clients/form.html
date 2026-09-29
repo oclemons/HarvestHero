@@ -29,6 +29,19 @@
         <option value="part_time" {% if values.get('enrollment_status') == 'part_time' %}selected{% endif %}>Part-time</option>
       </select>
     </label>
+    <label class="block font-semibold text-sm">Household size *
+      <input name="household_size" type="number" min="1" max="99" required value="{{ values.get('household_size') or 1 }}" class="block w-full rounded border border-slate-300 p-2 mt-1">
+    </label>
+    <div class="sm:col-span-2 rounded border border-amber-200 bg-amber-50 p-4">
+      <p class="text-sm font-semibold text-amber-950">Private dietary information · Admin only</p>
+      <p class="text-xs text-slate-700 mt-1">Record only information needed to serve this client. These notes are not an automated allergen or ingredient safety check.</p>
+      <label class="block font-semibold text-sm mt-3">Allergies (if disclosed)
+        <textarea name="allergies" rows="2" maxlength="1000" class="block w-full rounded border border-slate-300 p-2 mt-1">{{ values.get('allergies') or '' }}</textarea>
+      </label>
+      <label class="block font-semibold text-sm mt-3">Religious food restrictions (if disclosed)
+        <textarea name="religious_restrictions" rows="2" maxlength="1000" class="block w-full rounded border border-slate-300 p-2 mt-1">{{ values.get('religious_restrictions') or '' }}</textarea>
+      </label>
+    </div>
     <div class="sm:col-span-2"><button type="submit" class="rounded bg-emerald-800 text-white px-5 py-3 font-semibold hover:bg-emerald-900">{{ 'Save changes' if client_id is defined else 'Save private client record' }}</button></div>
   </form>
 </div>

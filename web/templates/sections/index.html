@@ -4,7 +4,7 @@
 <div class="mb-8">
   <p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">Pantry layout</p>
   <h1 class="text-3xl font-bold mt-2">Sections and shelves</h1>
-  <p class="text-slate-600 mt-2">Give every item a place. Empty shelves stay visible so you can plan ahead.</p>
+  <p class="text-slate-600 mt-2">One shelf can hold many foods. Add mixed vegetables and potatoes to the same Section 3 / Shelf 1; do not create duplicate shelf records. Empty shelves remain visible.</p>
 </div>
 <div class="grid gap-6 lg:grid-cols-3">
   <div class="lg:col-span-2 space-y-5">
@@ -14,15 +14,39 @@
           <h2 class="text-xl font-bold">{{ section.name }}</h2>
           {% if section.system %}<span class="text-xs font-semibold text-amber-900 bg-amber-100 rounded px-2 py-1">Needs shelf assignment</span>{% endif %}
         </div>
-        {% if section.system %}<p class="text-sm text-slate-600 mt-2">Existing stock without a confirmed shelf stays here until an administrator moves it.</p>{% endif %}
+        {% if section.system %}<p class="text-sm text-slate-600 mt-2">Existing stock without a confirmed shelf stays here until an administrator moves it.</p>
+        {% else %}
+          <form method="post" action="{{ url_for('sections.edit_section', section_id=section.id) }}" class="mt-4 flex flex-wrap items-end gap-2 text-sm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="font-semibold">Rename section
+              <input name="name" maxlength="80" required value="{{ section.name }}" class="block rounded border border-slate-300 px-2 py-1 mt-1">
+            </label>
+            <button type="submit" class="text-emerald-800 underline font-semibold py-1">Save name</button>
+          </form>
+        {% endif %}
         {% if section.shelves %}
           <ul class="mt-5 grid gap-3 sm:grid-cols-2">
           {% for shelf in section.shelves %}
-            <li class="rounded-lg border border-slate-200 bg-stone-50 px-4 py-3 flex items-center justify-between gap-3">
+            <li class="rounded-lg border border-slate-200 bg-stone-50 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
               <div><span class="font-semibold">{{ shelf.name }}</span>
                 {% if shelf.is_overflow %}<span class="block text-xs text-amber-800">Overflow</span>{% endif %}
               </div>
               <span class="text-sm text-slate-600">{{ shelf.units }} unit{{ '' if shelf.units == 1 else 's' }}</span>
+              <ul class="w-full border-t border-slate-200 pt-2 space-y-1 text-sm">
+                {% for food in shelf['items'] %}
+                  <li class="flex justify-between gap-2"><a href="{{ url_for('inventory.detail', item_id=food.item_id) }}" class="text-emerald-800 underline">{{ food.item_name }}</a><span>{{ food.quantity }} unit{{ '' if food.quantity == 1 else 's' }}</span></li>
+                {% else %}<li class="text-slate-500">No items assigned yet.</li>{% endfor %}
+              </ul>
+              {% if not section.system %}
+                <form method="post" action="{{ url_for('sections.edit_shelf', shelf_id=shelf.id) }}" class="w-full flex flex-wrap items-end gap-2 text-sm">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <label class="font-semibold">Shelf name
+                    <input name="name" maxlength="80" required value="{{ shelf.name }}" class="block rounded border border-slate-300 px-2 py-1 mt-1">
+                  </label>
+                  <label class="flex items-center gap-1"><input name="is_overflow" type="checkbox" {% if shelf.is_overflow %}checked{% endif %}> Overflow</label>
+                  <button type="submit" class="text-emerald-800 underline font-semibold py-1">Save shelf</button>
+                </form>
+              {% endif %}
             </li>
           {% endfor %}
           </ul>

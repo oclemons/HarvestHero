@@ -17,13 +17,18 @@
       <option value="">Choose a verified client</option>
       {% for person in clients %}
         <option value="{{ person.id }}" {% if not person.eligible %}disabled{% endif %}>
-          {{ person.first_name }} {{ person.last_name }} · ID ending {{ person.student_id_last4 }}{% if not person.eligible %} (verification needed){% endif %}
+          {{ person.first_name }} {{ person.last_name }} · ID ending {{ person.student_id_last4 }}{% if not person.eligible %} ({{ 'semester visit limit reached' if person.allowance.verified else 'verification needed' }}){% endif %}
         </option>
       {% endfor %}
     </select>
+    <label for="fulfillment-type" class="block font-semibold">How will this student receive the food?</label>
+    <select id="fulfillment-type" name="fulfillment_type" required class="w-full rounded border border-slate-300 px-3 py-3">
+      <option value="in_person">In person</option>
+      <option value="locker">Locker order</option>
+    </select>
     <button type="submit" class="rounded bg-emerald-800 px-5 py-3 text-white font-semibold hover:bg-emerald-900">Begin visitor session</button>
   </form>
-  <p class="mt-4 text-sm text-slate-600">Each valid out-scan immediately updates stock and this customer's visit. You can undo a mistaken scan with a reason; finish the session before serving another customer.</p>
+  <p class="mt-4 text-sm text-slate-600">Each valid out-scan immediately updates stock and this student's visit. In-person handoff and placing a locker order each use one semester visit. Undo a mistaken scan with a reason, then finish the session before serving another student.</p>
   <p class="mt-4 text-sm text-slate-600">Not listed or not verified? <a class="underline text-emerald-800" href="{{ url_for('clients.index') }}">Review the private client record</a>.</p>
 </section>
 {% else %}
@@ -31,7 +36,14 @@
   <div class="lg:col-span-2 space-y-5">
     <section class="bg-white rounded-xl border border-emerald-100 shadow-sm p-6">
       <h2 class="text-xl font-bold">{{ client.first_name }} {{ client.last_name }}</h2>
-      <p class="text-sm text-slate-600">Private client visit · {{ stats.total_visits }} previous visit{{ '' if stats.total_visits == 1 else 's' }}</p>
+      {% if client.allergies or client.religious_restrictions %}
+        <div class="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <strong>Private dietary notes — review food labels manually.</strong>
+          {% if client.allergies %}<p class="mt-1">Allergies: {{ client.allergies }}</p>{% endif %}
+          {% if client.religious_restrictions %}<p class="mt-1">Religious restrictions: {{ client.religious_restrictions }}</p>{% endif %}
+        </div>
+      {% endif %}
+      <p class="text-sm text-slate-600">{{ cart.fulfillment_type|replace('_', ' ')|title }} · {{ stats.total_visits }} recorded visit{{ '' if stats.total_visits == 1 else 's' }} including this session</p>
       <p class="font-semibold mt-3">{{ '%.3f'|format(stats.known_weight_milli_lb / 1000) }} known lb across prior visits</p>
       {% if stats.pending_visits %}<p class="text-sm text-amber-900 mt-1">{{ stats.pending_visits }} visit{{ '' if stats.pending_visits == 1 else 's' }} with incomplete weight. Lifetime pounds are provisional.</p>{% endif %}
       <a class="text-sm text-emerald-800 underline mt-2 inline-block" href="{{ url_for('clients.detail', client_id=client.id) }}">View private visit history</a>

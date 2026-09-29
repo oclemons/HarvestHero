@@ -35,7 +35,8 @@ class ClientExports(unittest.TestCase):
             self.db.create_user(username, hashed, salt, role)
         self.client_id = self.db.register_pantry_client(
             "0001234567", "=FORMULA", "Rivera", "2003-04-05", "Spring 2028",
-            "full_time", "admin",
+            "full_time", "admin", household_size=4,
+            allergies="=PEANUT", religious_restrictions="+NO_PORK",
         )
         from app import create_app
         self.app = create_app()
@@ -57,6 +58,8 @@ class ClientExports(unittest.TestCase):
         self.assertNotIn(b"2003-04-05", denied.data)
         response = self.web.post("/clients/exports/customers.csv", data={
             "admin_password": "PantryPass!123",
+            "fields": ["student_id", "first_name", "birth_date"],
+            "acknowledge_sensitive": "on",
         })
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["Cache-Control"], "private, no-store")
@@ -64,7 +67,34 @@ class ClientExports(unittest.TestCase):
         self.assertEqual(rows[0]["student_id"], "0001234567")
         self.assertEqual(rows[0]["first_name"], "'=FORMULA")
         self.assertEqual(rows[0]["birth_date"], "2003-04-05")
+        self.assertNotIn("=PEANUT", response.get_data(as_text=True))
+        private = self.web.post("/clients/exports/customers.csv", data={
+            "admin_password": "PantryPass!123",
+            "fields": ["allergies", "religious_restrictions"],
+            "acknowledge_sensitive": "on",
+        })
+        private_row = list(csv.DictReader(io.StringIO(private.get_data(as_text=True))))[0]
+        self.assertEqual(private_row["allergies"], "'=PEANUT")
+        self.assertEqual(private_row["religious_restrictions"], "'+NO_PORK")
         self.assertNotIn("password_hash", response.get_data(as_text=True))
+
+    def test_admin_selects_fields_and_sensitive_columns_require_acknowledgment(self):
+        self.login("admin")
+        self.assertEqual(self.web.post("/clients/exports/customers.csv", data={
+            "admin_password": "PantryPass!123", "fields": ["allergies", "student_id"],
+        }).status_code, 400)
+        selected = self.web.post("/clients/exports/customers.csv", data={
+            "admin_password": "PantryPass!123", "fields": ["first_name", "household_size"],
+            "acknowledge_sensitive": "on",
+        })
+        self.assertEqual(selected.status_code, 200)
+        row = list(csv.DictReader(io.StringIO(selected.get_data(as_text=True))))[0]
+        self.assertEqual(set(row), {"first_name", "household_size"})
+        self.assertNotIn("2003-04-05", selected.get_data(as_text=True))
+        self.assertEqual(self.web.post("/clients/exports/customers.csv", data={
+            "admin_password": "PantryPass!123", "fields": ["password_hash"],
+            "acknowledge_sensitive": "on",
+        }).status_code, 400)
 
     def test_student_and_policy_gate_cannot_export(self):
         self.login("helper")
@@ -90,17 +120,32 @@ class ClientExports(unittest.TestCase):
         self.db.add_scan_out_to_cart(admin_id, "RICE1-OUT", shelf)
         cart = self.db.get_active_cart(admin_id, "OUT")
         self.db.complete_scan_out_cart(admin_id, cart["id"], "admin")
+        self.db.start_scan_out_cart(admin_id, self.client_id, mode="IMMEDIATE",
+                                    fulfillment_type="locker")
+        self.db.record_immediate_scan_out(admin_id, "RICE1-OUT", shelf, "admin",
+                                          "locker-export-1")
+        locker_cart = self.db.get_active_cart(admin_id, "OUT")
+        self.db.complete_scan_out_cart(admin_id, locker_cart["id"], "admin")
         self.login("admin")
         response = self.web.post("/clients/exports/visits.csv", data={
             "admin_password": "PantryPass!123",
+            "fields": ["known_pounds", "lifetime_known_pounds", "pending_weight_lines",
+                       "fulfillment_type", "verified_term"],
         })
         self.assertEqual(response.status_code, 200)
         row = list(csv.DictReader(io.StringIO(response.get_data(as_text=True))))[0]
         self.assertEqual(row["known_pounds"], "0.500")
-        self.assertEqual(row["lifetime_known_pounds"], "0.500")
+        self.assertEqual(row["lifetime_known_pounds"], "1.000")
         self.assertEqual(row["pending_weight_lines"], "0")
+        locker_only = self.web.post("/clients/exports/visits.csv", data={
+            "admin_password": "PantryPass!123", "fields": ["fulfillment_type", "verified_term"],
+            "fulfillment_type": "locker", "term": "Fall 2026",
+        })
+        locker_rows = list(csv.DictReader(io.StringIO(locker_only.get_data(as_text=True))))
+        self.assertEqual(len(locker_rows), 1)
+        self.assertEqual(locker_rows[0]["fulfillment_type"], "locker")
         monthly = self.web.post("/clients/exports/monthly.csv", data={
-            "admin_password": "PantryPass!123",
+            "admin_password": "PantryPass!123", "fields": ["month_utc", "distributed_pounds"],
         })
         self.assertEqual(monthly.status_code, 200)
         self.assertIn("distributed_pounds", monthly.get_data(as_text=True))

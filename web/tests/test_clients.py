@@ -122,6 +122,17 @@ class ClientAccess(unittest.TestCase):
             "student_id": "X",
         }).status_code, 403)
 
+    def test_enrollment_type_change_revokes_current_term(self):
+        client_id = self.create_client()
+        expiry = (datetime.date.today() + datetime.timedelta(days=100)).isoformat()
+        self.db.verify_client_term(client_id, "fall 2026", expiry, "admin_a")
+        self.assertEqual(self.db.get_client_visit_allowance(client_id)["term"], "Fall 2026")
+        self.db.update_registered_client(client_id, "0001234567", "Avery", "Rivera",
+                                         "2003-04-05", "Fall 2028", "part_time", "admin_a")
+        self.assertFalse(self.db.is_client_eligible(client_id))
+        self.db.verify_client_term(client_id, "Fall 2026", expiry, "admin_a")
+        self.assertEqual(self.db.get_client_visit_allowance(client_id)["limit"], 2)
+
     def test_deactivation_revokes_verification_until_rechecked(self):
         client_id = self.create_client()
         expiry = (datetime.date.today() + datetime.timedelta(days=100)).isoformat()
@@ -131,6 +142,32 @@ class ClientAccess(unittest.TestCase):
         self.assertFalse(self.db.is_client_eligible(client_id))
         self.client.post(f"/clients/{client_id}/status", data={"active": "1"})
         self.assertFalse(self.db.is_client_eligible(client_id))
+
+    def test_private_dietary_fields_and_household_size_are_saved_and_admin_only(self):
+        self.login("admin_a")
+        response = self.client.post("/clients/new", data={
+            "student_id": "S999", "first_name": "Sam", "last_name": "Lee",
+            "birth_date": "2002-06-01", "graduation_semester": "Spring 2028",
+            "enrollment_status": "part_time", "household_size": "4",
+            "allergies": "Peanuts", "religious_restrictions": "No pork",
+        })
+        self.assertEqual(response.status_code, 302)
+        client_id = self.db.list_private_clients()[0]["id"]
+        client = self.db.get_pantry_client(client_id)
+        self.assertEqual((client["household_size"], client["allergies"],
+                          client["religious_restrictions"]), (4, "Peanuts", "No pork"))
+        detail_response = self.client.get(f"/clients/{client_id}")
+        self.assertEqual(detail_response.headers["Cache-Control"], "private, no-store")
+        detail = detail_response.data
+        self.assertIn(b"Peanuts", detail)
+        self.assertIn(b"No pork", detail)
+        directory = self.client.get("/clients/").data
+        self.assertNotIn(b"Peanuts", directory)
+        self.assertNotIn(b"No pork", directory)
+        self.client.get("/logout")
+        self.login("student_a")
+        self.assertEqual(self.client.get(f"/clients/{client_id}").status_code, 403)
+        self.assertNotIn(b"Peanuts", self.client.get("/app").data)
 
     def test_duplicate_id_and_expired_verification_block_eligibility(self):
         client_id = self.create_client()

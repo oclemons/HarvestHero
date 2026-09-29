@@ -101,7 +101,8 @@ class ScanOut(unittest.TestCase):
 
     def test_immediate_scan_undo_restores_stock_and_voids_empty_visit(self):
         self.verify()
-        self.db.start_scan_out_cart(self.admin_id, self.client_id, mode="IMMEDIATE")
+        self.db.start_scan_out_cart(self.admin_id, self.client_id, mode="IMMEDIATE",
+                                    fulfillment_type="locker")
         movement_id = self.db.record_immediate_scan_out(
             self.admin_id, "RICE1-OUT", self.shelf_id, "admin_a", "scan-event-003",
         )
@@ -164,6 +165,92 @@ class ScanOut(unittest.TestCase):
         self.assertEqual(self.db.get_client_weight_summary(self.client_id)["pending_visits"], 0)
         self.assertEqual(self.db.get_monthly_weight_report(month)["pending_lines"], before - 1)
         self.assertFalse(any(row["id"] == movement_id for row in self.db.get_pending_weight_movements()))
+
+    def test_full_time_three_visits_include_locker_and_in_person(self):
+        self.verify()
+        for index, kind in enumerate(("in_person", "locker", "in_person")):
+            mode = "IMMEDIATE" if kind == "locker" else "REVIEW"
+            self.db.start_scan_out_cart(self.admin_id, self.client_id,
+                                        mode=mode, fulfillment_type=kind)
+            if mode == "IMMEDIATE":
+                self.db.record_immediate_scan_out(self.admin_id, "RICE1-OUT", self.shelf_id,
+                                                  "admin_a", f"locker-slot-{index}")
+            else:
+                self.db.add_scan_out_to_cart(self.admin_id, "RICE1-OUT", self.shelf_id)
+            cart = self.db.get_active_cart(self.admin_id, "OUT")
+            self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a")
+        self.assertEqual(self.db.get_client_weight_summary(self.client_id)["total_visits"], 3)
+        self.assertEqual(self.db.get_client_visit_allowance(self.client_id)["remaining"], 0)
+        visits = self.db.get_client_visits(self.client_id)
+        self.assertEqual({visit["fulfillment_type"] for visit in visits}, {"in_person", "locker"})
+        self.assertTrue(all(visit["verified_term"] == "Fall 2026" for visit in visits))
+        with self.assertRaises(ValueError):
+            self.db.start_scan_out_cart(self.admin_id, self.client_id, mode="IMMEDIATE")
+        self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 2)
+        self.login("admin_a")
+        detail = self.web.get(f"/clients/{self.client_id}").data
+        self.assertIn(b"3 of 3 visits used", detail)
+        self.assertIn(b"semester visit allowance reached", detail)
+        scan_page = self.web.get("/scan/out")
+        self.assertIn(b"semester visit limit reached", scan_page.data)
+        self.assertEqual(scan_page.headers["Cache-Control"], "private, no-store")
+
+    def test_part_time_two_visits_per_term_then_resets_after_new_verification(self):
+        part_time = self.db.register_pantry_client(
+            "P123", "Taylor", "Rivera", "2004-02-02", "Spring 2028", "part_time", "admin_a",
+        )
+        expiry = (datetime.date.today() + datetime.timedelta(days=100)).isoformat()
+        self.db.verify_client_term(part_time, "Fall 2026", expiry, "admin_a")
+        for kind in ("locker", "in_person"):
+            mode = "IMMEDIATE" if kind == "locker" else "REVIEW"
+            self.db.start_scan_out_cart(self.admin_id, part_time, mode=mode,
+                                        fulfillment_type=kind)
+            if mode == "IMMEDIATE":
+                self.db.record_immediate_scan_out(self.admin_id, "RICE1-OUT", self.shelf_id,
+                                                  "admin_a", "part-locker-1")
+            else:
+                self.db.add_scan_out_to_cart(self.admin_id, "RICE1-OUT", self.shelf_id)
+            cart = self.db.get_active_cart(self.admin_id, "OUT")
+            self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a")
+        with self.assertRaises(ValueError):
+            self.db.start_scan_out_cart(self.admin_id, part_time)
+        self.assertEqual(self.db.get_client_visit_allowance(part_time)["limit"], 2)
+        self.db.verify_client_term(part_time, "Spring 2027", expiry, "admin_a")
+        self.assertEqual(self.db.get_client_visit_allowance(part_time)["remaining"], 2)
+        self.db.start_scan_out_cart(self.admin_id, part_time)
+        self.db.add_scan_out_to_cart(self.admin_id, "RICE1-OUT", self.shelf_id)
+        cart = self.db.get_active_cart(self.admin_id, "OUT")
+        self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a")
+        self.assertEqual(self.db.get_client_weight_summary(part_time)["total_visits"], 3)
+        self.assertEqual(self.db.get_client_visit_allowance(part_time)["remaining"], 1)
+
+    def test_two_open_admin_sessions_cannot_exceed_last_semester_slot(self):
+        self.verify()
+        for _ in range(2):
+            self.db.start_scan_out_cart(self.admin_id, self.client_id)
+            self.db.add_scan_out_to_cart(self.admin_id, "RICE1-OUT", self.shelf_id)
+            cart = self.db.get_active_cart(self.admin_id, "OUT")
+            self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a")
+        from auth import hash_password
+        hashed, salt = hash_password("PantryPass!123")
+        self.db.create_user("admin_b", hashed, salt, "admin")
+        other_admin = self.db.get_user("admin_b")["id"]
+        self.db.start_scan_out_cart(self.admin_id, self.client_id, mode="IMMEDIATE")
+        self.db.start_scan_out_cart(other_admin, self.client_id, mode="IMMEDIATE")
+        self.db.record_immediate_scan_out(self.admin_id, "RICE1-OUT", self.shelf_id,
+                                          "admin_a", "last-slot-a")
+        with self.assertRaises(ValueError):
+            self.db.record_immediate_scan_out(other_admin, "RICE1-OUT", self.shelf_id,
+                                              "admin_b", "last-slot-b")
+        self.assertEqual(self.db.get_client_visit_allowance(self.client_id)["remaining"], 0)
+        self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 2)
+
+    def test_locker_visit_cannot_use_unreversible_review_cart(self):
+        self.verify()
+        with self.assertRaises(ValueError):
+            self.db.start_scan_out_cart(self.admin_id, self.client_id,
+                                        mode="REVIEW", fulfillment_type="locker")
+        self.assertIsNone(self.db.get_active_cart(self.admin_id, "OUT"))
 
     def test_unverified_client_cannot_start_cart(self):
         self.login("admin_a")

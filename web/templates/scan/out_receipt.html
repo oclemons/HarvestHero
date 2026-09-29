@@ -4,7 +4,7 @@
 <div class="max-w-2xl mx-auto">
   <p class="text-sm uppercase tracking-widest font-semibold text-emerald-700">Admin · private distribution receipt</p>
   <h1 class="text-3xl font-bold mt-2">Visit recorded</h1>
-  <p class="text-slate-600 mt-2">All cart items were distributed in one transaction. Visit #{{ receipt.visit_id }}.</p>
+  <p class="text-slate-600 mt-2">{{ receipt.fulfillment_type|replace('_', ' ')|title }} · {{ receipt.verified_term or 'Term not recorded' }} · Visit #{{ receipt.visit_id }}. {% if receipt.mode == 'IMMEDIATE' %}Items were recorded as they were scanned.{% else %}The cart was completed in one transaction.{% endif %}</p>
   <section class="bg-white rounded-xl border border-emerald-100 shadow-sm p-6 mt-6">
     <ul class="divide-y divide-slate-100">{% for line in receipt.lines %}
       <li class="py-3"><div class="flex justify-between gap-3"><span>{{ line.item_name }} · {{ -line.quantity_delta }} unit{{ '' if line.quantity_delta == -1 else 's' }}</span>

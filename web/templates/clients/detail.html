@@ -11,9 +11,12 @@
     <input type="hidden" name="active" value="{{ '0' if client.is_active else '1' }}">
     <button type="submit" class="text-sm font-semibold text-red-800 underline">{{ 'Deactivate client record' if client.is_active else 'Reactivate client record' }}</button>
   </form>
-  <p class="mt-2 font-semibold {{ 'text-emerald-800' if eligible else 'text-red-800' }}">
-    {{ 'Enrollment verified for checkout' if eligible else 'Checkout blocked until current-semester enrollment is verified' }}
+  <p class="mt-2 font-semibold {{ 'text-emerald-800' if eligible and allowance.remaining else 'text-red-800' }}">
+    {% if not eligible %}Checkout blocked until current-semester enrollment is verified
+    {% elif not allowance.remaining %}Checkout blocked: semester visit allowance reached
+    {% else %}Enrollment verified for checkout{% endif %}
   </p>
+  {% if allowance.verified %}<p class="text-sm text-slate-700 mt-1">{{ allowance.term }}: {{ allowance.used }} of {{ allowance.limit }} visits used; {{ allowance.remaining }} remaining. Full-time: 3, part-time: 2. Locker placements and in-person distributions both count.</p>{% endif %}
 </header>
 <div class="grid gap-6 lg:grid-cols-2">
   <section class="bg-white rounded-xl border border-emerald-100 p-6 shadow-sm">
@@ -23,6 +26,9 @@
       <div><dt class="text-slate-600">Date of birth</dt><dd class="font-semibold">{{ client.birth_date or 'Not recorded' }}</dd></div>
       <div><dt class="text-slate-600">Expected graduation</dt><dd class="font-semibold">{{ client.expected_graduation_semester or 'Not recorded' }}</dd></div>
       <div><dt class="text-slate-600">Enrollment type</dt><dd class="font-semibold">{{ client.enrollment_status|replace('_', ' ')|title }}</dd></div>
+      <div><dt class="text-slate-600">Household size</dt><dd class="font-semibold">{{ client.household_size or 1 }}</dd></div>
+      <div class="col-span-2"><dt class="text-slate-600">Allergies (private)</dt><dd class="font-semibold whitespace-pre-wrap">{{ client.allergies or 'None recorded' }}</dd></div>
+      <div class="col-span-2"><dt class="text-slate-600">Religious food restrictions (private)</dt><dd class="font-semibold whitespace-pre-wrap">{{ client.religious_restrictions or 'None recorded' }}</dd></div>
     </dl>
     <p class="mt-5 text-sm text-slate-600">Expected graduation and enrollment type do not establish current-semester eligibility.</p>
   </section>
@@ -56,7 +62,7 @@
   <p class="text-sm text-slate-600 mt-1">{{ stats.total_visits }} recorded visit{{ '' if stats.total_visits == 1 else 's' }} · {{ '%.3f'|format(stats.known_weight_milli_lb / 1000) }} known lb across all visits.</p>
   {% if stats.pending_visits %}<p class="text-sm text-amber-900 mt-2">{{ stats.pending_visits }} visit{{ '' if stats.pending_visits == 1 else 's' }} with missing or unverified weight; lifetime pounds are provisional.</p>{% endif %}
   {% if visits %}<ul class="divide-y divide-slate-100 mt-4">{% for visit in visits %}
-    <li class="py-3 text-sm">{{ visit.visit_date }} · {{ visit.recorded_by }} ·
+    <li class="py-3 text-sm">{{ visit.visit_date }} · {{ visit.fulfillment_type|replace('_', ' ')|title }} · {{ visit.verified_term or 'Term not recorded' }} · {{ visit.recorded_by }} ·
       {% if visit.is_void %}Voided correction — not counted in visit totals
       {% elif visit.weight_complete %}{{ '%.3f'|format(visit.known_weight_milli_lb / 1000) }} lb
       {% elif visit.known_weight_milli_lb is not none %}{{ '%.3f'|format(visit.known_weight_milli_lb / 1000) }} known lb (incomplete)

@@ -13,6 +13,56 @@ from extensions import limiter
 
 bp = Blueprint("clients", __name__, url_prefix="/clients")
 
+CUSTOMER_FIELDS = (
+    ("student_id", "Student ID", True),
+    ("first_name", "First name", True),
+    ("last_name", "Last name", True),
+    ("birth_date", "Birth date", True),
+    ("expected_graduation_semester", "Expected graduation", False),
+    ("enrollment_status", "Full/part-time status", False),
+    ("household_size", "Household size", False),
+    ("allergies", "Allergies", True),
+    ("religious_restrictions", "Religious food restrictions", True),
+    ("is_active", "Active account", False),
+    ("verified_term", "Verified term", False),
+    ("verified_until", "Verification expiry", False),
+    ("verification_status", "Verification status", False),
+    ("created_at", "Account created", False),
+)
+VISIT_FIELDS = (
+    ("visit_id", "Visit reference", False),
+    ("student_id", "Student ID", True),
+    ("first_name", "First name", True),
+    ("last_name", "Last name", True),
+    ("visit_date", "Visit date", False),
+    ("verified_term", "Verified semester", False),
+    ("fulfillment_type", "Locker or in-person", False),
+    ("known_pounds", "Known pounds received", False),
+    ("pending_weight_lines", "Pending weight lines", False),
+    ("weight_complete", "Weight complete", False),
+    ("visit_status", "Visit status", False),
+    ("lifetime_known_pounds", "Lifetime known pounds", False),
+    ("lifetime_pending_visits", "Lifetime pending visits", False),
+    ("recorded_by", "Admin who recorded visit", True),
+    ("items", "Food item details", True),
+)
+MONTH_FIELDS = (
+    ("month_utc", "Month (UTC)", False),
+    ("opening_pounds", "Opening pounds", False),
+    ("initial_stock_pounds", "Initial stock pounds", False),
+    ("donated_pounds", "Donated pounds", False),
+    ("distributed_pounds", "Distributed pounds", False),
+    ("adjustment_pounds", "Correction pounds", False),
+    ("closing_pounds", "Remaining pounds", False),
+    ("pending_lines", "Pending-weight lines", False),
+)
+
+
+@bp.after_request
+def _private_response(response):
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
 
 @bp.before_request
 def _require_policy():
@@ -46,11 +96,24 @@ def _authorize_export(db):
         abort(403)
 
 
+def _selected_fields(options):
+    requested = request.form.getlist("fields")
+    available = {name: sensitive for name, _, sensitive in options}
+    if (not requested or len(requested) != len(set(requested)) or
+            any(name not in available for name in requested)):
+        abort(400, "Choose only the report columns shown on the form.")
+    if (any(available[name] for name in requested) and
+            request.form.get("acknowledge_sensitive") != "on"):
+        abort(400, "Confirm sensitive-data handling before exporting those columns.")
+    return tuple(name for name, _, _ in options if name in requested)
+
+
 @bp.route("/exports")
 @login_required
 @admin_required
 def exports():
-    return render_template("clients/exports.html")
+    return render_template("clients/exports.html", customer_fields=CUSTOMER_FIELDS,
+                           visit_fields=VISIT_FIELDS, month_fields=MONTH_FIELDS)
 
 
 @bp.route("/exports/customers.csv", methods=["POST"])
@@ -61,11 +124,10 @@ def export_customers():
     from database import Database
     db = Database()
     _authorize_export(db)
-    fields = ("student_id", "first_name", "last_name", "birth_date",
-              "expected_graduation_semester", "enrollment_status", "is_active",
-              "verified_term", "verified_until", "verification_status", "created_at")
+    fields = _selected_fields(CUSTOMER_FIELDS)
     records = db.get_client_export_rows()
-    db.log_activity(current_user.username, "CLIENT_EXPORT", f"type=customers rows={len(records)}")
+    db.log_activity(current_user.username, "CLIENT_EXPORT",
+                    f"type=customers rows={len(records)} columns={','.join(fields)}")
     return _csv_download(fields, ([record[field] for field in fields] for record in records),
                          "pantry-customers.csv")
 
@@ -78,10 +140,14 @@ def export_visits():
     from database import Database
     db = Database()
     _authorize_export(db)
-    fields = ("visit_id", "student_id", "first_name", "last_name", "visit_date",
-              "known_pounds", "pending_weight_lines", "weight_complete", "visit_status",
-              "lifetime_known_pounds", "lifetime_pending_visits", "recorded_by", "items")
-    records = db.get_visit_export_rows()
+    fields = _selected_fields(VISIT_FIELDS)
+    term = (request.form.get("term") or "").strip()
+    fulfillment = request.form.get("fulfillment_type") or ""
+    if len(term) > 40 or fulfillment not in ("", "in_person", "locker"):
+        abort(400, "Choose a valid visit term and fulfillment type.")
+    records = [record for record in db.get_visit_export_rows()
+               if (not term or record["verified_term"] == term)
+               and (not fulfillment or record["fulfillment_type"] == fulfillment)]
     totals = {record["client_id"]: db.get_client_weight_summary(record["client_id"])
               for record in records}
     rows = []
@@ -99,14 +165,16 @@ def export_visits():
         if known is None and record["pounds_received"] is not None:
             known = round(record["pounds_received"] * 1000)
         summary = totals[record["client_id"]]
-        rows.append((record["visit_id"], record["student_id"], record["first_name"],
-                     record["last_name"], record["visit_date"],
-                     f"{known / 1000:.3f}" if known is not None else "",
-                     record["pending_weight_lines"], record["weight_complete"],
-                     "void" if record["is_void"] else "recorded",
-                     f"{summary['known_weight_milli_lb'] / 1000:.3f}",
-                     summary["pending_visits"], record["recorded_by"], item_summary))
-    db.log_activity(current_user.username, "CLIENT_EXPORT", f"type=visits rows={len(rows)}")
+        values = dict(record)
+        values.update(
+            known_pounds=f"{known / 1000:.3f}" if known is not None else "",
+            visit_status="void" if record["is_void"] else "recorded",
+            lifetime_known_pounds=f"{summary['known_weight_milli_lb'] / 1000:.3f}",
+            lifetime_pending_visits=summary["pending_visits"], items=item_summary,
+        )
+        rows.append(tuple(values[field] for field in fields))
+    db.log_activity(current_user.username, "CLIENT_EXPORT",
+                    f"type=visits rows={len(rows)} columns={','.join(fields)}")
     return _csv_download(fields, rows, "pantry-visits.csv")
 
 
@@ -118,16 +186,31 @@ def export_monthly():
     from database import Database
     db = Database()
     _authorize_export(db)
-    fields = ("month_utc", "opening_pounds", "initial_stock_pounds", "donated_pounds",
-              "distributed_pounds", "adjustment_pounds", "closing_pounds", "pending_lines")
+    fields = _selected_fields(MONTH_FIELDS)
+    requested_month = (request.form.get("month") or "").strip()
+    if requested_month:
+        try:
+            db.get_monthly_weight_report(requested_month)
+        except ValueError:
+            abort(400, "Enter a valid reporting month.")
     rows = []
-    for month in db.get_report_months():
+    for month in ([requested_month] if requested_month else db.get_report_months()):
         report = db.get_monthly_weight_report(month)
-        rows.append((month, *(f"{report[key] / 1000:.3f}" for key in (
-            "opening_milli_lb", "opening_baseline_milli_lb", "donated_milli_lb",
-            "distributed_milli_lb", "adjustment_milli_lb", "closing_milli_lb")),
-            report["pending_lines"]))
-    db.log_activity(current_user.username, "CLIENT_EXPORT", f"type=monthly rows={len(rows)}")
+        if not report["history_available"]:
+            continue
+        values = {"month_utc": month, "pending_lines": report["pending_lines"]}
+        for field, key in (
+            ("opening_pounds", "opening_milli_lb"),
+            ("initial_stock_pounds", "opening_baseline_milli_lb"),
+            ("donated_pounds", "donated_milli_lb"),
+            ("distributed_pounds", "distributed_milli_lb"),
+            ("adjustment_pounds", "adjustment_milli_lb"),
+            ("closing_pounds", "closing_milli_lb"),
+        ):
+            values[field] = f"{report[key] / 1000:.3f}"
+        rows.append(tuple(values[field] for field in fields))
+    db.log_activity(current_user.username, "CLIENT_EXPORT",
+                    f"type=monthly rows={len(rows)} columns={','.join(fields)}")
     return _csv_download(fields, rows, "pantry-monthly-pounds.csv")
 
 
@@ -153,7 +236,9 @@ def new():
             values.get("student_id") or "", values.get("first_name") or "",
             values.get("last_name") or "", values.get("birth_date") or "",
             values.get("graduation_semester") or "", values.get("enrollment_status") or "",
-            current_user.username,
+            current_user.username, household_size=int(values.get("household_size") or 1),
+            allergies=values.get("allergies") or "",
+            religious_restrictions=values.get("religious_restrictions") or "",
         )
     except ValueError as error:
         flash(str(error), "error")
@@ -182,11 +267,16 @@ def edit(client_id: int):
             values.get("last_name") or "", values.get("birth_date") or "",
             values.get("graduation_semester") or "", values.get("enrollment_status") or "",
             current_user.username,
+            household_size=int(values.get("household_size") or client["household_size"] or 1),
+            allergies=values.get("allergies", client["allergies"] or ""),
+            religious_restrictions=values.get(
+                "religious_restrictions", client["religious_restrictions"] or ""
+            ),
         )
     except ValueError as error:
         flash(str(error), "error")
         return render_template("clients/form.html", values=values, client_id=client_id), 400
-    flash("Client record updated. Reverify enrollment if identity details changed.", "success")
+    flash("Client record updated. Reverify enrollment if ID, birth date or full/part-time status changed.", "success")
     return redirect(url_for("clients.detail", client_id=client_id))
 
 
@@ -203,6 +293,7 @@ def detail(client_id: int):
     return render_template("clients/detail.html", client=client,
                            eligibility=db.get_client_eligibility(client_id),
                            eligible=db.is_client_eligible(client_id),
+                           allowance=db.get_client_visit_allowance(client_id),
                            visits=db.get_client_visits(client_id),
                            stats=db.get_client_weight_summary(client_id))
 

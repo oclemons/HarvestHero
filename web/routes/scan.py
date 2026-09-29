@@ -11,6 +11,13 @@ from routes.inventory import _parse_unit_weight
 bp = Blueprint("scan", __name__, url_prefix="/scan")
 
 
+@bp.after_request
+def _no_store_distribution(response):
+    if request.path.startswith("/scan/out"):
+        response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
 @bp.before_request
 def _require_policy_for_distribution():
     if (request.path.startswith("/scan/out") and current_user.is_authenticated and
@@ -123,7 +130,8 @@ def scan_out():
     people = db.list_private_clients() if not cart else []
     if not cart:
         for person in people:
-            person["eligible"] = db.is_client_eligible(person["id"])
+            person["allowance"] = db.get_client_visit_allowance(person["id"])
+            person["eligible"] = person["allowance"]["remaining"] > 0
     return render_template("scan/out.html", cart=cart, client=client, clients=people,
                            scan_token=uuid4().hex,
                            stats=db.get_client_weight_summary(cart["client_id"]) if cart else None,
@@ -138,7 +146,8 @@ def start_out():
     try:
         client_id = int(request.form.get("client_id") or "")
         Database().start_scan_out_cart(int(current_user.id), client_id,
-                                       request.form.get("mode") or "REVIEW")
+                                       request.form.get("mode") or "REVIEW",
+                                       request.form.get("fulfillment_type") or "in_person")
     except ValueError as error:
         flash(str(error) if request.form.get("client_id") else "Choose a verified client.", "error")
     return redirect(url_for("scan.scan_out"))

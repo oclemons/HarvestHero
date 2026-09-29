@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from paths import DB_PATH
 
+INVENTORY_COLUMNS = ("barcode", "item", "category", "quantity", "minimum", "location")
+
 
 def _utc_date() -> datetime.date:
     return datetime.datetime.now(datetime.timezone.utc).date()
@@ -46,6 +48,12 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
     value TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS user_inventory_views (
+    user_id INTEGER PRIMARY KEY,
+    columns_json TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS inventory_items (
@@ -151,6 +159,8 @@ CREATE TABLE IF NOT EXISTS pantry_clients (
     birth_date              TEXT,
     expected_graduation_semester TEXT DEFAULT '',
     household_size          INTEGER DEFAULT 1,
+    allergies               TEXT    DEFAULT '',
+    religious_restrictions  TEXT    DEFAULT '',
     notes                   TEXT    DEFAULT '',
     waiver_signed           INTEGER DEFAULT 0,
     locker_waiver_signed    INTEGER DEFAULT 0,
@@ -183,6 +193,9 @@ CREATE TABLE IF NOT EXISTS pantry_visits (
     pending_weight_lines INTEGER NOT NULL DEFAULT 0,
     weight_complete INTEGER NOT NULL DEFAULT 0,
     is_void INTEGER NOT NULL DEFAULT 0,
+    verified_term TEXT,
+    fulfillment_type TEXT NOT NULL DEFAULT 'unknown'
+        CHECK(fulfillment_type IN ('unknown', 'in_person', 'locker')),
     cart_id TEXT UNIQUE REFERENCES pantry_carts(id),
     notes          TEXT    DEFAULT '',
     recorded_by    TEXT    DEFAULT '',
@@ -195,6 +208,8 @@ CREATE TABLE IF NOT EXISTS pantry_carts (
     direction TEXT NOT NULL CHECK(direction IN ('IN', 'OUT')),
     client_id INTEGER REFERENCES pantry_clients(id),
     mode TEXT NOT NULL DEFAULT 'REVIEW' CHECK(mode IN ('REVIEW', 'IMMEDIATE')),
+    fulfillment_type TEXT NOT NULL DEFAULT 'in_person'
+        CHECK(fulfillment_type IN ('in_person', 'locker')),
     status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT', 'COMPLETED', 'CANCELLED')),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -428,6 +443,8 @@ class Database:
             "pending_weight_lines": "INTEGER NOT NULL DEFAULT 0",
             "weight_complete": "INTEGER NOT NULL DEFAULT 0",
             "is_void": "INTEGER NOT NULL DEFAULT 0",
+            "verified_term": "TEXT",
+            "fulfillment_type": "TEXT NOT NULL DEFAULT 'unknown' CHECK(fulfillment_type IN ('unknown', 'in_person', 'locker'))",
             "cart_id": "TEXT REFERENCES pantry_carts(id)",
         }
         try:
@@ -457,6 +474,11 @@ class Database:
                     "ALTER TABLE pantry_carts ADD COLUMN mode TEXT NOT NULL DEFAULT 'REVIEW' "
                     "CHECK(mode IN ('REVIEW', 'IMMEDIATE'))"
                 )
+            if "fulfillment_type" not in carts:
+                conn.execute(
+                    "ALTER TABLE pantry_carts ADD COLUMN fulfillment_type TEXT NOT NULL "
+                    "DEFAULT 'in_person' CHECK(fulfillment_type IN ('in_person', 'locker'))"
+                )
             for name, column_type in additions.items():
                 if name not in movements:
                     conn.execute(f"ALTER TABLE inventory_movements ADD COLUMN {name} {column_type}")
@@ -475,14 +497,20 @@ class Database:
 
     def _migrate_client_columns(self, conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(pantry_clients)")}
-        if "birth_date" in columns and "expected_graduation_semester" in columns:
+        additions = {
+            "birth_date": "TEXT",
+            "expected_graduation_semester": "TEXT DEFAULT ''",
+            "household_size": "INTEGER DEFAULT 1",
+            "allergies": "TEXT DEFAULT ''",
+            "religious_restrictions": "TEXT DEFAULT ''",
+        }
+        if all(name in columns for name in additions):
             return
         try:
             conn.execute("BEGIN IMMEDIATE")
-            if "birth_date" not in columns:
-                conn.execute("ALTER TABLE pantry_clients ADD COLUMN birth_date TEXT")
-            if "expected_graduation_semester" not in columns:
-                conn.execute("ALTER TABLE pantry_clients ADD COLUMN expected_graduation_semester TEXT DEFAULT ''")
+            for name, column_type in additions.items():
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE pantry_clients ADD COLUMN {name} {column_type}")
             conn.commit()
         except Exception:
             conn.rollback()
@@ -1069,7 +1097,68 @@ class Database:
         finally:
             conn.close()
 
-    def get_pantry_layout(self):
+    def rename_pantry_section(self, section_id: int, name: str, username: str) -> None:
+        name = name.strip()
+        if not name or len(name) > 80 or name.casefold() == "unassigned":
+            raise ValueError("Enter a section name (up to 80 characters).")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            previous = conn.execute(
+                "SELECT name, system FROM pantry_sections WHERE id = ?", (section_id,)
+            ).fetchone()
+            if not previous or previous["system"]:
+                raise ValueError("The system section cannot be renamed.")
+            conn.execute("UPDATE pantry_sections SET name = ? WHERE id = ?", (name, section_id))
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'SECTION_RENAME', ?)",
+                (username, f"section={section_id} from={previous['name']} to={name}"),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError as exc:
+            conn.rollback()
+            raise ValueError("This section name is already in use.") from exc
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def update_pantry_shelf(self, shelf_id: int, name: str, is_overflow: bool,
+                            username: str) -> None:
+        name = name.strip()
+        if not name or len(name) > 80:
+            raise ValueError("Enter a shelf name (up to 80 characters).")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            previous = conn.execute(
+                "SELECT shelf.name, shelf.is_overflow, section.system FROM pantry_shelves shelf "
+                "JOIN pantry_sections section ON section.id = shelf.section_id "
+                "WHERE shelf.id = ?", (shelf_id,),
+            ).fetchone()
+            if not previous or previous["system"]:
+                raise ValueError("The system shelf cannot be changed.")
+            conn.execute(
+                "UPDATE pantry_shelves SET name = ?, is_overflow = ? WHERE id = ?",
+                (name, int(is_overflow), shelf_id),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'SHELF_EDIT', ?)",
+                (username, f"shelf={shelf_id} from={previous['name']} to={name} "
+                 f"overflow={previous['is_overflow']}->{int(is_overflow)}"),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError as exc:
+            conn.rollback()
+            raise ValueError("This shelf name is already used in the section.") from exc
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_pantry_layout(self, include_items: bool = False):
         conn = self._connect()
         sections = conn.execute(
             "SELECT id, name, system FROM pantry_sections ORDER BY system, name COLLATE NOCASE"
@@ -1080,9 +1169,18 @@ class Database:
             "FROM pantry_shelves s LEFT JOIN item_shelf_stock stock ON stock.shelf_id = s.id "
             "GROUP BY s.id ORDER BY s.is_overflow, s.name COLLATE NOCASE"
         ).fetchall()
+        contents = {}
+        if include_items:
+            rows = conn.execute(
+                "SELECT stock.shelf_id, stock.item_id, stock.quantity, item.item_name "
+                "FROM item_shelf_stock stock JOIN inventory_items item ON item.id = stock.item_id "
+                "ORDER BY item.item_name COLLATE NOCASE, item.id"
+            ).fetchall()
+            for row in rows:
+                contents.setdefault(row["shelf_id"], []).append(dict(row))
         conn.close()
-        return [dict(section, shelves=[dict(shelf) for shelf in shelves
-                                      if shelf["section_id"] == section["id"]])
+        return [dict(section, shelves=[dict(shelf, items=contents.get(shelf["id"], []))
+                                      for shelf in shelves if shelf["section_id"] == section["id"]])
                 for section in sections]
 
     def get_item_locations(self, item_ids: list[int]) -> dict[int, str]:
@@ -1436,22 +1534,71 @@ class Database:
             return dict(row), "SCAN_OUT"
         return None, None
 
-    def get_all_items(self, search: str = "", limit: int | None = None):
+    def get_inventory_columns(self, user_id: int) -> list[str]:
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT view.columns_json FROM user_inventory_views view "
+            "JOIN users account ON account.id = view.user_id "
+            "WHERE view.user_id = ? AND account.role = 'admin' AND account.is_active = 1",
+            (user_id,),
+        ).fetchone()
+        conn.close()
+        if row:
+            try:
+                columns = json.loads(row["columns_json"])
+                if (isinstance(columns, list) and "item" in columns and
+                        len(columns) == len(set(columns)) and
+                        all(column in INVENTORY_COLUMNS for column in columns)):
+                    return columns
+            except (ValueError, TypeError):
+                pass
+        return list(INVENTORY_COLUMNS)
+
+    def save_inventory_columns(self, user_id: int, columns: list[str]) -> None:
+        if (not columns or "item" not in columns or len(columns) != len(set(columns)) or
+                any(column not in INVENTORY_COLUMNS for column in columns)):
+            raise ValueError("Choose valid, unique inventory columns and keep Item visible.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            account = conn.execute("SELECT role, is_active FROM users WHERE id = ?", (user_id,)).fetchone()
+            if not account or not account["is_active"] or account["role"] != "admin":
+                raise ValueError("Only an active Admin can customize inventory columns.")
+            conn.execute(
+                "INSERT INTO user_inventory_views (user_id, columns_json) VALUES (?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET columns_json = excluded.columns_json, "
+                "updated_at = datetime('now')", (user_id, json.dumps(columns)),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_all_items(self, search: str = "", limit: int | None = None,
+                      sort: str = "item", direction: str = "asc"):
         """Return active inventory rows.
 
         `limit` is opt-in: callers that render a table can pass a cap so
         a runaway DB doesn't try to inflate the entire inventory into
         RAM. Exports and admin scripts pass None to get everything.
         """
+        order_fields = {
+            "barcode": "barcode COLLATE NOCASE", "item": "item_name COLLATE NOCASE",
+            "category": "category COLLATE NOCASE", "quantity": "current_quantity",
+            "minimum": "minimum_stock",
+        }
+        order = order_fields.get(sort, order_fields["item"])
+        sort_direction = "DESC" if direction == "desc" and sort in order_fields else "ASC"
         conn = self._connect()
         params: list = []
+        query = "SELECT * FROM inventory_items"
         if search:
-            query = ("SELECT * FROM inventory_items "
-                     "WHERE barcode LIKE ? OR item_name LIKE ? OR category LIKE ? "
-                     "ORDER BY item_name")
-            params += [f"%{search}%", f"%{search}%", f"%{search}%"]
-        else:
-            query = "SELECT * FROM inventory_items ORDER BY item_name"
+            query += (" WHERE barcode LIKE ? OR barcode_out LIKE ? OR item_name LIKE ? "
+                      "OR category LIKE ? OR brand LIKE ?")
+            params.extend([f"%{search}%"] * 5)
+        query += f" ORDER BY {order} {sort_direction}, item_name COLLATE NOCASE, id"
         if isinstance(limit, int) and limit > 0:
             query += " LIMIT ?"
             params.append(limit)
@@ -1917,12 +2064,14 @@ class Database:
             (cart_id,),
         ).fetchall()
         visit = conn.execute(
-            "SELECT id FROM pantry_visits WHERE cart_id = ?", (cart_id,)
+            "SELECT id, verified_term, fulfillment_type FROM pantry_visits WHERE cart_id = ?",
+            (cart_id,),
         ).fetchone()
         conn.close()
         result = dict(cart)
         result["lines"] = [dict(line) for line in lines]
         result["visit_id"] = visit["id"] if visit else None
+        result["verified_term"] = visit["verified_term"] if visit else None
         result["known_weight_milli_lb"] = sum(abs(line["weight_milli_lb"] or 0) for line in lines)
         result["pending_lines"] = sum(line["weight_milli_lb"] is None for line in lines)
         return result
@@ -2026,8 +2175,8 @@ class Database:
 
     def _eligible_client_on_connection(self, conn: sqlite3.Connection, client_id: int):
         client = conn.execute(
-            "SELECT c.id, c.is_active, c.student_id, c.birth_date, "
-            "c.expected_graduation_semester, v.status, v.verified_until "
+            "SELECT c.id, c.is_active, c.student_id, c.birth_date, c.enrollment_status, "
+            "c.expected_graduation_semester, v.term, v.status, v.verified_until "
             "FROM pantry_clients c LEFT JOIN client_verifications v ON v.id = "
             "(SELECT id FROM client_verifications WHERE client_id = c.id ORDER BY id DESC LIMIT 1) "
             "WHERE c.id = ?", (client_id,),
@@ -2039,10 +2188,54 @@ class Database:
             raise ValueError("Verify this client's current-semester enrollment before checkout.")
         return client
 
+    def _check_visit_capacity_on_connection(self, conn: sqlite3.Connection,
+                                            client_id: int, cart_id: str | None = None):
+        client = self._eligible_client_on_connection(conn, client_id)
+        existing = conn.execute(
+            "SELECT verified_term FROM pantry_visits WHERE cart_id = ?", (cart_id,)
+        ).fetchone() if cart_id else None
+        if existing:
+            if existing["verified_term"] != client["term"]:
+                raise ValueError("Reverify the current semester before adding food to this visit.")
+            return client
+        limit = 3 if client["enrollment_status"] == "full_time" else 2
+        used = conn.execute(
+            "SELECT COUNT(*) FROM pantry_visits WHERE client_id = ? AND verified_term = ? "
+            "AND is_void = 0", (client_id, client["term"]),
+        ).fetchone()[0]
+        if used >= limit:
+            raise ValueError(f"This client has reached the {limit}-visit limit for {client['term']}.")
+        return client
+
+    def get_client_visit_allowance(self, client_id: int) -> dict:
+        conn = self._connect()
+        record = conn.execute(
+            "SELECT enrollment_status FROM pantry_clients WHERE id = ?", (client_id,)
+        ).fetchone()
+        if not record:
+            conn.close()
+            raise ValueError("Client not found.")
+        limit = 3 if record["enrollment_status"] == "full_time" else 2
+        try:
+            client = self._eligible_client_on_connection(conn, client_id)
+            term = client["term"]
+            used = conn.execute(
+                "SELECT COUNT(*) FROM pantry_visits WHERE client_id = ? AND verified_term = ? "
+                "AND is_void = 0", (client_id, term),
+            ).fetchone()[0]
+            return {"term": term, "used": used, "limit": limit,
+                    "remaining": max(0, limit - used), "verified": True}
+        except ValueError:
+            return {"term": None, "used": 0, "limit": limit, "remaining": 0, "verified": False}
+        finally:
+            conn.close()
+
     def start_scan_out_cart(self, owner_id: int, client_id: int,
-                            mode: str = "REVIEW") -> str:
-        if mode not in ("REVIEW", "IMMEDIATE"):
-            raise ValueError("Choose a valid distribution mode.")
+                            mode: str = "REVIEW", fulfillment_type: str = "in_person") -> str:
+        if mode not in ("REVIEW", "IMMEDIATE") or fulfillment_type not in ("in_person", "locker"):
+            raise ValueError("Choose a valid distribution mode and fulfillment type.")
+        if fulfillment_type == "locker" and mode != "IMMEDIATE":
+            raise ValueError("Locker orders require immediate mode so returned food can be undone and audited.")
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -2051,20 +2244,24 @@ class Database:
             ).fetchone()
             if not owner or owner["role"] != "admin" or not owner["is_active"]:
                 raise ValueError("Only an active administrator may distribute food.")
-            self._eligible_client_on_connection(conn, client_id)
             existing = conn.execute(
-                "SELECT id, client_id, mode FROM pantry_carts WHERE owner_id = ? AND direction = 'OUT' "
-                "AND status = 'DRAFT'", (owner_id,),
+                "SELECT id, client_id, mode, fulfillment_type FROM pantry_carts "
+                "WHERE owner_id = ? AND direction = 'OUT' AND status = 'DRAFT'", (owner_id,),
             ).fetchone()
+            if existing and (existing["client_id"] != client_id or existing["mode"] != mode or
+                             existing["fulfillment_type"] != fulfillment_type):
+                raise ValueError("Finish or cancel the current visitor's cart first.")
+            self._check_visit_capacity_on_connection(
+                conn, client_id, existing["id"] if existing else None
+            )
             if existing:
-                if existing["client_id"] != client_id or existing["mode"] != mode:
-                    raise ValueError("Finish or cancel the current visitor's cart first.")
                 conn.commit()
                 return existing["id"]
             cart_id = uuid4().hex
             conn.execute(
-                "INSERT INTO pantry_carts (id, owner_id, direction, client_id, mode) "
-                "VALUES (?, ?, 'OUT', ?, ?)", (cart_id, owner_id, client_id, mode),
+                "INSERT INTO pantry_carts (id, owner_id, direction, client_id, mode, fulfillment_type) "
+                "VALUES (?, ?, 'OUT', ?, ?, ?)",
+                (cart_id, owner_id, client_id, mode, fulfillment_type),
             )
             conn.commit()
             return cart_id
@@ -2094,7 +2291,7 @@ class Database:
                 raise ValueError("Choose an eligible client before scanning out.")
             if cart["mode"] != "REVIEW":
                 raise ValueError("This visitor is in immediate scan-out mode.")
-            self._eligible_client_on_connection(conn, cart["client_id"])
+            self._check_visit_capacity_on_connection(conn, cart["client_id"], cart["id"])
             matches = conn.execute(
                 "SELECT id FROM inventory_items WHERE barcode_out = ? OR "
                 "(barcode = ? AND (barcode_out IS NULL OR barcode_out = ''))",
@@ -2150,7 +2347,8 @@ class Database:
             conn.execute("BEGIN IMMEDIATE")
             actor = conn.execute("SELECT role, is_active FROM users WHERE id = ?", (owner_id,)).fetchone()
             cart = conn.execute(
-                "SELECT id, client_id FROM pantry_carts WHERE owner_id = ? AND direction = 'OUT' "
+                "SELECT id, client_id, fulfillment_type FROM pantry_carts "
+                "WHERE owner_id = ? AND direction = 'OUT' "
                 "AND mode = 'IMMEDIATE' AND status = 'DRAFT'", (owner_id,),
             ).fetchone()
             if not actor or actor["role"] != "admin" or not actor["is_active"] or not cart:
@@ -2164,7 +2362,7 @@ class Database:
                     raise ValueError("This scan request belongs to another visit.")
                 conn.rollback()
                 return previous["id"]
-            self._eligible_client_on_connection(conn, cart["client_id"])
+            client = self._check_visit_capacity_on_connection(conn, cart["client_id"], cart["id"])
             matches = conn.execute(
                 "SELECT id, barcode, item_name, category, current_quantity, unit_weight_milli_lb "
                 "FROM inventory_items WHERE barcode_out = ? OR "
@@ -2195,9 +2393,11 @@ class Database:
             if visit is None:
                 visit_id = conn.execute(
                     "INSERT INTO pantry_visits (client_id, pounds_received, items_json, recorded_by, "
-                    "known_weight_milli_lb, pending_weight_lines, weight_complete, cart_id) "
-                    "VALUES (?, 0, '[]', ?, 0, 0, 1, ?)",
-                    (cart["client_id"], username, cart["id"]),
+                    "known_weight_milli_lb, pending_weight_lines, weight_complete, cart_id, "
+                    "verified_term, fulfillment_type) "
+                    "VALUES (?, 0, '[]', ?, 0, 0, 1, ?, ?, ?)",
+                    (cart["client_id"], username, cart["id"], client["term"],
+                     cart["fulfillment_type"]),
                 ).lastrowid
                 items = []
             else:
@@ -2497,8 +2697,8 @@ class Database:
             if not owner or owner["role"] != "admin" or not owner["is_active"]:
                 raise ValueError("Only an active administrator may distribute food.")
             cart = conn.execute(
-                "SELECT status, client_id, mode FROM pantry_carts WHERE id = ? AND owner_id = ? "
-                "AND direction = 'OUT'", (cart_id, owner_id),
+                "SELECT status, client_id, mode, fulfillment_type FROM pantry_carts "
+                "WHERE id = ? AND owner_id = ? AND direction = 'OUT'", (cart_id, owner_id),
             ).fetchone()
             if not cart:
                 raise ValueError("Cart not found.")
@@ -2526,7 +2726,7 @@ class Database:
                 )
                 conn.commit()
                 return self.get_cart_receipt(owner_id, cart_id)
-            self._eligible_client_on_connection(conn, cart["client_id"])
+            client = self._check_visit_capacity_on_connection(conn, cart["client_id"], cart_id)
             lines = conn.execute(
                 "SELECT line.*, item.barcode, item.item_name, item.category, "
                 "item.current_quantity, item.unit_weight_milli_lb "
@@ -2568,10 +2768,11 @@ class Database:
             ])
             visit = conn.execute(
                 "INSERT INTO pantry_visits (client_id, pounds_received, items_json, recorded_by, "
-                "known_weight_milli_lb, pending_weight_lines, weight_complete, cart_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "known_weight_milli_lb, pending_weight_lines, weight_complete, cart_id, "
+                "verified_term, fulfillment_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (cart["client_id"], known / 1000 if not pending else None, items,
-                 username, known, pending, int(not pending), cart_id),
+                 username, known, pending, int(not pending), cart_id, client["term"],
+                 cart["fulfillment_type"]),
             )
             visit_id = visit.lastrowid
             for line, weight in prepared:
@@ -3224,12 +3425,26 @@ class Database:
     # Pantry clients (student profiles)
     # ------------------------------------------------------------------
 
+    def _validate_client_service_fields(self, household_size: int, allergies: str,
+                                        religious_restrictions: str) -> tuple[int, str, str]:
+        allergies = allergies.strip()
+        religious_restrictions = religious_restrictions.strip()
+        if (not isinstance(household_size, int) or not 1 <= household_size <= 99 or
+                len(allergies) > 1000 or len(religious_restrictions) > 1000):
+            raise ValueError("Household size must be 1–99; dietary notes must be under 1,000 characters.")
+        return household_size, allergies, religious_restrictions
+
     def register_pantry_client(self, student_id: str, first_name: str, last_name: str,
                                birth_date: str, graduation_semester: str,
-                               enrollment_status: str, username: str) -> int:
+                               enrollment_status: str, username: str,
+                               household_size: int = 1, allergies: str = "",
+                               religious_restrictions: str = "") -> int:
         student_id = student_id.strip().upper()
         first_name, last_name = first_name.strip(), last_name.strip()
         graduation_semester = graduation_semester.strip()
+        household_size, allergies, religious_restrictions = self._validate_client_service_fields(
+            household_size, allergies, religious_restrictions
+        )
         if (not student_id or len(student_id) > 64 or not first_name or not last_name or
                 len(first_name) > 80 or len(last_name) > 80 or not graduation_semester or
                 len(graduation_semester) > 40 or enrollment_status not in ("full_time", "part_time")):
@@ -3250,8 +3465,10 @@ class Database:
                 raise ValueError("A client with this student ID already exists.")
             cursor = conn.execute(
                 "INSERT INTO pantry_clients (student_id, first_name, last_name, birth_date, "
-                "expected_graduation_semester, enrollment_status) VALUES (?, ?, ?, ?, ?, ?)",
-                (student_id, first_name, last_name, birth_date, graduation_semester, enrollment_status),
+                "expected_graduation_semester, enrollment_status, household_size, allergies, "
+                "religious_restrictions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (student_id, first_name, last_name, birth_date, graduation_semester,
+                 enrollment_status, household_size, allergies, religious_restrictions),
             )
             conn.execute(
                 "INSERT INTO activity_log (username, action, detail) VALUES (?, 'CLIENT_CREATE', ?)",
@@ -3267,10 +3484,15 @@ class Database:
 
     def update_registered_client(self, client_id: int, student_id: str, first_name: str,
                                  last_name: str, birth_date: str, graduation_semester: str,
-                                 enrollment_status: str, username: str) -> None:
+                                 enrollment_status: str, username: str,
+                                 household_size: int = 1, allergies: str = "",
+                                 religious_restrictions: str = "") -> None:
         student_id = student_id.strip().upper()
         first_name, last_name = first_name.strip(), last_name.strip()
         graduation_semester = graduation_semester.strip()
+        household_size, allergies, religious_restrictions = self._validate_client_service_fields(
+            household_size, allergies, religious_restrictions
+        )
         if (not student_id or len(student_id) > 64 or not first_name or not last_name or
                 len(first_name) > 80 or len(last_name) > 80 or not graduation_semester or
                 len(graduation_semester) > 40 or enrollment_status not in ("full_time", "part_time")):
@@ -3285,7 +3507,8 @@ class Database:
         try:
             conn.execute("BEGIN IMMEDIATE")
             original = conn.execute(
-                "SELECT student_id, birth_date FROM pantry_clients WHERE id = ?", (client_id,)
+                "SELECT student_id, birth_date, enrollment_status FROM pantry_clients WHERE id = ?",
+                (client_id,)
             ).fetchone()
             if not original:
                 raise ValueError("Client not found.")
@@ -3297,11 +3520,13 @@ class Database:
             conn.execute(
                 "UPDATE pantry_clients SET student_id = ?, first_name = ?, last_name = ?, "
                 "birth_date = ?, expected_graduation_semester = ?, enrollment_status = ?, "
+                "household_size = ?, allergies = ?, religious_restrictions = ?, "
                 "updated_at = datetime('now', 'localtime') WHERE id = ?",
                 (student_id, first_name, last_name, birth_date, graduation_semester,
-                 enrollment_status, client_id),
+                 enrollment_status, household_size, allergies, religious_restrictions, client_id),
             )
-            if original["student_id"] != student_id or original["birth_date"] != birth_date:
+            if (original["student_id"] != student_id or original["birth_date"] != birth_date or
+                    original["enrollment_status"] != enrollment_status):
                 previous = conn.execute(
                     "SELECT term FROM client_verifications WHERE client_id = ? ORDER BY id DESC LIMIT 1",
                     (client_id,),
@@ -3327,7 +3552,8 @@ class Database:
         conn = self._connect()
         rows = conn.execute(
             "SELECT client.student_id, client.first_name, client.last_name, client.birth_date, "
-            "client.expected_graduation_semester, client.enrollment_status, client.is_active, "
+            "client.expected_graduation_semester, client.enrollment_status, client.household_size, "
+            "client.allergies, client.religious_restrictions, client.is_active, "
             "client.created_at, verification.term AS verified_term, "
             "verification.verified_until, verification.status AS verification_status "
             "FROM pantry_clients client LEFT JOIN client_verifications verification "
@@ -3343,7 +3569,8 @@ class Database:
             "SELECT visit.id AS visit_id, visit.client_id, client.student_id, "
             "client.first_name, client.last_name, visit.visit_date, visit.items_json, "
             "visit.known_weight_milli_lb, visit.pounds_received, "
-            "visit.pending_weight_lines, visit.weight_complete, visit.is_void, visit.recorded_by "
+            "visit.pending_weight_lines, visit.weight_complete, visit.is_void, "
+            "visit.verified_term, visit.fulfillment_type, visit.recorded_by "
             "FROM pantry_visits visit JOIN pantry_clients client ON client.id = visit.client_id "
             "ORDER BY visit.id"
         ).fetchall()
@@ -3383,7 +3610,7 @@ class Database:
 
     def verify_client_term(self, client_id: int, term: str, verified_until: str,
                            username: str) -> None:
-        term = term.strip()
+        term = " ".join(term.split()).title()
         if not term or len(term) > 40:
             raise ValueError("Enter the verified academic term.")
         try:
