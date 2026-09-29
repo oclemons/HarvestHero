@@ -1301,13 +1301,22 @@ class Database:
     def get_pantry_layout(self, include_items: bool = False):
         conn = self._connect()
         sections = conn.execute(
-            "SELECT id, name, system FROM pantry_sections ORDER BY system, name COLLATE NOCASE"
+            "SELECT id, name, system FROM pantry_sections "
+            "ORDER BY system, "
+            "CAST(CASE WHEN name GLOB '*[0-9]*' "
+            "THEN SUBSTR(name, LENGTH(RTRIM(name, '0123456789')) + 1) "
+            "ELSE '999999' END AS INTEGER), "
+            "name COLLATE NOCASE"
         ).fetchall()
         shelves = conn.execute(
             "SELECT s.id, s.section_id, s.name, s.is_overflow, "
             "COALESCE(SUM(stock.quantity), 0) AS units "
             "FROM pantry_shelves s LEFT JOIN item_shelf_stock stock ON stock.shelf_id = s.id "
-            "GROUP BY s.id ORDER BY s.is_overflow, s.name COLLATE NOCASE"
+            "GROUP BY s.id ORDER BY s.is_overflow, "
+            "CAST(CASE WHEN s.name GLOB '*[0-9]*' "
+            "THEN SUBSTR(s.name, LENGTH(RTRIM(s.name, '0123456789')) + 1) "
+            "ELSE '999999' END AS INTEGER), "
+            "s.name COLLATE NOCASE"
         ).fetchall()
         contents = {}
         if include_items:
