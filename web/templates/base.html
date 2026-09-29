@@ -18,7 +18,7 @@
   <style>
     /* Font stack matches the desktop app's Times-New-Roman preference
        so users switching from the .exe don't feel a jarring redesign. */
-    html { font-family: "Times New Roman", Times, Georgia, serif; }
+    html, body, button, input, select, textarea { font-family: "Times New Roman", Times, Georgia, serif !important; }
     :root { --soil: #382f25; --leaf: #7c2d12; --leaf-hover: #65230e; --cream: #fff8e7; --gold: #f3b64c; --soft: #ffedd5; --accent-text: #9a3412; }
     body[data-theme="spring"] { --soil: #243b2f; --leaf: #166534; --leaf-hover: #14532d; --cream: #f0fdf4; --gold: #f9a8d4; --soft: #dcfce7; --accent-text: #166534; }
     body { background-color: var(--cream); }
@@ -29,10 +29,21 @@
     body .border-amber-300 { border-color: var(--gold) !important; }
     body .text-amber-200 { color: var(--gold) !important; }
     .theme-button { background-color: var(--leaf); }
+    body.login-page { background-color: #daf1de; color: #34211b; }
+    .login-card { background-color: #fffaf0; border: 1px solid #8eb69b; }
+    .login-hero { background-color: #0c3b2e; color: #daf1de; }
+    .login-kicker { color: #ffba00; }
+    .login-copy { color: #daf1de; }
+    .login-form-title, .login-label { color: #34211b; }
+    .login-muted { color: #534145; }
+    .login-input { border-color: #8eb69b; background-color: #ffffff; color: #20212b; }
+    .login-input:focus { border-color: #bb8a52; box-shadow: 0 0 0 2px #fed7a5; outline: none; }
+    .login-button { background-color: #235347; color: #ffffff; }
+    .login-button:hover { background-color: #163832; }
     a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   </style>
 </head>
-<body data-theme="{{ current_user.theme if current_user.is_authenticated else 'fall' }}" class="h-full flex flex-col min-h-screen text-slate-900">
+<body data-theme="{{ current_user.theme if current_user.is_authenticated else 'fall' }}" class="h-full flex flex-col min-h-screen text-slate-900 {% block body_class %}{% endblock %}">
   {% if current_user.is_authenticated %}
   <header class="theme-header text-white border-b-4 border-amber-300">
     <div class="max-w-6xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
