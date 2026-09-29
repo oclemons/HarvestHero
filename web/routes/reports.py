@@ -2,7 +2,7 @@
 
 import datetime
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from decorators import admin_required
@@ -23,9 +23,10 @@ def weights():
     except ValueError as error:
         flash(str(error), "error")
         return render_template("reports/weights.html", summary=None, month=month,
-                               pending=db.get_pending_weight_movements()), 400
+                               service=None, pending=db.get_pending_weight_movements()), 400
+    service = db.get_monthly_service_summary(month) if current_app.config.get("CLIENT_RECORDS_ENABLED") else None
     return render_template("reports/weights.html", summary=summary, month=month,
-                           pending=db.get_pending_weight_movements())
+                           service=service, pending=db.get_pending_weight_movements())
 
 
 @bp.route("/weights/<int:movement_id>/resolve", methods=["POST"])

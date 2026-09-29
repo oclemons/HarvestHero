@@ -44,6 +44,6 @@
 <div class="grid gap-5 lg:grid-cols-3 mt-8">
   {{ export_form('Customer records', 'Client profile, semester and eligibility details.', 'clients.export_customers', customer_fields, ['expected_graduation_semester', 'enrollment_status', 'household_size', 'is_active', 'verified_term', 'verified_until']) }}
   {{ export_form('Visits and pounds', 'Customer distributions and lifetime weight; filter by term or order type.', 'clients.export_visits', visit_fields, ['visit_date', 'verified_term', 'fulfillment_type', 'known_pounds', 'pending_weight_lines', 'visit_status'], visit_filters=true) }}
-  {{ export_form('Monthly pounds', 'UTC opening, donated, distributed and remaining pounds.', 'clients.export_monthly', month_fields, ['month_utc', 'opening_pounds', 'initial_stock_pounds', 'donated_pounds', 'distributed_pounds', 'adjustment_pounds', 'closing_pounds', 'pending_lines'], month_filter=true) }}
+  {{ export_form('Monthly pounds', 'UTC opening, donated, distributed and remaining pounds.', 'clients.export_monthly', month_fields, ['month_utc', 'opening_pounds', 'initial_stock_pounds', 'donated_pounds', 'distributed_pounds', 'adjustment_pounds', 'closing_pounds', 'pending_lines', 'service_visits', 'service_known_pounds', 'service_pending_visits', 'inventory_history_available'], month_filter=true) }}
 </div>
 {% endblock %}

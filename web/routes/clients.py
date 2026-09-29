@@ -55,6 +55,10 @@ MONTH_FIELDS = (
     ("adjustment_pounds", "Correction pounds", False),
     ("closing_pounds", "Remaining pounds", False),
     ("pending_lines", "Pending-weight lines", False),
+    ("service_visits", "Pantry visits", False),
+    ("service_known_pounds", "Known pounds received by clients", False),
+    ("service_pending_visits", "Visits with pending weight", False),
+    ("inventory_history_available", "Inventory history available", False),
 )
 
 
@@ -196,9 +200,14 @@ def export_monthly():
     rows = []
     for month in ([requested_month] if requested_month else db.get_report_months()):
         report = db.get_monthly_weight_report(month)
-        if not report["history_available"]:
+        service = db.get_monthly_service_summary(month)
+        if not report["history_available"] and not service["visits"]:
             continue
-        values = {"month_utc": month, "pending_lines": report["pending_lines"]}
+        values = {"month_utc": month, "pending_lines": report["pending_lines"],
+                  "service_visits": service["visits"],
+                  "service_known_pounds": f"{service['known_weight_milli_lb'] / 1000:.3f}",
+                  "service_pending_visits": service["pending_visits"],
+                  "inventory_history_available": int(report["history_available"])}
         for field, key in (
             ("opening_pounds", "opening_milli_lb"),
             ("initial_stock_pounds", "opening_baseline_milli_lb"),
@@ -212,6 +221,38 @@ def export_monthly():
     db.log_activity(current_user.username, "CLIENT_EXPORT",
                     f"type=monthly rows={len(rows)} columns={','.join(fields)}")
     return _csv_download(fields, rows, "pantry-monthly-pounds.csv")
+
+
+@bp.route("/retention")
+@login_required
+@admin_required
+def retention():
+    from database import Database
+    db = Database()
+    db.log_activity(current_user.username, "CLIENT_RETENTION_REVIEW", "")
+    return render_template("clients/retention.html",
+                           candidates=db.get_retention_candidates(days_ahead=30))
+
+
+@bp.route("/<int:client_id>/retention/remove", methods=["POST"])
+@login_required
+@admin_required
+@limiter.limit("5 per 15 minutes", methods=["POST"])
+def remove_due_client(client_id: int):
+    from database import Database
+    db = Database()
+    _authorize_export(db)
+    if request.form.get("confirmed_removal") != "on":
+        abort(400)
+    try:
+        db.remove_client_identity(client_id, request.form.get("student_id") or "",
+                                  current_user.username)
+    except ValueError as error:
+        flash(str(error), "error")
+        return render_template("clients/retention.html",
+                               candidates=db.get_retention_candidates(days_ahead=30)), 400
+    flash("Due client record removed. Only organization-level monthly totals remain.", "success")
+    return redirect(url_for("clients.retention"))
 
 
 @bp.route("/")

@@ -82,6 +82,8 @@ class ShelfLayout(unittest.TestCase):
         self.assertEqual(client["household_size"], 1)
         self.assertEqual(client["allergies"], "")
         self.assertEqual(client["religious_restrictions"], "")
+        self.assertIsNone(client["deactivated_at"])
+        self.assertEqual(upgraded.get_monthly_service_summary("2026-01")["visits"], 1)
         self.assertEqual(visit["items_json"], '[{"name":"Rice"}]')
         self.assertIsNone(visit["known_weight_milli_lb"])
         self.assertEqual(visit["weight_complete"], 0)

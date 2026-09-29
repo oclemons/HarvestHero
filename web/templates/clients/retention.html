@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Client retention review · Harvest Hero{% endblock %}
+{% block content %}
+<a href="{{ url_for('clients.index') }}" class="text-sm text-emerald-800 underline">&larr; Back to clients</a>
+<p class="text-sm uppercase tracking-widest text-emerald-700 font-semibold mt-6">Admin · private records</p>
+<h1 class="text-3xl font-bold mt-2">Client retention review</h1>
+<p class="text-slate-700 mt-3">Review every semester. Identifying data is due for removal six calendar months after the last completed visit. For clients who never visited, the clock starts when Admin deactivates the record.</p>
+<p class="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">Removing a due record deletes its student ID, birth date, dietary notes and individual visit history. Monthly organization-level visit and pounds totals remain. This cannot be undone from the live database. An Admin must confirm each removal; older encrypted backups may still contain the original data until their approved retention period ends.</p>
+{% if candidates %}
+  <div class="mt-6 space-y-5">
+    {% for person in candidates %}
+      <section class="rounded-xl border {{ 'border-red-300' if person.due else 'border-amber-200' }} bg-white p-6" aria-label="Client due {{ person.due_date }}">
+        <h2 class="text-lg font-bold"><a href="{{ url_for('clients.detail', client_id=person.id) }}" class="text-emerald-800 underline">{{ person.first_name }} {{ person.last_name }}</a> · ID ending {{ person.student_id_last4 }}</h2>
+        <p class="text-sm text-slate-700 mt-1">{{ 'Due now' if person.due else 'Due soon' }}: {{ person.due_date }} · {{ 'Last visit: ' ~ person.last_visit if person.last_visit else 'Deactivated: ' ~ person.deactivated_at }}</p>
+        {% if person.due %}
+          <form method="post" action="{{ url_for('clients.remove_due_client', client_id=person.id) }}" class="mt-4 flex flex-wrap items-end gap-3 text-sm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="font-semibold">Confirm full student ID
+              <input name="student_id" maxlength="64" required autocomplete="off" class="block mt-1 rounded border border-slate-300 px-3 py-2">
+            </label>
+            <label class="font-semibold">Your Admin password
+              <input name="admin_password" type="password" required autocomplete="current-password" class="block mt-1 rounded border border-slate-300 px-3 py-2">
+            </label>
+            <label class="flex items-center gap-2"><input type="checkbox" name="confirmed_removal" required> I reviewed this specific client's deadline and authorize removal.</label>
+            <button type="submit" class="rounded bg-red-800 px-4 py-2 text-white font-semibold">Remove this due client</button>
+          </form>
+        {% endif %}
+      </section>
+    {% endfor %}
+  </div>
+{% else %}<p class="mt-6 rounded-lg border border-slate-200 bg-white p-6 text-slate-600">No client record is due in the next 30 days. Revisit this list at each semester review.</p>{% endif %}
+{% endblock %}

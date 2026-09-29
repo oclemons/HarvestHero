@@ -7,6 +7,7 @@
     <p class="text-slate-600 mt-2">Only administrators can see student client records.</p>
   </div>
   <div class="flex flex-wrap items-center gap-3">
+    <a href="{{ url_for('clients.retention') }}" class="rounded border border-emerald-700 text-emerald-900 font-semibold px-5 py-3">Retention review</a>
     <a href="{{ url_for('clients.exports') }}" class="rounded border border-emerald-700 text-emerald-900 font-semibold px-5 py-3">Export records</a>
     <a href="{{ url_for('clients.new') }}" class="rounded bg-emerald-800 text-white font-semibold px-5 py-3 hover:bg-emerald-900">Register a student client</a>
   </div>

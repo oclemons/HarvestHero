@@ -1,8 +1,11 @@
 """Encrypted SQLite backup and isolated restore verification."""
 
 import argparse
+import datetime
+import json
 import os
 import sqlite3
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -148,6 +151,43 @@ def _check_restored_database(restored: Path, temporary: str) -> dict[str, int]:
     return counts
 
 
+def backup_live(app: str, public_path: Path, private_path: Path, backup_dir: Path,
+                run_command=subprocess.run) -> tuple[Path, dict[str, int]]:
+    if not public_path.is_file() or not private_path.is_file() or not backup_dir.is_dir():
+        raise ValueError("A key pair and existing protected backup directory are required.")
+    if backup_dir.resolve().is_relative_to(Path(__file__).resolve().parents[2]):
+        raise ValueError("Encrypted backups must stay outside the repository.")
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    filename = f"daily-{stamp}.hhb"
+    output = backup_dir / filename
+    if output.exists():
+        raise ValueError("A backup with this timestamp already exists; try again later.")
+    remote = f"/data/output/backups/{filename}"
+    remote_helper = f"/tmp/hh_secure_backup_{stamp}.py"
+    remote_public = f"/tmp/hh_backup_{stamp}.pub"
+
+    def invoke(*arguments):
+        return run_command(["flyctl", *arguments, "--app", app], check=True,
+                           capture_output=True, text=True)
+
+    machines = json.loads(invoke("machine", "list", "--json").stdout)
+    if len(machines) != 1:
+        raise ValueError("Expected exactly one existing Fly machine; review the app before backing up.")
+    if machines[0]["state"] != "started":
+        invoke("machine", "start", machines[0]["id"])
+    invoke("ssh", "console", "--command",
+           "ls -ld /tmp /data/data /data/output/backups /data/data/inventory.db")
+    invoke("ssh", "sftp", "put", str(Path(__file__).resolve()),
+           remote_helper, "--mode", "0600")
+    invoke("ssh", "sftp", "put", str(public_path), remote_public, "--mode", "0600")
+    invoke("ssh", "console", "--command",
+           f"python {remote_helper} encrypt /data/data/inventory.db "
+           f"{remote_public} {remote}")
+    invoke("ssh", "sftp", "get", remote, str(output))
+    output.chmod(0o600)
+    return output, verify_restore(output, private_path)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="action", required=True)
@@ -161,6 +201,12 @@ def main() -> None:
     verify = commands.add_parser("verify")
     verify.add_argument("encrypted", type=Path)
     verify.add_argument("private_key", type=Path)
+    live = commands.add_parser("backup-live")
+    base = Path.home() / "Library" / "Application Support" / "HarvestHero"
+    live.add_argument("--app", default="harvest-hero-pantry")
+    live.add_argument("--public-key", type=Path, default=base / "backup-keys" / "public.key")
+    live.add_argument("--private-key", type=Path, default=base / "backup-keys" / "private.key")
+    live.add_argument("--backup-dir", type=Path, default=base / "backups")
     args = parser.parse_args()
     if args.action == "keygen":
         create_key(args.private_key, args.public_key)
@@ -168,6 +214,12 @@ def main() -> None:
     elif args.action == "encrypt":
         encrypt_backup(args.source, args.public_key, args.output)
         print("Encrypted SQLite backup created.")
+    elif args.action == "backup-live":
+        output, counts = backup_live(args.app, args.public_key, args.private_key,
+                                     args.backup_dir)
+        print(f"Encrypted off-Fly backup restored and verified: {output}")
+        print("Row counts:", counts)
+        print("Review local and remote ciphertext older than the approved 30-day window; this tool never deletes files.")
     else:
         counts = verify_restore(args.encrypted, args.private_key)
         print("SQLite backup decrypted, integrity-checked, and migrated in an isolated directory.")

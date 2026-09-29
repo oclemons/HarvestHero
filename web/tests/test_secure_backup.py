@@ -1,8 +1,11 @@
 """Backup encryption, tamper detection and isolated schema-restore drill."""
 
+import json
 import os
+import shutil
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from pathlib import Path
 
@@ -11,7 +14,7 @@ for location in (str(ROOT), str(ROOT / "web")):
     if location not in sys.path:
         sys.path.insert(0, location)
 
-from tools.secure_backup import create_key, encrypt_backup, verify_restore
+from tools.secure_backup import backup_live, create_key, encrypt_backup, verify_restore
 
 
 class SecureBackup(unittest.TestCase):
@@ -41,6 +44,32 @@ class SecureBackup(unittest.TestCase):
         self.assertEqual(verify_restore(self.encrypted, self.private)["inventory_items"], 1)
         self.assertEqual(verify_restore(self.encrypted, self.private)["pantry_clients"], 1)
         self.assertEqual(self.db_path.stat().st_size > 0, True)
+
+    def test_manual_live_backup_downloads_only_ciphertext_and_verifies_it(self):
+        encrypt_backup(self.db_path, self.public, self.encrypted)
+        destination = self.folder / "off-fly"
+        destination.mkdir(mode=0o700)
+        calls = []
+
+        def pretend_fly(command, **kwargs):
+            calls.append(command)
+            if command[:3] == ["flyctl", "machine", "list"]:
+                return SimpleNamespace(stdout=json.dumps([{"id": "test-machine", "state": "suspended"}]))
+            if command[:4] == ["flyctl", "ssh", "sftp", "get"]:
+                shutil.copyfile(self.encrypted, command[5])
+            return SimpleNamespace(stdout="")
+
+        output, counts = backup_live("pantry-test", self.public, self.private, destination,
+                                     run_command=pretend_fly)
+        self.assertEqual(counts["inventory_items"], 1)
+        self.assertEqual(counts["pantry_clients"], 1)
+        self.assertNotIn(b"Avery", output.read_bytes())
+        self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+        self.assertTrue(any(command[:3] == ["flyctl", "machine", "start"] for command in calls))
+        self.assertTrue(any(command[:4] == ["flyctl", "ssh", "sftp", "get"] for command in calls))
+        self.assertTrue(any(command[:4] == ["flyctl", "ssh", "sftp", "put"] and
+                            "/tmp/hh_secure_backup_" in command[5] for command in calls))
+        self.assertFalse(any(str(self.private) in " ".join(command) for command in calls))
 
     def test_modified_ciphertext_cannot_be_restored(self):
         encrypt_backup(self.db_path, self.public, self.encrypted)

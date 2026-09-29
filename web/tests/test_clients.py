@@ -53,14 +53,14 @@ class ClientAccess(unittest.TestCase):
         client_id = self.create_client()
         self.app.config["CLIENT_RECORDS_ENABLED"] = False
         self.login("admin_a")
-        for path in ("/clients/", "/clients/new", f"/clients/{client_id}",
-                     f"/clients/{client_id}/edit", "/scan/out"):
+        for path in ("/clients/", "/clients/new", "/clients/retention",
+                     f"/clients/{client_id}", f"/clients/{client_id}/edit", "/scan/out"):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 503, path)
             self.assertNotIn(b"0001234567", response.data)
         for path in ("/clients/new", f"/clients/{client_id}/verify", "/scan/out/start",
                      "/scan/out/add", "/scan/out/complete", "/scan/out/undo/1",
-                     "/clients/exports/customers.csv"):
+                     "/clients/exports/customers.csv", f"/clients/{client_id}/retention/remove"):
             self.assertEqual(self.client.post(path, data={"client_id": client_id}).status_code, 503)
         self.assertNotIn(b"/clients/", self.client.get("/app").data)
         self.assertNotIn(b"/scan/out", self.client.get("/app").data)
@@ -140,8 +140,10 @@ class ClientAccess(unittest.TestCase):
         self.login("admin_a")
         self.client.post(f"/clients/{client_id}/status", data={"active": "0"})
         self.assertFalse(self.db.is_client_eligible(client_id))
+        self.assertIsNotNone(self.db.get_pantry_client(client_id)["deactivated_at"])
         self.client.post(f"/clients/{client_id}/status", data={"active": "1"})
         self.assertFalse(self.db.is_client_eligible(client_id))
+        self.assertIsNone(self.db.get_pantry_client(client_id)["deactivated_at"])
 
     def test_private_dietary_fields_and_household_size_are_saved_and_admin_only(self):
         self.login("admin_a")
@@ -168,6 +170,176 @@ class ClientAccess(unittest.TestCase):
         self.login("student_a")
         self.assertEqual(self.client.get(f"/clients/{client_id}").status_code, 403)
         self.assertNotIn(b"Peanuts", self.client.get("/app").data)
+
+    def test_due_visit_client_is_removed_without_losing_organization_totals(self):
+        client_id = self.db.register_pantry_client(
+            "RET-100", "Avery", "Rivera", "2003-04-05", "Fall 2028",
+            "full_time", "admin_a", allergies="Peanuts", religious_restrictions="No pork",
+        )
+        section = self.db.create_pantry_section("Pantry")
+        shelf = self.db.create_pantry_shelf(section, "Shelf A")
+        item_id = self.db.create_item_on_shelf("RET-FOOD", "Rice", "Dry", 2, 0, shelf,
+                                                "admin_a", 500, barcode_out="RET-FOOD-OUT")
+        expiry = (datetime.date.today() + datetime.timedelta(days=100)).isoformat()
+        self.db.verify_client_term(client_id, "Fall 2026", expiry, "admin_a")
+        admin_id = self.db.get_user("admin_a")["id"]
+        cart_id = self.db.start_scan_out_cart(admin_id, client_id, mode="IMMEDIATE")
+        movement_id = self.db.record_immediate_scan_out(admin_id, "RET-FOOD-OUT", shelf,
+                                                         "admin_a", "retention-scan-1")
+        self.db.complete_scan_out_cart(admin_id, cart_id, "admin_a")
+        conn = self.db._connect()
+        conn.execute("UPDATE pantry_visits SET visit_date = '2024-01-15 12:00:00' "
+                     "WHERE client_id = ?", (client_id,))
+        conn.commit()
+        conn.close()
+        self.login("admin_a")
+        review = self.client.get("/clients/retention")
+        self.assertEqual(review.status_code, 200)
+        self.assertIn(b"Avery", review.data)
+        self.assertEqual(self.client.post(f"/clients/{client_id}/retention/remove", data={
+            "admin_password": "wrong", "student_id": "RET-100", "confirmed_removal": "on",
+        }).status_code, 403)
+        self.assertIsNotNone(self.db.get_pantry_client(client_id))
+        response = self.client.post(f"/clients/{client_id}/retention/remove", data={
+            "admin_password": "PantryPass!123", "student_id": "RET-100",
+            "confirmed_removal": "on",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(self.db.get_pantry_client(client_id))
+        self.assertEqual(self.db.get_client_visits(client_id), [])
+        self.assertEqual(self.db.get_item_by_id(item_id)["current_quantity"], 1)
+        totals = self.db.get_monthly_service_summary("2024-01")
+        self.assertEqual((totals["visits"], totals["known_weight_milli_lb"]), (1, 500))
+        with self.assertRaises(ValueError):
+            self.db.remove_client_identity(client_id, "RET-100", "admin_a")
+        self.assertEqual(self.db.get_monthly_service_summary("2024-01")["visits"], 1)
+        exported = self.client.post("/clients/exports/monthly.csv", data={
+            "admin_password": "PantryPass!123", "month": "2024-01",
+            "fields": ["month_utc", "service_visits", "service_known_pounds"],
+        })
+        self.assertEqual(exported.status_code, 200)
+        self.assertIn(b'"1","0.500"', exported.data)
+        self.assertNotIn(b"RET-100", exported.data)
+        self.assertIn(b"Pantry services this month",
+                      self.client.get("/reports/weights?month=2024-01").data)
+        conn = self.db._connect()
+        movement = conn.execute("SELECT client_id, visit_id FROM inventory_movements "
+                                "WHERE id = ?", (movement_id,)).fetchone()
+        self.assertEqual((movement["client_id"], movement["visit_id"]), (None, None))
+        self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
+        conn.close()
+        self.client.get("/logout")
+        self.login("student_a")
+        self.assertEqual(self.client.get("/clients/retention").status_code, 403)
+
+    def test_retention_refuses_early_or_incorrect_confirmation(self):
+        client_id = self.create_client()
+        self.db.set_client_record_active(client_id, False, "admin_a")
+        with self.assertRaises(ValueError):
+            self.db.remove_client_identity(client_id, "0001234567", "admin_a")
+        conn = self.db._connect()
+        conn.execute("UPDATE pantry_clients SET deactivated_at = '2024-01-15' WHERE id = ?",
+                     (client_id,))
+        conn.commit()
+        conn.close()
+        self.login("admin_a")
+        response = self.client.post(f"/clients/{client_id}/retention/remove", data={
+            "admin_password": "PantryPass!123", "student_id": "WRONG",
+            "confirmed_removal": "on",
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNotNone(self.db.get_pantry_client(client_id))
+        with self.assertRaises(ValueError):
+            self.db.remove_client_identity(client_id, "0001234567", "student_a")
+        self.client.get("/logout")
+        self.login("student_a")
+        self.assertEqual(self.client.post(f"/clients/{client_id}/retention/remove", data={
+            "admin_password": "PantryPass!123", "student_id": "0001234567",
+            "confirmed_removal": "on",
+        }).status_code, 403)
+        self.assertIsNotNone(self.db.get_pantry_client(client_id))
+
+    def test_retention_removal_requires_csrf(self):
+        client_id = self.create_client()
+        self.db.set_client_record_active(client_id, False, "admin_a")
+        conn = self.db._connect()
+        conn.execute("UPDATE pantry_clients SET deactivated_at = '2024-01-15' WHERE id = ?",
+                     (client_id,))
+        conn.commit()
+        conn.close()
+        self.login("admin_a")
+        self.app.config["WTF_CSRF_ENABLED"] = True
+        response = self.client.post(f"/clients/{client_id}/retention/remove", data={
+            "admin_password": "PantryPass!123", "student_id": "0001234567",
+            "confirmed_removal": "on",
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNotNone(self.db.get_pantry_client(client_id))
+
+    def test_retention_removal_rolls_back_if_visit_unlink_fails(self):
+        client_id = self.create_client()
+        self.db.record_pantry_visit(client_id, 1.25, "admin_a")
+        conn = self.db._connect()
+        conn.execute("UPDATE pantry_visits SET visit_date = '2024-01-15 12:00:00' "
+                     "WHERE client_id = ?", (client_id,))
+        conn.execute("CREATE TRIGGER prevent_retention BEFORE DELETE ON pantry_visits "
+                     "BEGIN SELECT RAISE(ABORT, 'blocked'); END")
+        conn.commit()
+        conn.close()
+        with self.assertRaises(Exception):
+            self.db.remove_client_identity(client_id, "0001234567", "admin_a")
+        self.assertIsNotNone(self.db.get_pantry_client(client_id))
+        self.assertEqual(len(self.db.get_client_visits(client_id)), 1)
+        self.assertEqual(self.db.get_monthly_service_summary("2024-01")["visits"], 1)
+        conn = self.db._connect()
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM retired_service_months").fetchone()[0], 0)
+        conn.close()
+
+    def test_retention_waits_for_open_distribution_to_finish(self):
+        client_id = self.create_client()
+        self.db.record_pantry_visit(client_id, 0.5, "admin_a")
+        conn = self.db._connect()
+        conn.execute("UPDATE pantry_visits SET visit_date = '2024-01-15 12:00:00' "
+                     "WHERE client_id = ?", (client_id,))
+        conn.commit()
+        conn.close()
+        expiry = (datetime.date.today() + datetime.timedelta(days=100)).isoformat()
+        self.db.verify_client_term(client_id, "Fall 2026", expiry, "admin_a")
+        admin_id = self.db.get_user("admin_a")["id"]
+        cart_id = self.db.start_scan_out_cart(admin_id, client_id)
+        with self.assertRaises(ValueError):
+            self.db.remove_client_identity(client_id, "0001234567", "admin_a")
+        self.db.cancel_scan_cart(admin_id, cart_id, "OUT")
+        self.assertIsNotNone(self.db.get_pantry_client(client_id))
+
+    def test_six_calendar_months_clamp_to_month_end(self):
+        client_id = self.create_client()
+        self.db.set_client_record_active(client_id, False, "admin_a")
+        conn = self.db._connect()
+        conn.execute("UPDATE pantry_clients SET deactivated_at = '2025-08-31' WHERE id = ?",
+                     (client_id,))
+        conn.commit()
+        conn.close()
+        self.assertEqual(self.db.get_retention_candidates(today=datetime.date(2026, 2, 27)), [])
+        due = self.db.get_retention_candidates(today=datetime.date(2026, 2, 28))
+        self.assertEqual(due[0]["due_date"], "2026-02-28")
+
+    def test_never_visited_retention_starts_at_deactivation(self):
+        client_id = self.create_client()
+        self.assertEqual(self.db.get_retention_candidates(today=datetime.date(2030, 1, 1)), [])
+        self.db.set_client_record_active(client_id, False, "admin_a")
+        conn = self.db._connect()
+        conn.execute("UPDATE pantry_clients SET deactivated_at = '2024-01-15' WHERE id = ?",
+                     (client_id,))
+        conn.commit()
+        conn.close()
+        due = self.db.get_retention_candidates(today=datetime.date(2024, 7, 15))
+        self.assertEqual(due[0]["id"], client_id)
+        self.assertEqual(due[0]["due_date"], "2024-07-15")
+        self.db.remove_client_identity(client_id, "0001234567", "admin_a",
+                                       today=datetime.date(2024, 7, 15))
+        self.assertIsNone(self.db.get_pantry_client(client_id))
+        self.assertEqual(self.db.get_monthly_service_summary("2024-01")["visits"], 0)
 
     def test_duplicate_id_and_expired_verification_block_eligibility(self):
         client_id = self.create_client()

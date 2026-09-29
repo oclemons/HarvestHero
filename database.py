@@ -1,3 +1,4 @@
+import calendar
 import datetime
 import json
 import os
@@ -12,6 +13,12 @@ INVENTORY_COLUMNS = ("barcode", "item", "category", "quantity", "minimum", "loca
 
 def _utc_date() -> datetime.date:
     return datetime.datetime.now(datetime.timezone.utc).date()
+
+
+def _add_calendar_months(day: datetime.date, months: int) -> datetime.date:
+    year, month = divmod(day.year * 12 + day.month - 1 + months, 12)
+    month += 1
+    return datetime.date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
 
 
 _SCHEMA = """
@@ -165,6 +172,7 @@ CREATE TABLE IF NOT EXISTS pantry_clients (
     waiver_signed           INTEGER DEFAULT 0,
     locker_waiver_signed    INTEGER DEFAULT 0,
     is_active               INTEGER DEFAULT 1,
+    deactivated_at          TEXT,
     created_at              TEXT    DEFAULT (datetime('now', 'localtime')),
     updated_at              TEXT    DEFAULT (datetime('now', 'localtime'))
 );
@@ -200,6 +208,13 @@ CREATE TABLE IF NOT EXISTS pantry_visits (
     notes          TEXT    DEFAULT '',
     recorded_by    TEXT    DEFAULT '',
     FOREIGN KEY (client_id) REFERENCES pantry_clients(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS retired_service_months (
+    month_utc TEXT PRIMARY KEY,
+    visits INTEGER NOT NULL DEFAULT 0,
+    known_weight_milli_lb INTEGER NOT NULL DEFAULT 0,
+    pending_visits INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS pantry_carts (
@@ -503,6 +518,7 @@ class Database:
             "household_size": "INTEGER DEFAULT 1",
             "allergies": "TEXT DEFAULT ''",
             "religious_restrictions": "TEXT DEFAULT ''",
+            "deactivated_at": "TEXT",
         }
         if all(name in columns for name in additions):
             return
@@ -3577,14 +3593,141 @@ class Database:
         conn.close()
         return [dict(row) for row in rows]
 
+    def get_monthly_service_summary(self, month: str) -> dict:
+        try:
+            datetime.date.fromisoformat(f"{month}-01")
+        except ValueError as exc:
+            raise ValueError("Enter a valid month in YYYY-MM format.") from exc
+        if not re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", month):
+            raise ValueError("Enter a valid month in YYYY-MM format.")
+        conn = self._connect()
+        active = conn.execute(
+            "SELECT COUNT(*) AS visits, "
+            "COALESCE(SUM(COALESCE(known_weight_milli_lb, "
+            "CAST(ROUND(COALESCE(pounds_received, 0) * 1000) AS INTEGER))), 0) AS known, "
+            "COALESCE(SUM(CASE WHEN weight_complete = 0 THEN 1 ELSE 0 END), 0) AS pending "
+            "FROM pantry_visits WHERE SUBSTR(visit_date, 1, 7) = ? AND is_void = 0",
+            (month,),
+        ).fetchone()
+        retired = conn.execute(
+            "SELECT visits, known_weight_milli_lb, pending_visits "
+            "FROM retired_service_months WHERE month_utc = ?", (month,),
+        ).fetchone()
+        conn.close()
+        return {"month_utc": month, "visits": active["visits"] + (retired["visits"] if retired else 0),
+                "known_weight_milli_lb": active["known"] + (retired["known_weight_milli_lb"] if retired else 0),
+                "pending_visits": active["pending"] + (retired["pending_visits"] if retired else 0)}
+
     def get_report_months(self):
         conn = self._connect()
         rows = conn.execute(
-            "SELECT DISTINCT SUBSTR(timestamp_utc, 1, 7) AS month FROM inventory_movements "
-            "WHERE direction IN ('OPENING', 'IN', 'OUT', 'ADJUST') ORDER BY month"
+            "SELECT month FROM (SELECT SUBSTR(timestamp_utc, 1, 7) AS month "
+            "FROM inventory_movements WHERE direction IN ('OPENING', 'IN', 'OUT', 'ADJUST') "
+            "UNION SELECT month_utc AS month FROM retired_service_months "
+            "UNION SELECT SUBSTR(visit_date, 1, 7) AS month FROM pantry_visits "
+            "WHERE is_void = 0) ORDER BY month"
         ).fetchall()
         conn.close()
         return [row["month"] for row in rows]
+
+    def _retention_due_on_connection(self, conn: sqlite3.Connection, client_id: int):
+        client = conn.execute(
+            "SELECT id, student_id, first_name, last_name, is_active, deactivated_at "
+            "FROM pantry_clients WHERE id = ?", (client_id,),
+        ).fetchone()
+        if not client:
+            return None
+        last_visit = conn.execute(
+            "SELECT MAX(DATE(visit_date)) FROM pantry_visits WHERE client_id = ? AND is_void = 0",
+            (client_id,),
+        ).fetchone()[0]
+        anchor = last_visit or client["deactivated_at"]
+        if not anchor:
+            return None
+        try:
+            due = _add_calendar_months(datetime.date.fromisoformat(anchor[:10]), 6)
+        except ValueError:
+            return None
+        return dict(client, last_visit=last_visit, due_date=due.isoformat())
+
+    def get_retention_candidates(self, today: datetime.date | None = None,
+                                 days_ahead: int = 0) -> list[dict]:
+        today = today or _utc_date()
+        conn = self._connect()
+        ids = [row["id"] for row in conn.execute("SELECT id FROM pantry_clients ORDER BY id")]
+        candidates = []
+        for client_id in ids:
+            candidate = self._retention_due_on_connection(conn, client_id)
+            if candidate and datetime.date.fromisoformat(candidate["due_date"]) <= (
+                    today + datetime.timedelta(days=days_ahead)):
+                candidate["due"] = candidate["due_date"] <= today.isoformat()
+                candidate["student_id_last4"] = (candidate.pop("student_id") or "")[-4:]
+                candidates.append(candidate)
+        conn.close()
+        return sorted(candidates, key=lambda candidate: candidate["due_date"])
+
+    def remove_client_identity(self, client_id: int, confirmed_student_id: str,
+                               username: str, today: datetime.date | None = None) -> None:
+        today = today or _utc_date()
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            actor = conn.execute(
+                "SELECT role, is_active FROM users WHERE username = ? COLLATE NOCASE",
+                (username,),
+            ).fetchone()
+            if not actor or actor["role"] != "admin" or not actor["is_active"]:
+                raise ValueError("Only an active Admin can confirm retention removal.")
+            candidate = self._retention_due_on_connection(conn, client_id)
+            if not candidate:
+                raise ValueError("This client has no retention deadline yet.")
+            if datetime.date.fromisoformat(candidate["due_date"]) > today:
+                raise ValueError("The six-month deadline has not arrived.")
+            if not confirmed_student_id.strip() or candidate["student_id"] != confirmed_student_id.strip().upper():
+                raise ValueError("Confirm the student's exact ID before removing their record.")
+            if conn.execute(
+                "SELECT 1 FROM pantry_carts WHERE client_id = ? AND status = 'DRAFT' LIMIT 1",
+                (client_id,),
+            ).fetchone():
+                raise ValueError("Finish or cancel this client's open distribution before retention removal.")
+            totals = conn.execute(
+                "SELECT SUBSTR(visit_date, 1, 7) AS month_utc, COUNT(*) AS visits, "
+                "COALESCE(SUM(COALESCE(known_weight_milli_lb, "
+                "CAST(ROUND(COALESCE(pounds_received, 0) * 1000) AS INTEGER))), 0) AS known, "
+                "COALESCE(SUM(CASE WHEN weight_complete = 0 THEN 1 ELSE 0 END), 0) AS pending "
+                "FROM pantry_visits WHERE client_id = ? AND is_void = 0 "
+                "GROUP BY SUBSTR(visit_date, 1, 7)", (client_id,),
+            ).fetchall()
+            for row in totals:
+                if not row["month_utc"] or not re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", row["month_utc"]):
+                    raise ValueError("Visit month is invalid; review this record before removing it.")
+                conn.execute(
+                    "INSERT INTO retired_service_months "
+                    "(month_utc, visits, known_weight_milli_lb, pending_visits) VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(month_utc) DO UPDATE SET visits = visits + excluded.visits, "
+                    "known_weight_milli_lb = known_weight_milli_lb + excluded.known_weight_milli_lb, "
+                    "pending_visits = pending_visits + excluded.pending_visits",
+                    (row["month_utc"], row["visits"], row["known"], row["pending"]),
+                )
+            conn.execute(
+                "UPDATE inventory_movements SET client_id = NULL, visit_id = NULL "
+                "WHERE client_id = ? OR visit_id IN "
+                "(SELECT id FROM pantry_visits WHERE client_id = ?)", (client_id, client_id),
+            )
+            conn.execute("UPDATE pantry_carts SET client_id = NULL WHERE client_id = ?", (client_id,))
+            conn.execute("DELETE FROM pantry_visits WHERE client_id = ?", (client_id,))
+            conn.execute("DELETE FROM client_verifications WHERE client_id = ?", (client_id,))
+            conn.execute("DELETE FROM pantry_clients WHERE id = ?", (client_id,))
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'CLIENT_RETENTION_REMOVE', ?)",
+                (username, f"visit_count={sum(row['visits'] for row in totals)}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def list_private_clients(self):
         conn = self._connect()
@@ -3654,13 +3797,15 @@ class Database:
         try:
             conn.execute("BEGIN IMMEDIATE")
             client = conn.execute(
-                "SELECT id, is_active FROM pantry_clients WHERE id = ?", (client_id,)
+                "SELECT id, is_active, deactivated_at FROM pantry_clients WHERE id = ?", (client_id,)
             ).fetchone()
             if not client:
                 raise ValueError("Client not found.")
+            deactivated_at = None if active else client["deactivated_at"] or _utc_date().isoformat()
             conn.execute(
-                "UPDATE pantry_clients SET is_active = ?, updated_at = datetime('now', 'localtime') "
-                "WHERE id = ?", (int(active), client_id),
+                "UPDATE pantry_clients SET is_active = ?, deactivated_at = ?, "
+                "updated_at = datetime('now', 'localtime') WHERE id = ?",
+                (int(active), deactivated_at, client_id),
             )
             if not active and client["is_active"]:
                 previous = conn.execute(

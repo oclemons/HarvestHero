@@ -275,7 +275,7 @@ def cancel_out():
 def distribution_receipt(cart_id: str):
     from database import Database
     receipt = Database().get_cart_receipt(int(current_user.id), cart_id)
-    if not receipt or receipt["direction"] != "OUT":
+    if not receipt or receipt["direction"] != "OUT" or receipt["client_id"] is None:
         abort(404)
     return render_template("scan/out_receipt.html", receipt=receipt,
                            stats=Database().get_client_weight_summary(receipt["client_id"]))
