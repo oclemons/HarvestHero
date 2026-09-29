@@ -101,7 +101,7 @@ class DeleteItem(unittest.TestCase):
         self.assertIn("Deleted",      body)
         self.assertIn("Doomed item",  body)
 
-    def test_nonempty_item_cannot_be_deleted(self):
+    def test_nonempty_item_can_be_deleted(self):
         from database import Database
         db = Database()
         item = self._row()
@@ -109,9 +109,9 @@ class DeleteItem(unittest.TestCase):
         db.adjust_shelf_stock(item["id"], shelf["shelf_id"], 2, "admin", "Opening count")
         self._login()
         self.client.post(f"/inventory/{item['id']}/delete", data={"confirm_barcode": "DEL1"})
-        self.assertIsNotNone(self._row())
+        self.assertIsNone(self._row())
 
-    def test_item_in_cart_cannot_be_deleted(self):
+    def test_item_in_cart_can_be_deleted(self):
         from database import Database
         db = Database()
         section_id = db.create_pantry_section("Dry goods")
@@ -119,7 +119,7 @@ class DeleteItem(unittest.TestCase):
         db.add_scan_to_cart(db.get_user("admin")["id"], "DEL1", shelf_id)
         self._login()
         self.client.post(f"/inventory/{self._row()['id']}/delete", data={"confirm_barcode": "DEL1"})
-        self.assertIsNotNone(self._row())
+        self.assertIsNone(self._row())
 
     def test_wrong_confirmation_does_not_delete(self):
         self._login()
@@ -129,7 +129,7 @@ class DeleteItem(unittest.TestCase):
     def test_detail_page_shows_delete_button_with_confirm(self):
         self._login()
         body = self.client.get(f"/inventory/{self._row()['id']}").data.decode("utf-8")
-        self.assertIn("Delete empty item", body)
+        self.assertIn("Delete item", body)
         # Barcode confirmation prevents an accidental click from deleting the row.
         self.assertIn('name="confirm_barcode"', body)
 

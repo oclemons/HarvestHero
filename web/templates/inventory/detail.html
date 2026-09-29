@@ -150,17 +150,16 @@
     <button type="submit" class="bg-emerald-800 text-white font-semibold px-4 py-2 rounded hover:bg-emerald-900">Move stock</button>
   </form>
 
-  {% if item.current_quantity == 0 %}
     <form method="post" action="{{ url_for('inventory.delete', item_id=item.id) }}"
-          class="w-full flex flex-wrap items-end gap-3 rounded border border-red-200 bg-red-50 p-4">
+          class="w-full flex flex-wrap items-end gap-3 rounded border border-red-200 bg-red-50 p-4"
+          onsubmit="return confirm('Delete this item and all its stock, history, and movement records? This cannot be undone.')">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label class="text-sm font-semibold">Delete an unused item by entering its barcode
-        <input name="confirm_barcode" required autocomplete="off" class="block rounded border border-red-300 px-3 py-2 mt-1">
+      <label class="text-sm font-semibold">Confirm deletion by entering the item barcode
+        <input name="confirm_barcode" required autocomplete="off" class="block rounded border border-red-300 px-3 py-2 mt-1" placeholder="{{ item.barcode }}">
       </label>
-      <button type="submit" class="bg-red-800 text-white font-semibold px-4 py-2 rounded hover:bg-red-900">Delete empty item</button>
+      <button type="submit" class="bg-red-800 text-white font-semibold px-4 py-2 rounded hover:bg-red-900">Delete item</button>
     </form>
-  {% endif %}
 </div>
-<p class="text-sm text-slate-600 mt-3">Items with stock, cart entries or movement history cannot be deleted. Corrections must name a shelf and reason.</p>
+<p class="text-sm text-slate-600 mt-3">Deleting an item removes all its stock, history, and movement records. Corrections must name a shelf and reason.</p>
 {% endif %}
 {% endblock %}

@@ -1916,22 +1916,16 @@ class Database:
                 raise ValueError("Item not found.")
             if item["barcode"] != confirm_barcode:
                 raise ValueError("Enter the item barcode to confirm deletion.")
-            if item["current_quantity"] != 0:
-                raise ValueError("Items with stock cannot be deleted. Correct the shelf count first.")
-            if (conn.execute(
-                    "SELECT 1 FROM transactions WHERE barcode = ? LIMIT 1", (item["barcode"],)
-                ).fetchone() or conn.execute(
-                    "SELECT 1 FROM inventory_movements WHERE item_id = ? LIMIT 1", (item_id,)
-                ).fetchone() or conn.execute(
-                    "SELECT 1 FROM pantry_cart_lines WHERE item_id = ? LIMIT 1", (item_id,)
-                ).fetchone() or conn.execute(
-                    "SELECT 1 FROM archived_transactions WHERE barcode = ? LIMIT 1", (item["barcode"],)
-                ).fetchone()):
-                raise ValueError("Items in a cart or with movement history cannot be deleted.")
+            conn.execute("DELETE FROM inventory_movements WHERE item_id = ?", (item_id,))
+            conn.execute("DELETE FROM pantry_cart_lines WHERE item_id = ?", (item_id,))
+            conn.execute("DELETE FROM item_shelf_stock WHERE item_id = ?", (item_id,))
+            conn.execute("DELETE FROM transactions WHERE barcode = ?", (item["barcode"],))
+            conn.execute("DELETE FROM archived_transactions WHERE barcode = ?", (item["barcode"],))
             conn.execute("DELETE FROM inventory_items WHERE id = ?", (item_id,))
             conn.execute(
                 "INSERT INTO activity_log (username, action, detail) VALUES (?, 'ITEM_DELETE', ?)",
-                (username, f"item={item_id} barcode={item['barcode']}"),
+                (username, f"item={item_id} barcode={item['barcode']} "
+                 f"name={item['item_name']} had_stock={item['current_quantity']}"),
             )
             conn.commit()
             return item["item_name"]
