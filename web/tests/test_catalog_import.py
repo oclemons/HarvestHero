@@ -54,6 +54,20 @@ class CatalogImport(unittest.TestCase):
         token = re.search(rb'name="preview_token" value="([^"]+)"', response.data)
         return response, token.group(1).decode() if token else None
 
+    def test_empty_internal_bucket_is_hidden_until_stock_needs_placement(self):
+        section_id = self.db.create_pantry_section("Section 3")
+        self.db.create_pantry_shelf(section_id, "Shelf 1")
+        self.login("admin")
+        page = self.client.get("/pantry/").data
+        self.assertNotIn(b"Unassigned", page)
+        self.assertIn(b"Edit section name", page)
+        self.assertIn(b"Edit shelf", page)
+        self.db.add_item("LEGACY-FOOD", "Legacy vegetables", "Canned", 3, 0, "")
+        pending = self.client.get("/pantry/").data
+        self.assertIn(b"Items needing placement", pending)
+        self.assertIn(b"Legacy vegetables", pending)
+        self.assertNotIn(b"Unassigned", pending)
+
     def test_existing_pantry_inventory_is_previewable_without_importing(self):
         from catalog_import import parse_catalog
         contents = (ROOT / "input" / "pantry_inventory.csv").read_bytes()

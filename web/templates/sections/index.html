@@ -4,26 +4,33 @@
 <div class="mb-8">
   <p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">Pantry layout</p>
   <h1 class="text-3xl font-bold mt-2">Sections and shelves</h1>
-  <p class="text-slate-600 mt-2">One shelf can hold many foods. Add mixed vegetables and potatoes to the same Section 3 / Shelf 1; do not create duplicate shelf records. Empty shelves remain visible.</p>
+  <p class="text-slate-600 mt-2">Each shelf can hold several foods. Choose the same shelf when adding another item; empty shelves stay visible.</p>
 </div>
 <div class="grid gap-6 lg:grid-cols-3">
   <div class="lg:col-span-2 space-y-5">
     {% for section in sections %}
-      <section class="rounded-xl bg-white border border-emerald-100 shadow-sm p-6" aria-label="{{ section.name }}">
+      <section class="rounded-xl bg-white border border-emerald-100 shadow-sm p-6" aria-label="{{ 'Items needing placement' if section.system else section.name }}">
         <div class="flex flex-wrap justify-between gap-3 items-center">
-          <h2 class="text-xl font-bold">{{ section.name }}</h2>
-          {% if section.system %}<span class="text-xs font-semibold text-amber-900 bg-amber-100 rounded px-2 py-1">Needs shelf assignment</span>{% endif %}
+          <h2 class="text-xl font-bold">{{ 'Items needing placement' if section.system else section.name }}</h2>
         </div>
-        {% if section.system %}<p class="text-sm text-slate-600 mt-2">Existing stock without a confirmed shelf stays here until an administrator moves it.</p>
+        {% if section.system %}
+          <p class="text-sm text-slate-600 mt-2">These items have no confirmed physical location. Choose an item and transfer its stock to the correct shelf; this is not a real shelf.</p>
+          <ul class="mt-4 divide-y divide-slate-100 text-sm">
+            {% for food in section.pending_items %}
+              <li class="flex justify-between gap-3 py-2"><a href="{{ url_for('inventory.detail', item_id=food.item_id) }}" class="text-emerald-800 underline">{{ food.item_name }}</a><span>{{ food.quantity }} unit{{ '' if food.quantity == 1 else 's' }}</span></li>
+            {% else %}<li class="text-amber-900 py-2">Stock needs review; no item assignment was found.</li>{% endfor %}
+          </ul>
         {% else %}
-          <form method="post" action="{{ url_for('sections.edit_section', section_id=section.id) }}" class="mt-4 flex flex-wrap items-end gap-2 text-sm">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <label class="font-semibold">Rename section
-              <input name="name" maxlength="80" required value="{{ section.name }}" class="block rounded border border-slate-300 px-2 py-1 mt-1">
-            </label>
-            <button type="submit" class="text-emerald-800 underline font-semibold py-1">Save name</button>
-          </form>
-        {% endif %}
+          <details class="mt-3 text-sm">
+            <summary class="cursor-pointer font-semibold text-emerald-800">Edit section name</summary>
+            <form method="post" action="{{ url_for('sections.edit_section', section_id=section.id) }}" class="mt-3 flex flex-wrap items-end gap-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label class="font-semibold">New section name
+                <input name="name" maxlength="80" required value="{{ section.name }}" class="block rounded border border-slate-300 px-2 py-1 mt-1">
+              </label>
+              <button type="submit" class="rounded bg-emerald-800 px-3 py-2 text-white font-semibold">Save section name</button>
+            </form>
+          </details>
         {% if section.shelves %}
           <ul class="mt-5 grid gap-3 sm:grid-cols-2">
           {% for shelf in section.shelves %}
@@ -37,20 +44,22 @@
                   <li class="flex justify-between gap-2"><a href="{{ url_for('inventory.detail', item_id=food.item_id) }}" class="text-emerald-800 underline">{{ food.item_name }}</a><span>{{ food.quantity }} unit{{ '' if food.quantity == 1 else 's' }}</span></li>
                 {% else %}<li class="text-slate-500">No items assigned yet.</li>{% endfor %}
               </ul>
-              {% if not section.system %}
-                <form method="post" action="{{ url_for('sections.edit_shelf', shelf_id=shelf.id) }}" class="w-full flex flex-wrap items-end gap-2 text-sm">
+              <details class="w-full text-sm">
+                <summary class="cursor-pointer font-semibold text-emerald-800">Edit shelf</summary>
+                <form method="post" action="{{ url_for('sections.edit_shelf', shelf_id=shelf.id) }}" class="mt-3 flex flex-wrap items-end gap-2">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <label class="font-semibold">Shelf name
+                  <label class="font-semibold">New shelf name
                     <input name="name" maxlength="80" required value="{{ shelf.name }}" class="block rounded border border-slate-300 px-2 py-1 mt-1">
                   </label>
                   <label class="flex items-center gap-1"><input name="is_overflow" type="checkbox" {% if shelf.is_overflow %}checked{% endif %}> Overflow</label>
-                  <button type="submit" class="text-emerald-800 underline font-semibold py-1">Save shelf</button>
+                  <button type="submit" class="rounded bg-emerald-800 px-3 py-2 text-white font-semibold">Save shelf changes</button>
                 </form>
-              {% endif %}
+              </details>
             </li>
           {% endfor %}
           </ul>
         {% else %}<p class="mt-5 text-slate-600">No shelves yet. Create one to start arranging this section.</p>{% endif %}
+        {% endif %}
       </section>
     {% endfor %}
   </div>

@@ -8,12 +8,27 @@ from decorators import admin_required
 bp = Blueprint("sections", __name__, url_prefix="/pantry")
 
 
+def _visible_layout():
+    from database import Database
+    sections = Database().get_pantry_layout(include_items=True)
+    visible = []
+    for section in sections:
+        if section["system"]:
+            section["pending_items"] = [item for shelf in section["shelves"]
+                                        for item in shelf["items"]]
+            if not section["pending_items"] and not any(
+                shelf["units"] for shelf in section["shelves"]
+            ):
+                continue
+        visible.append(section)
+    return visible
+
+
 @bp.route("/")
 @login_required
 @admin_required
 def index():
-    from database import Database
-    return render_template("sections/index.html", sections=Database().get_pantry_layout(include_items=True))
+    return render_template("sections/index.html", sections=_visible_layout())
 
 
 @bp.route("/sections", methods=["POST"])
@@ -25,7 +40,7 @@ def create_section():
         Database().create_pantry_section(request.form.get("name") or "")
     except ValueError as error:
         flash(str(error), "error")
-        return render_template("sections/index.html", sections=Database().get_pantry_layout(include_items=True)), 400
+        return render_template("sections/index.html", sections=_visible_layout()), 400
     flash("Section added. Add shelves to organize stock.", "success")
     return redirect(url_for("sections.index"))
 
@@ -43,7 +58,7 @@ def create_shelf():
         )
     except ValueError as error:
         flash(str(error), "error")
-        return render_template("sections/index.html", sections=Database().get_pantry_layout(include_items=True)), 400
+        return render_template("sections/index.html", sections=_visible_layout()), 400
     flash("Shelf added. It is ready even while empty.", "success")
     return redirect(url_for("sections.index"))
 
@@ -59,7 +74,7 @@ def edit_section(section_id: int):
     except ValueError as error:
         flash(str(error), "error")
         return render_template("sections/index.html",
-                               sections=Database().get_pantry_layout(include_items=True)), 400
+                               sections=_visible_layout()), 400
     flash("Section renamed; its shelves and stock stayed in place.", "success")
     return redirect(url_for("sections.index"))
 
@@ -76,6 +91,6 @@ def edit_shelf(shelf_id: int):
     except ValueError as error:
         flash(str(error), "error")
         return render_template("sections/index.html",
-                               sections=Database().get_pantry_layout(include_items=True)), 400
+                               sections=_visible_layout()), 400
     flash("Shelf updated; all food and stock counts stayed assigned to it.", "success")
     return redirect(url_for("sections.index"))
