@@ -122,6 +122,8 @@ class DemoFlow(unittest.TestCase):
         self.assertIn(b'body.login-page { background-color: #daf1de;', response.data)
         self.assertIn(b'.login-hero { background-color: #0c3b2e;', response.data)
         self.assertNotIn(b'<section class="bg-emerald-900', response.data)
+        self.assertIn(b'A Clemons Collective', response.data)
+        self.assertNotIn(b'Harvest Hero &middot; v', response.data)
         logo = self.client.get("/assets/HarvestHeroIcon.png")
         self.assertEqual(logo.status_code, 200)
         self.assertEqual(logo.mimetype, "image/png")
