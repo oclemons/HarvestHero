@@ -59,7 +59,7 @@ def create_app(config: type = Config) -> Flask:
     app = Flask(
         __name__,
         template_folder="templates",
-        static_folder="static",
+        static_folder="../assets",
     )
     app.config.from_object(config)
     config.warn_if_insecure()

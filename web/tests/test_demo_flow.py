@@ -112,6 +112,14 @@ class DemoFlow(unittest.TestCase):
         self.assertIsNotNone(self.db.get_user("new_student"))
         self.assertNotIn(b"AnotherPass!123", response.data)
 
+    def test_login_page_displays_harvest_hero_logo(self):
+        response = self.client.get("/login")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'/assets/HarvestHeroIcon.png', response.data)
+        logo = self.client.get("/assets/HarvestHeroIcon.png")
+        self.assertEqual(logo.status_code, 200)
+        self.assertEqual(logo.mimetype, "image/png")
+
     def test_new_student_can_sign_in_with_temporary_password_regardless_of_username_case(self):
         self.login("demo_admin")
         response = self.client.post("/admin/users/", data={
