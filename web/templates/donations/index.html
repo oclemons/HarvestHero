@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Donation weights · Harvest Hero{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-end justify-between gap-4 mb-8">
+  <div>
+    <p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">Admin · donations</p>
+    <h1 class="text-3xl font-bold mt-2">Donation weight log</h1>
+    <p class="text-slate-600 mt-2">Record the total weight of food received per donation. Each entry is a separate weigh-in.</p>
+  </div>
+  <a href="{{ url_for('donations.new') }}" class="rounded bg-emerald-800 text-white px-5 py-3 font-semibold hover:bg-emerald-900">Record a donation</a>
+</div>
+{% if records %}
+<div class="bg-white rounded-xl border border-emerald-100 shadow-sm overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-emerald-50 text-left"><tr>
+      <th class="px-4 py-3 font-semibold">Date</th>
+      <th class="px-4 py-3 font-semibold">Weight (lb)</th>
+      <th class="px-4 py-3 font-semibold">Source</th>
+      <th class="px-4 py-3 font-semibold">Notes</th>
+      <th class="px-4 py-3 font-semibold">Recorded by</th>
+      <th class="px-4 py-3 font-semibold">Actions</th>
+    </tr></thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for rec in records %}
+      <tr>
+        <td class="px-4 py-3">{{ rec.donation_date }}</td>
+        <td class="px-4 py-3 font-semibold">{{ '%.3f'|format(rec.weight_milli_lb / 1000) }}</td>
+        <td class="px-4 py-3">{{ rec.source or '—' }}</td>
+        <td class="px-4 py-3 max-w-xs truncate">{{ rec.notes or '—' }}</td>
+        <td class="px-4 py-3">{{ rec.recorded_by }}</td>
+        <td class="px-4 py-3 flex gap-3">
+          <a href="{{ url_for('donations.edit', record_id=rec.id) }}" class="text-emerald-800 underline">Edit</a>
+          <form method="post" action="{{ url_for('donations.delete', record_id=rec.id) }}" onsubmit="return confirm('Delete this donation record?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="text-red-800 underline">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% set total_lb = records | map(attribute='weight_milli_lb') | sum %}
+<p class="mt-4 font-semibold">{{ records|length }} record{{ '' if records|length == 1 else 's' }} · {{ '%.3f'|format(total_lb / 1000) }} lb total</p>
+{% else %}
+<p class="rounded-lg bg-stone-50 p-6 text-slate-600">No donation weights recorded yet. Use <strong>Record a donation</strong> to log the total pounds received.</p>
+{% endif %}
+{% endblock %}

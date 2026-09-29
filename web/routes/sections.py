@@ -109,3 +109,31 @@ def edit_shelf(shelf_id: int):
                                sections=_visible_layout()), 400
     flash("Shelf updated; all food and stock counts stayed assigned to it.", "success")
     return redirect(url_for("sections.index"))
+
+
+@bp.route("/shelves/<int:shelf_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def delete_shelf(shelf_id: int):
+    from database import Database
+    try:
+        Database().delete_pantry_shelf(shelf_id, current_user.username)
+    except ValueError as error:
+        flash(str(error), "error")
+        return redirect(url_for("sections.index"))
+    flash("Shelf deleted.", "success")
+    return redirect(url_for("sections.index"))
+
+
+@bp.route("/sections/<int:section_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def delete_section(section_id: int):
+    from database import Database
+    try:
+        Database().delete_pantry_section(section_id, current_user.username)
+    except ValueError as error:
+        flash(str(error), "error")
+        return redirect(url_for("sections.index"))
+    flash("Section and its shelves deleted.", "success")
+    return redirect(url_for("sections.index"))

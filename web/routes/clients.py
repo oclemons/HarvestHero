@@ -49,12 +49,9 @@ VISIT_FIELDS = (
 MONTH_FIELDS = (
     ("month_utc", "Month (UTC)", False),
     ("opening_pounds", "Opening pounds", False),
-    ("initial_stock_pounds", "Initial stock pounds", False),
     ("donated_pounds", "Donated pounds", False),
     ("distributed_pounds", "Distributed pounds", False),
-    ("adjustment_pounds", "Correction pounds", False),
-    ("closing_pounds", "Remaining pounds", False),
-    ("pending_lines", "Pending-weight lines", False),
+    ("pending_lines", "Pending-weight sessions", False),
     ("service_visits", "Pantry visits", False),
     ("service_known_pounds", "Known pounds received by clients", False),
     ("service_pending_visits", "Visits with pending weight", False),
@@ -203,20 +200,15 @@ def export_monthly():
         service = db.get_monthly_service_summary(month)
         if not report["history_available"] and not service["visits"]:
             continue
-        values = {"month_utc": month, "pending_lines": report["pending_lines"],
+        values = {"month_utc": month, "pending_lines": report.get("pending_sessions", 0),
                   "service_visits": service["visits"],
                   "service_known_pounds": f"{service['known_weight_milli_lb'] / 1000:.3f}",
                   "service_pending_visits": service["pending_visits"],
-                  "inventory_history_available": int(report["history_available"])}
-        for field, key in (
-            ("opening_pounds", "opening_milli_lb"),
-            ("initial_stock_pounds", "opening_baseline_milli_lb"),
-            ("donated_pounds", "donated_milli_lb"),
-            ("distributed_pounds", "distributed_milli_lb"),
-            ("adjustment_pounds", "adjustment_milli_lb"),
-            ("closing_pounds", "closing_milli_lb"),
-        ):
-            values[field] = f"{report[key] / 1000:.3f}"
+                  "inventory_history_available": int(report["history_available"]),
+                  "donated_pounds": f"{report['donated_milli_lb'] / 1000:.3f}",
+                  "distributed_pounds": f"{report['distributed_milli_lb'] / 1000:.3f}",
+                  "opening_pounds": "0.000", "initial_stock_pounds": "0.000",
+                  "adjustment_pounds": "0.000", "closing_pounds": "0.000"}
         rows.append(tuple(values[field] for field in fields))
     db.log_activity(current_user.username, "CLIENT_EXPORT",
                     f"type=monthly rows={len(rows)} columns={','.join(fields)}")

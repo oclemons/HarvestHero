@@ -51,7 +51,7 @@ class WeightReports(unittest.TestCase):
     def login(self, username):
         self.web.post("/login", data={"username": username, "password": "PantryPass!123"})
 
-    def test_month_reconciles_opening_donated_distributed_and_adjustments(self):
+    def test_month_reports_donated_distributed_and_pending_sessions(self):
         client_id = self.db.register_pantry_client(
             "S123", "Avery", "Rivera", "2003-04-05", "Spring 2028",
             "full_time", "admin_a",
@@ -61,43 +61,37 @@ class WeightReports(unittest.TestCase):
         for _ in range(2):
             self.db.add_scan_to_cart(self.admin_id, "RICE1", self.shelf_id)
         in_cart = self.db.get_active_cart(self.admin_id, "IN")
-        self.db.complete_scan_in_cart(self.admin_id, in_cart["id"], "admin_a")
+        self.db.complete_scan_in_cart(self.admin_id, in_cart["id"], "admin_a",
+                                      session_weight_milli_lb=2000)
         self.db.start_scan_out_cart(self.admin_id, client_id)
         for _ in range(3):
             self.db.add_scan_out_to_cart(self.admin_id, "RICE1-OUT", self.shelf_id)
         out_cart = self.db.get_active_cart(self.admin_id, "OUT")
-        self.db.complete_scan_out_cart(self.admin_id, out_cart["id"], "admin_a")
-        self.db.adjust_shelf_stock(self.item_id, self.shelf_id, -1, "admin_a", "Cycle count")
+        self.db.complete_scan_out_cart(self.admin_id, out_cart["id"], "admin_a",
+                                       session_weight_milli_lb=1500)
         totals = self.db.get_monthly_weight_report(self.month)
-        self.assertEqual((totals["opening_baseline_milli_lb"], totals["donated_milli_lb"],
-                          totals["distributed_milli_lb"], totals["adjustment_milli_lb"],
-                          totals["closing_milli_lb"]), (5000, 1000, 1500, -500, 4000))
-        self.assertEqual(totals["pending_lines"], 0)
-        self.db.update_item_profile(self.item_id, "Rice", "Dry", 2, "", "RICE1-OUT",
-                                    "", 1000, "admin_a")
-        self.assertEqual(self.db.get_monthly_weight_report(self.month)["closing_milli_lb"], 4000)
+        self.assertEqual(
+            (totals["donated_milli_lb"], totals["distributed_milli_lb"],
+             totals["pending_sessions"], totals["history_available"]),
+            (2000, 1500, 0, True),
+        )
 
-    def test_month_rollover_and_shelf_transfer_preserve_remaining(self):
-        first = datetime.date.fromisoformat(f"{self.month}-01")
-        previous = (first - datetime.timedelta(days=1)).strftime("%Y-%m")
-        conn = self.db._connect()
-        conn.execute("UPDATE inventory_movements SET timestamp_utc = ? WHERE direction = 'OPENING'",
-                     (f"{previous}-15T12:00:00.000Z",))
-        conn.commit()
-        conn.close()
+    def test_shelf_transfer_does_not_change_monthly_weight_report(self):
+        self.db.add_scan_to_cart(self.admin_id, "RICE1", self.shelf_id)
+        in_cart = self.db.get_active_cart(self.admin_id, "IN")
+        self.db.complete_scan_in_cart(self.admin_id, in_cart["id"], "admin_a",
+                                      session_weight_milli_lb=5000)
         overflow = self.db.create_pantry_shelf(
             self.db.get_pantry_layout()[0]["id"], "Overflow", is_overflow=True,
         )
         self.db.transfer_shelf_stock(self.item_id, self.shelf_id, overflow, 2, "admin_a")
-        self.assertEqual(self.db.get_monthly_weight_report(previous)["closing_milli_lb"], 5000)
-        this_month = self.db.get_monthly_weight_report(self.month)
-        self.assertEqual(this_month["opening_milli_lb"], 5000)
-        self.assertEqual(this_month["closing_milli_lb"], 5000)
+        totals = self.db.get_monthly_weight_report(self.month)
+        self.assertEqual(totals["donated_milli_lb"], 5000)
+        self.assertEqual(totals["distributed_milli_lb"], 0)
+        self.assertEqual(totals["pending_sessions"], 0)
+        self.assertTrue(totals["history_available"])
 
-    def test_missing_weight_resolved_after_visit_updates_client_history(self):
-        unknown_id = self.db.create_item_on_shelf(
-            "BEANS1", "Beans", "Dry", 2, 0, self.shelf_id, "admin_a",
-        )
+    def test_missing_session_weight_is_pending_and_weighted_session_updates_client_history(self):
         client_id = self.db.register_pantry_client(
             "S124", "Alex", "Rivera", "2003-04-05", "Spring 2028",
             "full_time", "admin_a",
@@ -105,35 +99,35 @@ class WeightReports(unittest.TestCase):
         expiry = (datetime.date.today() + datetime.timedelta(days=100)).isoformat()
         self.db.verify_client_term(client_id, "Fall 2026", expiry, "admin_a")
         self.db.start_scan_out_cart(self.admin_id, client_id)
-        self.db.add_scan_out_to_cart(self.admin_id, self.db.get_item_by_id(unknown_id)["barcode_out"], self.shelf_id)
+        self.db.add_scan_out_to_cart(self.admin_id, "RICE1-OUT", self.shelf_id)
         cart = self.db.get_active_cart(self.admin_id, "OUT")
         self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a")
         before = self.db.get_monthly_weight_report(self.month)
-        self.assertGreater(before["pending_lines"], 0)
+        self.assertEqual(before["pending_sessions"], 1)
+        self.assertEqual(before["distributed_milli_lb"], 0)
         self.assertEqual(self.db.get_client_weight_summary(client_id)["pending_visits"], 1)
-        conn = self.db._connect()
-        movement_id = conn.execute(
-            "SELECT id FROM inventory_movements WHERE direction='OUT' AND item_id=?",
-            (unknown_id,),
-        ).fetchone()[0]
-        conn.close()
-        self.db.resolve_movement_weight(movement_id, 375, "Scale measurement", "admin_a")
+        self.assertEqual(self.db.get_client_weight_summary(client_id)["known_weight_milli_lb"], 0)
+        self.db.start_scan_out_cart(self.admin_id, client_id)
+        self.db.add_scan_out_to_cart(self.admin_id, "RICE1-OUT", self.shelf_id)
+        weighted_cart = self.db.get_active_cart(self.admin_id, "OUT")
+        self.db.complete_scan_out_cart(self.admin_id, weighted_cart["id"], "admin_a",
+                                       session_weight_milli_lb=375)
         self.assertEqual(self.db.get_client_weight_summary(client_id)["known_weight_milli_lb"], 375)
-        self.assertEqual(self.db.get_client_weight_summary(client_id)["pending_visits"], 0)
-        self.assertEqual(self.db.get_client_visits(client_id)[0]["pounds_received"], 0.375)
-        self.assertEqual(self.db.get_monthly_weight_report(self.month)["distributed_milli_lb"], 375)
+        self.assertEqual(self.db.get_client_weight_summary(client_id)["pending_visits"], 1)
+        pounds_received = [v["pounds_received"] for v in self.db.get_client_visits(client_id)]
+        self.assertIn(0.375, pounds_received)
+        totals = self.db.get_monthly_weight_report(self.month)
+        self.assertEqual(totals["distributed_milli_lb"], 375)
+        self.assertEqual(totals["pending_sessions"], 1)
 
-    def test_report_and_reconciliation_are_admin_only(self):
+    def test_weight_report_is_admin_only(self):
         self.login("student_a")
         self.assertEqual(self.web.get("/reports/weights").status_code, 403)
-        self.assertEqual(self.web.post("/reports/weights/1/resolve", data={
-            "measured_lb": "2", "reason": "Forged",
-        }).status_code, 403)
         self.assertNotIn(b"/reports/", self.web.get("/app").data)
         self.web.get("/logout")
         self.login("admin_a")
         self.assertEqual(self.web.get("/reports/weights").status_code, 200)
-        self.assertIn(b"UTC", self.web.get("/reports/weights").data)
+        self.assertIn(b"Pounds, month by month", self.web.get("/reports/weights").data)
 
 
 if __name__ == "__main__":

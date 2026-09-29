@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Record donation' if mode == 'new' else 'Edit donation' }} · Harvest Hero{% endblock %}
+{% block content %}
+<div class="max-w-xl mx-auto">
+  <p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">Admin · donations</p>
+  <h1 class="text-3xl font-bold mt-2">{{ 'Record a donation' if mode == 'new' else 'Edit donation record' }}</h1>
+  <p class="text-slate-600 mt-2">{{ 'Enter the total weight of food received in this donation.' if mode == 'new' else 'Correct the recorded donation details. Changes are logged.' }}</p>
+  <form method="post" class="bg-white rounded-xl border border-emerald-100 shadow-sm p-6 mt-6 space-y-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label for="weight-lb" class="block font-semibold mb-1">Total weight (lb)</label>
+      <input id="weight-lb" name="weight_lb" type="number" min="0.001" max="10000" step="0.001" required
+             value="{{ record.weight_lb if record.weight_lb is defined else '' }}"
+             class="w-full rounded border border-slate-300 px-3 py-2" placeholder="e.g. 42.5">
+    </div>
+    <div>
+      <label for="donation-date" class="block font-semibold mb-1">Donation date</label>
+      <input id="donation-date" name="donation_date" type="date" required
+             value="{{ record.donation_date if record.donation_date is defined else '' }}"
+             class="w-full rounded border border-slate-300 px-3 py-2">
+    </div>
+    <div>
+      <label for="source" class="block font-semibold mb-1">Source (optional)</label>
+      <input id="source" name="source" maxlength="200"
+             value="{{ record.source if record.source is defined else '' }}"
+             class="w-full rounded border border-slate-300 px-3 py-2" placeholder="e.g. Food bank, Community drive">
+    </div>
+    <div>
+      <label for="notes" class="block font-semibold mb-1">Notes (optional)</label>
+      <textarea id="notes" name="notes" maxlength="500" rows="3"
+                class="w-full rounded border border-slate-300 px-3 py-2" placeholder="Any additional details">{{ record.notes if record.notes is defined else '' }}</textarea>
+    </div>
+    <div class="flex gap-3">
+      <button type="submit" class="rounded bg-emerald-800 text-white px-5 py-3 font-semibold hover:bg-emerald-900">{{ 'Record donation' if mode == 'new' else 'Save changes' }}</button>
+      <a href="{{ url_for('donations.index') }}" class="rounded border border-slate-300 px-5 py-3 font-semibold">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

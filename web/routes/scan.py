@@ -1,12 +1,12 @@
 """Server-owned intake carts and Admin-only visitor distribution sessions."""
 
+from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required
 
 from decorators import admin_required, student_or_admin_required
-from routes.inventory import _parse_unit_weight
 
 bp = Blueprint("scan", __name__, url_prefix="/scan")
 
@@ -63,23 +63,6 @@ def remove_in(line_id: int):
     return redirect(url_for("scan.scan_in"))
 
 
-@bp.route("/in/weight/<int:line_id>", methods=["POST"])
-@login_required
-@admin_required
-def weigh_in(line_id: int):
-    from database import Database
-    measured, error = _parse_unit_weight((request.form.get("measured_lb") or "").strip())
-    if error or measured is None:
-        flash(error or "Enter measured pounds.", "error")
-    else:
-        try:
-            Database().set_cart_line_weight(int(current_user.id), line_id, measured,
-                                            request.form.get("reason") or "", current_user.username)
-        except ValueError as exc:
-            flash(str(exc), "error")
-    return redirect(url_for("scan.scan_in"))
-
-
 @bp.route("/in/complete", methods=["POST"])
 @login_required
 @student_or_admin_required
@@ -87,8 +70,10 @@ def complete_in():
     from database import Database
     db = Database()
     cart_id = request.form.get("cart_id") or ""
+    session_weight = _parse_session_weight(request.form.get("session_weight_lb"))
     try:
-        receipt = db.complete_scan_in_cart(int(current_user.id), cart_id, current_user.username)
+        receipt = db.complete_scan_in_cart(int(current_user.id), cart_id,
+                                           current_user.username, session_weight)
     except ValueError as error:
         flash(str(error), "error")
         return redirect(url_for("scan.scan_in"))
@@ -164,14 +149,9 @@ def add_out():
         shelf_id = int(shelf_raw) if shelf_raw else None
         cart = db.get_active_cart(int(current_user.id), "OUT")
         if cart and cart["mode"] == "IMMEDIATE":
-            measured_raw = (request.form.get("measured_lb") or "").strip()
-            measured, error = _parse_unit_weight(measured_raw)
-            if error:
-                raise ValueError(error)
             db.record_immediate_scan_out(
                 int(current_user.id), request.form.get("barcode") or "", shelf_id,
                 current_user.username, request.form.get("scan_token") or "",
-                measured, request.form.get("reason") or "",
             )
             flash("Item scanned out and recorded in this customer's visit.", "success")
         else:
@@ -220,36 +200,16 @@ def undo_out(movement_id: int):
                     if receipt else url_for("scan.scan_out"))
 
 
-@bp.route("/out/weight/<int:line_id>", methods=["POST"])
-@login_required
-@admin_required
-def weigh_out(line_id: int):
-    from database import Database
-    cart = Database().get_active_cart(int(current_user.id), "OUT")
-    if cart and cart["mode"] == "IMMEDIATE":
-        flash("Enter measured weight before scanning, or reconcile it in Pounds afterward.", "error")
-        return redirect(url_for("scan.scan_out"))
-    measured, error = _parse_unit_weight((request.form.get("measured_lb") or "").strip())
-    if error or measured is None:
-        flash(error or "Enter measured pounds.", "error")
-    else:
-        try:
-            Database().set_cart_line_weight(int(current_user.id), line_id, measured,
-                                            request.form.get("reason") or "",
-                                            current_user.username, "OUT")
-        except ValueError as exc:
-            flash(str(exc), "error")
-    return redirect(url_for("scan.scan_out"))
-
-
 @bp.route("/out/complete", methods=["POST"])
 @login_required
 @admin_required
 def complete_out():
     from database import Database
+    session_weight = _parse_session_weight(request.form.get("session_weight_lb"))
     try:
         receipt = Database().complete_scan_out_cart(
-            int(current_user.id), request.form.get("cart_id") or "", current_user.username
+            int(current_user.id), request.form.get("cart_id") or "",
+            current_user.username, session_weight,
         )
     except ValueError as error:
         flash(str(error), "error")
@@ -280,3 +240,19 @@ def distribution_receipt(cart_id: str):
         abort(404)
     return render_template("scan/out_receipt.html", receipt=receipt,
                            stats=Database().get_client_weight_summary(receipt["client_id"]))
+
+
+def _parse_session_weight(raw: str | None) -> int | None:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        value = Decimal(raw)
+    except InvalidOperation:
+        return None
+    if not value.is_finite() or value <= 0 or value > 10000:
+        return None
+    scaled = value * 1000
+    if scaled != scaled.to_integral_value():
+        return None
+    return int(scaled)

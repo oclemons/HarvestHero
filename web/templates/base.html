@@ -61,7 +61,9 @@
         <a href="{{ url_for('scan.scan_in') }}" class="hover:underline">Scan in</a>
         {% if current_user.is_admin and config.CLIENT_RECORDS_ENABLED %}<a href="{{ url_for('scan.scan_out') }}" class="hover:underline">Scan out</a>{% endif %}
         {% if current_user.is_admin and config.CLIENT_RECORDS_ENABLED %}<a href="{{ url_for('clients.index') }}" class="hover:underline">Clients</a>{% endif %}
+        {% if current_user.is_admin %}<a href="{{ url_for('donations.index') }}" class="hover:underline">Donations</a>{% endif %}
         {% if current_user.is_admin %}<a href="{{ url_for('reports.weights') }}" class="hover:underline">Pounds</a>{% endif %}
+        {% if current_user.is_admin %}<a href="{{ url_for('reports.activity') }}" class="hover:underline">Activity</a>{% endif %}
         {% if current_user.is_admin %}<a href="{{ url_for('users.index') }}" class="hover:underline">Team</a>{% endif %}
         <a href="{{ url_for('account.settings') }}" class="hover:underline">Settings</a>
         <span class="opacity-60">|</span>

@@ -82,7 +82,6 @@ class AddItem(unittest.TestCase):
             "current_quantity": "12",
             "minimum_stock": "5",
             "shelf_id": str(self.shelf_id),
-            "unit_weight_lb": "0.625",
             "notes": "",
         }, follow_redirects=False)
         self.assertEqual(r.status_code, 302)  # -> detail
@@ -94,7 +93,6 @@ class AddItem(unittest.TestCase):
         self.assertEqual(int(row["current_quantity"]), 12)
         self.assertEqual(int(row["minimum_stock"]), 5)
         self.assertEqual(row["storage_location"], "Section 3, Shelf A")
-        self.assertEqual(row["unit_weight_milli_lb"], 625)
         self.assertEqual(Database().get_item_shelf_stock(row["id"])[0]["quantity"], 12)
 
     def test_unit_weight_rejects_unbounded_or_nonfinite_values(self):

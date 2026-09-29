@@ -93,7 +93,6 @@ class EditItem(unittest.TestCase):
             "current_quantity": "5",
             "minimum_stock": "4",
             "storage_location": "Section 9, Shelf Z",
-            "unit_weight_lb": "0.625",
             "notes": "edited",
         }, follow_redirects=False)
         self.assertEqual(r.status_code, 302)
@@ -105,7 +104,6 @@ class EditItem(unittest.TestCase):
         self.assertEqual(int(new_row["current_quantity"]), 5)
         self.assertEqual(int(new_row["minimum_stock"]),    4)
         self.assertEqual(new_row["storage_location"], "Section 1, Shelf A")
-        self.assertEqual(new_row["unit_weight_milli_lb"], 625)
         self.assertEqual(new_row["notes"],            "edited")
         # Barcode still the original — client can't rewrite it.
         self.assertEqual(new_row["barcode"], "EDIT1")

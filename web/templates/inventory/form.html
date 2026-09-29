@@ -122,15 +122,6 @@
   </div>
   {% endif %}
   <div>
-    <label for="unit-weight" class="block text-sm font-medium text-slate-700 mb-1">Weight per unit (lb)</label>
-    <input id="unit-weight" name="unit_weight_lb" type="number" min="0.001" max="10000" step="0.001"
-           value="{{ item.unit_weight_lb if item.unit_weight_lb is defined else (item.unit_weight_milli_lb / 1000 if item.unit_weight_milli_lb else '') }}"
-           placeholder="Leave blank if not yet measured"
-           class="w-full rounded border border-slate-300 px-3 py-2">
-    <p class="text-xs text-slate-600 mt-1">Unknown weights remain pending until an Admin confirms them.</p>
-  </div>
-
-  <div>
     <label class="block text-sm font-medium text-slate-700 mb-1">Notes</label>
     <textarea name="notes" rows="3" maxlength="2000"
               class="w-full rounded border border-slate-300 px-3 py-2

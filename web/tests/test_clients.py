@@ -179,14 +179,15 @@ class ClientAccess(unittest.TestCase):
         section = self.db.create_pantry_section("Pantry")
         shelf = self.db.create_pantry_shelf(section, "Shelf A")
         item_id = self.db.create_item_on_shelf("RET-FOOD", "Rice", "Dry", 2, 0, shelf,
-                                                "admin_a", 500, barcode_out="RET-FOOD-OUT")
+                                                "admin_a", barcode_out="RET-FOOD-OUT")
         expiry = (datetime.date.today() + datetime.timedelta(days=100)).isoformat()
         self.db.verify_client_term(client_id, "Fall 2026", expiry, "admin_a")
         admin_id = self.db.get_user("admin_a")["id"]
         cart_id = self.db.start_scan_out_cart(admin_id, client_id, mode="IMMEDIATE")
         movement_id = self.db.record_immediate_scan_out(admin_id, "RET-FOOD-OUT", shelf,
                                                          "admin_a", "retention-scan-1")
-        self.db.complete_scan_out_cart(admin_id, cart_id, "admin_a")
+        self.db.complete_scan_out_cart(admin_id, cart_id, "admin_a",
+                                       session_weight_milli_lb=500)
         conn = self.db._connect()
         conn.execute("UPDATE pantry_visits SET visit_date = '2024-01-15 12:00:00' "
                      "WHERE client_id = ?", (client_id,))

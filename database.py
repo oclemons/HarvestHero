@@ -455,6 +455,8 @@ class Database:
         self._migrate_client_columns(conn)
         self._migrate_item_unit_weights(conn)
         self._migrate_shelf_stock(conn)
+        self._migrate_session_weight(conn)
+        self._migrate_donation_records(conn)
         conn.close()
 
     def _migrate_visit_columns(self, conn: sqlite3.Connection) -> None:
@@ -606,6 +608,43 @@ class Database:
                 conn.execute(
                     "INSERT INTO app_settings (key, value) VALUES ('shelf_stock_migrated', '1')"
                 )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    def _migrate_session_weight(self, conn: sqlite3.Connection) -> None:
+        carts_cols = {row["name"] for row in conn.execute("PRAGMA table_info(pantry_carts)")}
+        try:
+            if "session_weight_milli_lb" not in carts_cols:
+                conn.execute(
+                    "ALTER TABLE pantry_carts ADD COLUMN "
+                    "session_weight_milli_lb INTEGER CHECK(session_weight_milli_lb >= 0)"
+                )
+                conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    def _migrate_donation_records(self, conn: sqlite3.Connection) -> None:
+        tables = {row["name"] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        if "donation_records" in tables:
+            return
+        try:
+            conn.execute("""
+                CREATE TABLE donation_records (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    weight_milli_lb  INTEGER NOT NULL CHECK(weight_milli_lb > 0),
+                    donation_date    TEXT    NOT NULL,
+                    source           TEXT    DEFAULT '',
+                    notes            TEXT    DEFAULT '',
+                    cart_id          TEXT    DEFAULT NULL,
+                    recorded_by      TEXT    NOT NULL,
+                    created_at       TEXT    DEFAULT (datetime('now', 'localtime')),
+                    updated_at       TEXT    DEFAULT (datetime('now', 'localtime'))
+                )
+            """)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -1174,6 +1213,91 @@ class Database:
         except sqlite3.IntegrityError as exc:
             conn.rollback()
             raise ValueError("This shelf name is already used in the section.") from exc
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def delete_pantry_shelf(self, shelf_id: int, username: str) -> None:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            shelf = conn.execute(
+                "SELECT shelf.id, shelf.name, shelf.section_id, section.system "
+                "FROM pantry_shelves shelf "
+                "JOIN pantry_sections section ON section.id = shelf.section_id "
+                "WHERE shelf.id = ?", (shelf_id,),
+            ).fetchone()
+            if not shelf:
+                raise ValueError("Shelf not found.")
+            if shelf["system"]:
+                raise ValueError("The system shelf cannot be deleted.")
+            stock = conn.execute(
+                "SELECT COALESCE(SUM(quantity), 0) AS total FROM item_shelf_stock "
+                "WHERE shelf_id = ?", (shelf_id,),
+            ).fetchone()["total"]
+            if stock > 0:
+                raise ValueError(
+                    f"This shelf still has {stock} unit(s) of stock. "
+                    "Transfer or remove all stock before deleting the shelf."
+                )
+            active_lines = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM pantry_cart_lines line "
+                "JOIN pantry_carts cart ON cart.id = line.cart_id "
+                "WHERE line.shelf_id = ? AND cart.status = 'OPEN'",
+                (shelf_id,),
+            ).fetchone()["cnt"]
+            if active_lines:
+                raise ValueError("An active cart references this shelf. Complete or cancel it first.")
+            conn.execute("DELETE FROM item_shelf_stock WHERE shelf_id = ?", (shelf_id,))
+            conn.execute("DELETE FROM pantry_shelves WHERE id = ?", (shelf_id,))
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'SHELF_DELETE', ?)",
+                (username, f"shelf={shelf_id} name={shelf['name']} section={shelf['section_id']}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def delete_pantry_section(self, section_id: int, username: str) -> None:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            section = conn.execute(
+                "SELECT id, name, system FROM pantry_sections WHERE id = ?",
+                (section_id,),
+            ).fetchone()
+            if not section:
+                raise ValueError("Section not found.")
+            if section["system"]:
+                raise ValueError("The system section cannot be deleted.")
+            shelves = conn.execute(
+                "SELECT id, name FROM pantry_shelves WHERE section_id = ?",
+                (section_id,),
+            ).fetchall()
+            for shelf in shelves:
+                stock = conn.execute(
+                    "SELECT COALESCE(SUM(quantity), 0) AS total FROM item_shelf_stock "
+                    "WHERE shelf_id = ?", (shelf["id"],),
+                ).fetchone()["total"]
+                if stock > 0:
+                    raise ValueError(
+                        f"Shelf \"{shelf['name']}\" still has {stock} unit(s). "
+                        "Transfer or remove all stock before deleting the section."
+                    )
+            for shelf in shelves:
+                conn.execute("DELETE FROM item_shelf_stock WHERE shelf_id = ?", (shelf["id"],))
+            conn.execute("DELETE FROM pantry_shelves WHERE section_id = ?", (section_id,))
+            conn.execute("DELETE FROM pantry_sections WHERE id = ?", (section_id,))
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'SECTION_DELETE', ?)",
+                (username, f"section={section_id} name={section['name']} shelves={len(shelves)}"),
+            )
+            conn.commit()
         except Exception:
             conn.rollback()
             raise
@@ -1931,8 +2055,7 @@ class Database:
         else:
             lines = conn.execute(
                 "SELECT line.id, line.item_id, line.shelf_id, line.quantity, "
-                "line.weight_override_milli_lb, line.override_reason, item.item_name, "
-                "item.barcode, item.unit_weight_milli_lb, shelf.name AS shelf_name, "
+                "item.item_name, item.barcode, shelf.name AS shelf_name, "
                 "section.name AS section_name FROM pantry_cart_lines line "
                 "JOIN inventory_items item ON item.id = line.item_id "
                 "JOIN pantry_shelves shelf ON shelf.id = line.shelf_id "
@@ -1941,24 +2064,7 @@ class Database:
             ).fetchall()
         conn.close()
         result = dict(cart)
-        result["lines"] = []
-        for row in lines:
-            entry = dict(row)
-            if immediate:
-                entry["weight_override_milli_lb"] = (
-                    abs(entry["weight_milli_lb"]) if entry["override_reason"] and
-                    entry["weight_milli_lb"] is not None else None
-                )
-                entry["weight_milli_lb"] = (
-                    abs(entry["weight_milli_lb"]) if entry["weight_milli_lb"] is not None else None
-                )
-            else:
-                entry["weight_milli_lb"] = (
-                    entry["weight_override_milli_lb"] if entry["weight_override_milli_lb"] is not None
-                    else entry["quantity"] * entry["unit_weight_milli_lb"]
-                    if entry["unit_weight_milli_lb"] is not None else None
-                )
-            result["lines"].append(entry)
+        result["lines"] = [dict(row) for row in lines]
         return result
 
     def add_scan_to_cart(self, owner_id: int, barcode: str, shelf_id: int) -> str:
@@ -2112,7 +2218,7 @@ class Database:
             conn.close()
             return None
         lines = conn.execute(
-            "SELECT movement.id, movement.item_name, movement.quantity_delta, movement.weight_milli_lb "
+            "SELECT movement.id, movement.item_name, movement.quantity_delta "
             "FROM inventory_movements movement WHERE movement.cart_id = ? "
             "AND (movement.direction = 'IN' OR (movement.direction = 'OUT' "
             "AND NOT EXISTS (SELECT 1 FROM inventory_movements undo "
@@ -2128,11 +2234,16 @@ class Database:
         result["lines"] = [dict(line) for line in lines]
         result["visit_id"] = visit["id"] if visit else None
         result["verified_term"] = visit["verified_term"] if visit else None
-        result["known_weight_milli_lb"] = sum(abs(line["weight_milli_lb"] or 0) for line in lines)
-        result["pending_lines"] = sum(line["weight_milli_lb"] is None for line in lines)
+        result["known_weight_milli_lb"] = cart["session_weight_milli_lb"] or 0
+        result["weight_entered"] = cart["session_weight_milli_lb"] is not None
         return result
 
-    def complete_scan_in_cart(self, owner_id: int, cart_id: str, username: str):
+    def complete_scan_in_cart(self, owner_id: int, cart_id: str, username: str,
+                             session_weight_milli_lb: int | None = None):
+        if session_weight_milli_lb is not None and (
+                not isinstance(session_weight_milli_lb, int) or
+                not 0 < session_weight_milli_lb <= 10_000_000):
+            raise ValueError("Enter a valid total donation weight.")
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -2149,7 +2260,7 @@ class Database:
                 raise ValueError("Cart is no longer active.")
             lines = conn.execute(
                 "SELECT line.*, item.barcode, item.item_name, item.category, "
-                "item.current_quantity, item.unit_weight_milli_lb FROM pantry_cart_lines line "
+                "item.current_quantity FROM pantry_cart_lines line "
                 "JOIN inventory_items item ON item.id = line.item_id WHERE line.cart_id = ?",
                 (cart_id,),
             ).fetchall()
@@ -2173,11 +2284,6 @@ class Database:
                     raise ValueError("Stock needs administrator reconciliation before intake.")
                 if current + line["quantity"] > 1_000_000:
                     raise ValueError("The stock count would exceed the allowed range.")
-                if line["weight_override_milli_lb"] is not None and not line["override_reason"]:
-                    raise ValueError("Measured weight must include a reason.")
-                weight = (line["weight_override_milli_lb"] if line["weight_override_milli_lb"] is not None
-                          else line["quantity"] * line["unit_weight_milli_lb"]
-                          if line["unit_weight_milli_lb"] is not None else None)
                 conn.execute(
                     "INSERT INTO item_shelf_stock (item_id, shelf_id, quantity) VALUES (?, ?, ?) "
                     "ON CONFLICT(item_id, shelf_id) DO UPDATE SET quantity = quantity + excluded.quantity",
@@ -2190,10 +2296,10 @@ class Database:
                 )
                 conn.execute(
                     "INSERT INTO inventory_movements (cart_id, item_id, item_name, shelf_id, "
-                    "direction, quantity_delta, weight_milli_lb, weight_override_reason, recorded_by) "
-                    "VALUES (?, ?, ?, ?, 'IN', ?, ?, ?, ?)",
+                    "direction, quantity_delta, recorded_by) "
+                    "VALUES (?, ?, ?, ?, 'IN', ?, ?)",
                     (cart_id, line["item_id"], line["item_name"], line["shelf_id"],
-                     line["quantity"], weight, line["override_reason"], username),
+                     line["quantity"], username),
                 )
                 conn.execute(
                     "INSERT INTO transactions (transaction_type, barcode, item_name, category, "
@@ -2215,7 +2321,8 @@ class Database:
                         conn.execute("DELETE FROM shopping_list_items WHERE id = ?", (needed["id"],))
             conn.execute(
                 "UPDATE pantry_carts SET status = 'COMPLETED', completed_at = datetime('now'), "
-                "updated_at = datetime('now') WHERE id = ?", (cart_id,),
+                "updated_at = datetime('now'), session_weight_milli_lb = ? WHERE id = ?",
+                (session_weight_milli_lb, cart_id),
             )
             conn.execute(
                 "INSERT INTO activity_log (username, action, detail) VALUES (?, 'CART_IN', ?)",
@@ -2392,17 +2499,10 @@ class Database:
             conn.close()
 
     def record_immediate_scan_out(self, owner_id: int, barcode: str, shelf_id: int | None,
-                                  username: str, scan_request_id: str,
-                                  measured_milli_lb: int | None = None,
-                                  reason: str = "") -> int:
+                                  username: str, scan_request_id: str) -> int:
         barcode = barcode.strip()
-        reason = reason.strip()
         if not barcode or len(barcode) > 128 or not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", scan_request_id):
             raise ValueError("Scan a valid out-barcode from the open visit page.")
-        if measured_milli_lb is not None and (
-                not isinstance(measured_milli_lb, int) or not 0 < measured_milli_lb <= 10_000_000 or
-                not reason or len(reason) > 200):
-            raise ValueError("Measured pounds require a valid weight and a reason.")
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -2425,7 +2525,7 @@ class Database:
                 return previous["id"]
             client = self._check_visit_capacity_on_connection(conn, cart["client_id"], cart["id"])
             matches = conn.execute(
-                "SELECT id, barcode, item_name, category, current_quantity, unit_weight_milli_lb "
+                "SELECT id, barcode, item_name, category, current_quantity "
                 "FROM inventory_items WHERE barcode_out = ? OR "
                 "(barcode = ? AND (barcode_out IS NULL OR barcode_out = ''))",
                 (barcode, barcode),
@@ -2454,7 +2554,6 @@ class Database:
                 shelf_id = available_shelves[0]["shelf_id"]
             elif not any(row["shelf_id"] == shelf_id for row in available_shelves):
                 raise ValueError("The selected shelf has no available stock for this item.")
-            weight = measured_milli_lb if measured_milli_lb is not None else item["unit_weight_milli_lb"]
             visit = conn.execute(
                 "SELECT id, items_json FROM pantry_visits WHERE cart_id = ?", (cart["id"],)
             ).fetchone()
@@ -2463,7 +2562,7 @@ class Database:
                     "INSERT INTO pantry_visits (client_id, pounds_received, items_json, recorded_by, "
                     "known_weight_milli_lb, pending_weight_lines, weight_complete, cart_id, "
                     "verified_term, fulfillment_type) "
-                    "VALUES (?, 0, '[]', ?, 0, 0, 1, ?, ?, ?)",
+                    "VALUES (?, NULL, '[]', ?, 0, 0, 0, ?, ?, ?)",
                     (cart["client_id"], username, cart["id"], client["term"],
                      cart["fulfillment_type"]),
                 ).lastrowid
@@ -2481,21 +2580,19 @@ class Database:
             )
             movement_id = conn.execute(
                 "INSERT INTO inventory_movements (cart_id, item_id, item_name, shelf_id, "
-                "client_id, visit_id, direction, quantity_delta, weight_milli_lb, "
-                "weight_override_reason, scan_request_id, recorded_by) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'OUT', -1, ?, ?, ?, ?)",
+                "client_id, visit_id, direction, quantity_delta, "
+                "scan_request_id, recorded_by) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'OUT', -1, ?, ?)",
                 (cart["id"], item["id"], item["item_name"], shelf_id,
-                 cart["client_id"], visit_id, -weight if weight is not None else None,
-                 reason if measured_milli_lb is not None else "", scan_request_id, username),
+                 cart["client_id"], visit_id, scan_request_id, username),
             ).lastrowid
             items.append({"movement_id": movement_id, "item_id": item["id"],
                           "item_name": item["item_name"], "shelf_id": shelf_id,
-                          "quantity": 1, "weight_milli_lb": weight, "undone": False})
+                          "quantity": 1, "undone": False})
             conn.execute(
                 "UPDATE pantry_visits SET items_json = ? WHERE id = ?",
                 (json.dumps(items), visit_id),
             )
-            self._refresh_visit_weight_on_connection(conn, visit_id)
             conn.execute(
                 "INSERT INTO transactions (transaction_type, barcode, item_name, category, "
                 "quantity, recipient, username) VALUES ('SCAN_OUT', ?, ?, ?, 1, '', ?)",
@@ -2603,21 +2700,17 @@ class Database:
 
     def _refresh_visit_weight_on_connection(self, conn: sqlite3.Connection,
                                             visit_id: int) -> None:
-        amounts = conn.execute(
-            "SELECT COUNT(*) AS units, COALESCE(SUM(ABS(movement.weight_milli_lb)), 0) AS known, "
-            "COALESCE(SUM(CASE WHEN movement.weight_milli_lb IS NULL THEN 1 ELSE 0 END), 0) AS pending "
+        active = conn.execute(
+            "SELECT COUNT(*) AS units "
             "FROM inventory_movements movement WHERE movement.visit_id = ? "
             "AND movement.direction = 'OUT' AND NOT EXISTS "
             "(SELECT 1 FROM inventory_movements undo WHERE undo.reverses_movement_id = movement.id)",
             (visit_id,),
         ).fetchone()
-        complete = bool(amounts["units"] and not amounts["pending"])
+        is_void = not active["units"]
         conn.execute(
-            "UPDATE pantry_visits SET known_weight_milli_lb = ?, pending_weight_lines = ?, "
-            "weight_complete = ?, is_void = ?, pounds_received = ? WHERE id = ?",
-            (amounts["known"], amounts["pending"], int(complete),
-             int(not amounts["units"]), amounts["known"] / 1000 if complete else None,
-             visit_id),
+            "UPDATE pantry_visits SET is_void = ? WHERE id = ?",
+            (int(is_void), visit_id),
         )
 
     def get_client_weight_summary(self, client_id: int) -> dict:
@@ -2641,58 +2734,195 @@ class Database:
         except ValueError as exc:
             raise ValueError("Enter a valid reporting month.") from exc
         following = (first.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
-        start = f"{month}-01T"
-        end = f"{following.isoformat()}T"
+        start = f"{month}-01"
+        end = following.isoformat()
         conn = self._connect()
-        opening = conn.execute(
-            "SELECT COALESCE(SUM(weight_milli_lb), 0) AS pounds, "
-            "COALESCE(SUM(CASE WHEN weight_milli_lb IS NULL AND direction != 'TRANSFER' "
-            "AND reverses_movement_id IS NULL AND NOT EXISTS (SELECT 1 FROM inventory_movements undo "
-            "WHERE undo.reverses_movement_id = inventory_movements.id) "
-            "THEN 1 ELSE 0 END), 0) AS pending "
-            "FROM inventory_movements WHERE timestamp_utc < ?", (start,),
-        ).fetchone()
-        period = conn.execute(
-            "SELECT COALESCE(SUM(CASE WHEN direction = 'OPENING' THEN weight_milli_lb END), 0) AS baseline, "
-            "COALESCE(SUM(CASE WHEN direction = 'IN' THEN weight_milli_lb END), 0) AS donated, "
-            "COALESCE(SUM(CASE WHEN direction = 'OUT' THEN ABS(weight_milli_lb) END), 0) AS distributed, "
-            "COALESCE(SUM(CASE WHEN direction = 'ADJUST' THEN weight_milli_lb END), 0) AS adjustments, "
-            "COALESCE(SUM(CASE WHEN weight_milli_lb IS NULL AND direction != 'TRANSFER' "
-            "AND reverses_movement_id IS NULL AND NOT EXISTS (SELECT 1 FROM inventory_movements undo "
-            "WHERE undo.reverses_movement_id = inventory_movements.id) "
-            "THEN 1 ELSE 0 END), 0) AS pending "
-            "FROM inventory_movements WHERE timestamp_utc >= ? AND timestamp_utc < ?",
+        intake_carts = conn.execute(
+            "SELECT COALESCE(SUM(session_weight_milli_lb), 0) AS total, "
+            "COALESCE(SUM(CASE WHEN session_weight_milli_lb IS NULL THEN 1 ELSE 0 END), 0) AS pending "
+            "FROM pantry_carts WHERE direction = 'IN' AND status = 'COMPLETED' "
+            "AND completed_at >= ? AND completed_at < ?",
             (start, end),
         ).fetchone()
-        earliest = conn.execute("SELECT MIN(timestamp_utc) FROM inventory_movements").fetchone()[0]
+        standalone = conn.execute(
+            "SELECT COALESCE(SUM(weight_milli_lb), 0) AS total "
+            "FROM donation_records WHERE donation_date >= ? AND donation_date < ?",
+            (start, end),
+        ).fetchone()
+        donated_total = intake_carts["total"] + standalone["total"]
+        distributed = conn.execute(
+            "SELECT COALESCE(SUM(session_weight_milli_lb), 0) AS total, "
+            "COALESCE(SUM(CASE WHEN session_weight_milli_lb IS NULL THEN 1 ELSE 0 END), 0) AS pending "
+            "FROM pantry_carts WHERE direction = 'OUT' AND status = 'COMPLETED' "
+            "AND completed_at >= ? AND completed_at < ?",
+            (start, end),
+        ).fetchone()
+        earliest_cart = conn.execute(
+            "SELECT MIN(completed_at) FROM pantry_carts WHERE status = 'COMPLETED'"
+        ).fetchone()[0]
+        earliest_donation = conn.execute(
+            "SELECT MIN(donation_date) FROM donation_records"
+        ).fetchone()[0]
+        earliest = min(filter(None, [earliest_cart, earliest_donation]), default=None)
         conn.close()
-        closing = opening["pounds"] + period["baseline"] + period["donated"] - period["distributed"] + period["adjustments"]
         return {
             "month": month, "timezone": "UTC", "first_movement": earliest,
-            "opening_milli_lb": opening["pounds"], "opening_baseline_milli_lb": period["baseline"],
-            "donated_milli_lb": period["donated"], "distributed_milli_lb": period["distributed"],
-            "adjustment_milli_lb": period["adjustments"], "closing_milli_lb": closing,
-            "pending_lines": opening["pending"] + period["pending"],
+            "donated_milli_lb": donated_total,
+            "donated_intake_milli_lb": intake_carts["total"],
+            "donated_standalone_milli_lb": standalone["total"],
+            "distributed_milli_lb": distributed["total"],
+            "pending_sessions": intake_carts["pending"] + distributed["pending"],
             "history_available": earliest is not None and earliest[:7] <= month,
         }
 
-    def get_pending_weight_movements(self, limit: int = 100):
+    # ------------------------------------------------------------------
+    # Donation records (standalone weight entries)
+    # ------------------------------------------------------------------
+
+    def record_donation_weight(self, weight_milli_lb: int, donation_date: str,
+                               source: str, notes: str, username: str,
+                               cart_id: str | None = None) -> int:
+        if not isinstance(weight_milli_lb, int) or not 0 < weight_milli_lb <= 10_000_000:
+            raise ValueError("Enter a valid donation weight.")
+        if not donation_date or len(donation_date) != 10:
+            raise ValueError("Enter a valid date in YYYY-MM-DD format.")
+        try:
+            datetime.date.fromisoformat(donation_date)
+        except ValueError as exc:
+            raise ValueError("Enter a valid donation date.") from exc
+        conn = self._connect()
+        try:
+            cur = conn.execute(
+                "INSERT INTO donation_records (weight_milli_lb, donation_date, source, "
+                "notes, cart_id, recorded_by) VALUES (?, ?, ?, ?, ?, ?)",
+                (weight_milli_lb, donation_date, (source or "").strip()[:200],
+                 (notes or "").strip()[:500], cart_id, username),
+            )
+            record_id = cur.lastrowid
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'DONATION_RECORD', ?)",
+                (username, f"id={record_id} lb={weight_milli_lb / 1000:.3f} date={donation_date}"),
+            )
+            conn.commit()
+            return record_id
+        finally:
+            conn.close()
+
+    def update_donation_record(self, record_id: int, weight_milli_lb: int,
+                               donation_date: str, source: str, notes: str,
+                               username: str) -> None:
+        if not isinstance(weight_milli_lb, int) or not 0 < weight_milli_lb <= 10_000_000:
+            raise ValueError("Enter a valid donation weight.")
+        if not donation_date or len(donation_date) != 10:
+            raise ValueError("Enter a valid date in YYYY-MM-DD format.")
+        try:
+            datetime.date.fromisoformat(donation_date)
+        except ValueError as exc:
+            raise ValueError("Enter a valid donation date.") from exc
+        conn = self._connect()
+        try:
+            old = conn.execute("SELECT * FROM donation_records WHERE id = ?",
+                               (record_id,)).fetchone()
+            if not old:
+                raise ValueError("Donation record not found.")
+            changes = []
+            if old["weight_milli_lb"] != weight_milli_lb:
+                changes.append(f"weight:{old['weight_milli_lb']}->{weight_milli_lb}")
+            if old["donation_date"] != donation_date:
+                changes.append(f"date:{old['donation_date']}->{donation_date}")
+            if old["source"] != (source or "").strip():
+                changes.append(f"source changed")
+            if old["notes"] != (notes or "").strip():
+                changes.append(f"notes changed")
+            conn.execute(
+                "UPDATE donation_records SET weight_milli_lb = ?, donation_date = ?, "
+                "source = ?, notes = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
+                (weight_milli_lb, donation_date, (source or "").strip()[:200],
+                 (notes or "").strip()[:500], record_id),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'DONATION_EDIT', ?)",
+                (username, f"id={record_id} changes=[{', '.join(changes)}]"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_donation_records(self, limit: int = 200) -> list[dict]:
         conn = self._connect()
         rows = conn.execute(
-            "SELECT movement.id, movement.item_name, movement.direction, "
-            "movement.quantity_delta, movement.timestamp_utc, movement.client_id, "
-            "section.name AS section_name, shelf.name AS shelf_name "
-            "FROM inventory_movements movement "
-            "JOIN pantry_shelves shelf ON shelf.id = movement.shelf_id "
-            "JOIN pantry_sections section ON section.id = shelf.section_id "
-            "WHERE movement.weight_milli_lb IS NULL AND movement.reverses_movement_id IS NULL "
-            "AND NOT EXISTS (SELECT 1 FROM inventory_movements undo "
-            "WHERE undo.reverses_movement_id = movement.id) "
-            "AND movement.direction IN ('OPENING', 'IN', 'OUT', 'ADJUST') "
-            "ORDER BY movement.id DESC LIMIT ?", (limit,),
+            "SELECT * FROM donation_records ORDER BY donation_date DESC, id DESC LIMIT ?",
+            (limit,),
         ).fetchall()
         conn.close()
         return [dict(row) for row in rows]
+
+    def get_donation_record(self, record_id: int) -> dict | None:
+        conn = self._connect()
+        row = conn.execute("SELECT * FROM donation_records WHERE id = ?",
+                           (record_id,)).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def delete_donation_record(self, record_id: int, username: str) -> None:
+        conn = self._connect()
+        try:
+            old = conn.execute("SELECT * FROM donation_records WHERE id = ?",
+                               (record_id,)).fetchone()
+            if not old:
+                raise ValueError("Donation record not found.")
+            conn.execute("DELETE FROM donation_records WHERE id = ?", (record_id,))
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'DONATION_DELETE', ?)",
+                (username, f"id={record_id} lb={old['weight_milli_lb'] / 1000:.3f} date={old['donation_date']}"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def update_session_weight(self, cart_id: str, weight_milli_lb: int,
+                              reason: str, username: str) -> None:
+        if not isinstance(weight_milli_lb, int) or not 0 < weight_milli_lb <= 10_000_000:
+            raise ValueError("Enter a valid weight.")
+        reason = (reason or "").strip()
+        if not reason or len(reason) > 200:
+            raise ValueError("Enter a correction reason (up to 200 characters).")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cart = conn.execute(
+                "SELECT id, session_weight_milli_lb, direction FROM pantry_carts "
+                "WHERE id = ? AND status = 'COMPLETED'", (cart_id,),
+            ).fetchone()
+            if not cart:
+                raise ValueError("Completed session not found.")
+            old_weight = cart["session_weight_milli_lb"]
+            conn.execute(
+                "UPDATE pantry_carts SET session_weight_milli_lb = ?, "
+                "updated_at = datetime('now') WHERE id = ?",
+                (weight_milli_lb, cart_id),
+            )
+            if cart["direction"] == "OUT":
+                visit = conn.execute(
+                    "SELECT id FROM pantry_visits WHERE cart_id = ?", (cart_id,)
+                ).fetchone()
+                if visit:
+                    conn.execute(
+                        "UPDATE pantry_visits SET known_weight_milli_lb = ?, "
+                        "pending_weight_lines = 0, weight_complete = 1, "
+                        "pounds_received = ? WHERE id = ?",
+                        (weight_milli_lb, weight_milli_lb / 1000, visit["id"]),
+                    )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'WEIGHT_CORRECTION', ?)",
+                (username, f"cart={cart_id} old={old_weight} new={weight_milli_lb} reason={reason}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def resolve_movement_weight(self, movement_id: int, measured_milli_lb: int,
                                 reason: str, username: str) -> None:
@@ -2755,7 +2985,12 @@ class Database:
         finally:
             conn.close()
 
-    def complete_scan_out_cart(self, owner_id: int, cart_id: str, username: str):
+    def complete_scan_out_cart(self, owner_id: int, cart_id: str, username: str,
+                              session_weight_milli_lb: int | None = None):
+        if session_weight_milli_lb is not None and (
+                not isinstance(session_weight_milli_lb, int) or
+                not 0 < session_weight_milli_lb <= 10_000_000):
+            raise ValueError("Enter a valid total weight for this visit.")
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -2784,9 +3019,21 @@ class Database:
                 ).fetchone()
                 if not active:
                     raise ValueError("Scan an item before finishing this visit.")
+                visit = conn.execute(
+                    "SELECT id FROM pantry_visits WHERE cart_id = ?", (cart_id,)
+                ).fetchone()
+                if visit and session_weight_milli_lb is not None:
+                    conn.execute(
+                        "UPDATE pantry_visits SET known_weight_milli_lb = ?, "
+                        "pending_weight_lines = 0, weight_complete = 1, "
+                        "pounds_received = ? WHERE id = ?",
+                        (session_weight_milli_lb, session_weight_milli_lb / 1000,
+                         visit["id"]),
+                    )
                 conn.execute(
                     "UPDATE pantry_carts SET status = 'COMPLETED', completed_at = datetime('now'), "
-                    "updated_at = datetime('now') WHERE id = ?", (cart_id,),
+                    "updated_at = datetime('now'), session_weight_milli_lb = ? WHERE id = ?",
+                    (session_weight_milli_lb, cart_id),
                 )
                 conn.execute(
                     "INSERT INTO activity_log (username, action, detail) VALUES (?, 'VISIT_FINISH', ?)",
@@ -2797,13 +3044,29 @@ class Database:
             client = self._check_visit_capacity_on_connection(conn, cart["client_id"], cart_id)
             lines = conn.execute(
                 "SELECT line.*, item.barcode, item.item_name, item.category, "
-                "item.current_quantity, item.unit_weight_milli_lb "
+                "item.current_quantity "
                 "FROM pantry_cart_lines line JOIN inventory_items item ON item.id = line.item_id "
                 "WHERE line.cart_id = ? ORDER BY line.id", (cart_id,),
             ).fetchall()
             if not lines:
                 raise ValueError("Add an item before completing distribution.")
-            prepared = []
+            items = json.dumps([
+                {"item_id": line["item_id"], "item_name": line["item_name"],
+                 "shelf_id": line["shelf_id"], "quantity": line["quantity"]}
+                for line in lines
+            ])
+            weight_complete = session_weight_milli_lb is not None
+            visit = conn.execute(
+                "INSERT INTO pantry_visits (client_id, pounds_received, items_json, recorded_by, "
+                "known_weight_milli_lb, pending_weight_lines, weight_complete, cart_id, "
+                "verified_term, fulfillment_type) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)",
+                (cart["client_id"],
+                 session_weight_milli_lb / 1000 if weight_complete else None,
+                 items, username, session_weight_milli_lb if weight_complete else 0,
+                 int(weight_complete), cart_id, client["term"],
+                 cart["fulfillment_type"]),
+            )
+            visit_id = visit.lastrowid
             for line in lines:
                 shelf = conn.execute(
                     "SELECT stock.quantity, section.system FROM item_shelf_stock stock "
@@ -2821,29 +3084,6 @@ class Database:
                 if (not shelf or shelf["system"] or shelf["quantity"] < line["quantity"] or
                         line["current_quantity"] < line["quantity"]):
                     raise ValueError("A cart item is no longer in stock on its selected shelf.")
-                if line["weight_override_milli_lb"] is not None and not line["override_reason"]:
-                    raise ValueError("Measured weight must include a reason.")
-                weight = (line["weight_override_milli_lb"] if line["weight_override_milli_lb"] is not None
-                          else line["quantity"] * line["unit_weight_milli_lb"]
-                          if line["unit_weight_milli_lb"] is not None else None)
-                prepared.append((line, weight))
-            known = sum(weight or 0 for _, weight in prepared)
-            pending = sum(weight is None for _, weight in prepared)
-            items = json.dumps([
-                {"item_id": line["item_id"], "item_name": line["item_name"],
-                 "shelf_id": line["shelf_id"], "quantity": line["quantity"],
-                 "weight_milli_lb": weight} for line, weight in prepared
-            ])
-            visit = conn.execute(
-                "INSERT INTO pantry_visits (client_id, pounds_received, items_json, recorded_by, "
-                "known_weight_milli_lb, pending_weight_lines, weight_complete, cart_id, "
-                "verified_term, fulfillment_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (cart["client_id"], known / 1000 if not pending else None, items,
-                 username, known, pending, int(not pending), cart_id, client["term"],
-                 cart["fulfillment_type"]),
-            )
-            visit_id = visit.lastrowid
-            for line, weight in prepared:
                 conn.execute(
                     "UPDATE item_shelf_stock SET quantity = quantity - ? WHERE item_id = ? AND shelf_id = ?",
                     (line["quantity"], line["item_id"], line["shelf_id"]),
@@ -2855,12 +3095,10 @@ class Database:
                 )
                 conn.execute(
                     "INSERT INTO inventory_movements (cart_id, item_id, item_name, shelf_id, "
-                    "client_id, visit_id, direction, quantity_delta, weight_milli_lb, "
-                    "weight_override_reason, recorded_by) "
-                    "VALUES (?, ?, ?, ?, ?, ?, 'OUT', ?, ?, ?, ?)",
+                    "client_id, visit_id, direction, quantity_delta, recorded_by) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'OUT', ?, ?)",
                     (cart_id, line["item_id"], line["item_name"], line["shelf_id"],
-                     cart["client_id"], visit_id, -line["quantity"],
-                     -weight if weight is not None else None, line["override_reason"], username),
+                     cart["client_id"], visit_id, -line["quantity"], username),
                 )
                 conn.execute(
                     "INSERT INTO transactions (transaction_type, barcode, item_name, category, "
@@ -2876,7 +3114,8 @@ class Database:
                 )
             conn.execute(
                 "UPDATE pantry_carts SET status = 'COMPLETED', completed_at = datetime('now'), "
-                "updated_at = datetime('now') WHERE id = ?", (cart_id,),
+                "updated_at = datetime('now'), session_weight_milli_lb = ? WHERE id = ?",
+                (session_weight_milli_lb, cart_id),
             )
             conn.execute(
                 "INSERT INTO activity_log (username, action, detail) VALUES (?, 'CART_OUT', ?)",

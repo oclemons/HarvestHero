@@ -83,15 +83,6 @@
       <dd class="text-slate-900">{{ item.expiration_date or '—' }}</dd>
     </div>
     <div>
-      <dt class="text-slate-500">Weight per unit</dt>
-      <dd class="text-slate-900">
-        {% if item.unit_weight_milli_lb %}
-          {{ '%.3f'|format(item.unit_weight_milli_lb / 1000) }} lb
-        {% else %}Pending Admin measurement{% endif %}
-      </dd>
-    </div>
-
-    <div>
       <dt class="text-slate-500">Added on</dt>
       <dd class="text-slate-900">{{ item.created_at }}</dd>
     </div>

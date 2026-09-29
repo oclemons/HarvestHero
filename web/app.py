@@ -128,6 +128,7 @@ def create_app(config: type = Config) -> Flask:
     from routes.sections import bp as sections_bp
     from routes.clients import bp as clients_bp
     from routes.reports import bp as reports_bp
+    from routes.donations import bp as donations_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(account_bp)
@@ -137,6 +138,7 @@ def create_app(config: type = Config) -> Flask:
     app.register_blueprint(sections_bp)
     app.register_blueprint(clients_bp)
     app.register_blueprint(reports_bp)
+    app.register_blueprint(donations_bp)
 
     # ── Root redirect ───────────────────────────────────────────
     @app.route("/")

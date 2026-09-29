@@ -35,7 +35,7 @@ class ScanOut(unittest.TestCase):
         section = self.db.create_pantry_section("Dry goods")
         self.shelf_id = self.db.create_pantry_shelf(section, "Shelf 1")
         self.item_id = self.db.create_item_on_shelf(
-            "RICE1", "Rice", "Dry", 5, 2, self.shelf_id, "admin_a", 625,
+            "RICE1", "Rice", "Dry", 5, 2, self.shelf_id, "admin_a",
             barcode_out="RICE1-OUT",
         )
         self.unknown_id = self.db.create_item_on_shelf(
@@ -71,12 +71,9 @@ class ScanOut(unittest.TestCase):
         }).status_code, 403)
         self.assertEqual(self.web.post("/scan/out/complete", data={"cart_id": "forged"}).status_code, 403)
         self.assertEqual(self.web.get("/scan/out/receipt/forged").status_code, 403)
-        self.assertEqual(self.web.post("/scan/out/weight/1", data={
-            "measured_lb": "1", "reason": "Forged",
-        }).status_code, 403)
         self.assertNotIn(b"/scan/out", self.web.get("/app").data)
 
-    def test_immediate_mode_scans_each_item_once_per_request_and_one_visit(self):
+    def test_immediate_mode_scans_items_and_session_total_weight(self):
         self.verify()
         self.login("admin_a")
         self.web.post("/scan/out/start", data={"client_id": self.client_id, "mode": "IMMEDIATE"})
@@ -86,20 +83,24 @@ class ScanOut(unittest.TestCase):
         self.assertEqual(self.web.post("/scan/out/add", data=first).status_code, 302)
         self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 4)
         self.assertEqual(self.db.get_client_weight_summary(self.client_id)["total_visits"], 1)
-        self.assertEqual(self.db.get_client_weight_summary(self.client_id)["known_weight_milli_lb"], 625)
+        # No per-item weight: visit weight is 0 until session total is entered
+        self.assertEqual(self.db.get_client_weight_summary(self.client_id)["known_weight_milli_lb"], 0)
+        # Duplicate scan token is idempotent
         self.web.post("/scan/out/add", data=first)
         self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 4)
         self.web.post("/scan/out/add", data={
             "barcode": "RICE1-OUT", "shelf_id": self.shelf_id, "scan_token": "scan-event-002",
         })
         self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 3)
-        self.assertEqual(self.db.get_client_weight_summary(self.client_id)["total_visits"], 1)
-        receipt = self.web.post("/scan/out/complete", data={"cart_id": cart["id"]})
+        # Finish with session total weight
+        receipt = self.web.post("/scan/out/complete", data={
+            "cart_id": cart["id"], "session_weight_lb": "2.5",
+        })
         self.assertEqual(receipt.status_code, 302)
         self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 3)
-        self.assertEqual(self.db.get_client_weight_summary(self.client_id)["known_weight_milli_lb"], 1250)
+        self.assertEqual(self.db.get_client_weight_summary(self.client_id)["known_weight_milli_lb"], 2500)
 
-    def test_immediate_scan_auto_detects_only_stocked_shelf_and_uses_stored_weight(self):
+    def test_immediate_scan_auto_detects_only_stocked_shelf(self):
         self.verify()
         self.login("admin_a")
         self.web.post("/scan/out/start", data={
@@ -111,9 +112,6 @@ class ScanOut(unittest.TestCase):
         self.assertIn(b"Item scanned out", response.data)
         self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 4)
         self.assertEqual(self.db.get_item_shelf_stock(self.item_id)[0]["quantity"], 4)
-        self.assertEqual(
-            self.db.get_client_weight_summary(self.client_id)["known_weight_milli_lb"], 625
-        )
 
     def test_scan_without_shelf_refuses_to_guess_between_stocked_shelves(self):
         self.verify()
@@ -191,20 +189,6 @@ class ScanOut(unittest.TestCase):
         self.assertEqual(self.db.get_client_weight_summary(self.client_id)["total_visits"], 0)
         self.assertIsNotNone(self.db.get_active_cart(self.admin_id, "OUT"))
 
-    def test_immediate_missing_weight_undo_is_not_reported_as_pending_distribution(self):
-        self.verify()
-        self.db.start_scan_out_cart(self.admin_id, self.client_id, mode="IMMEDIATE")
-        code = self.db.get_item_by_id(self.unknown_id)["barcode_out"]
-        movement_id = self.db.record_immediate_scan_out(self.admin_id, code, self.shelf_id,
-                                                         "admin_a", "scan-event-006")
-        self.assertEqual(self.db.get_client_weight_summary(self.client_id)["pending_visits"], 1)
-        month = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m")
-        before = self.db.get_monthly_weight_report(month)["pending_lines"]
-        self.db.undo_immediate_scan(self.admin_id, movement_id, "Accidental scan", "admin_a")
-        self.assertEqual(self.db.get_client_weight_summary(self.client_id)["pending_visits"], 0)
-        self.assertEqual(self.db.get_monthly_weight_report(month)["pending_lines"], before - 1)
-        self.assertFalse(any(row["id"] == movement_id for row in self.db.get_pending_weight_movements()))
-
     def test_full_time_three_visits_include_locker_and_in_person(self):
         self.verify()
         for index, kind in enumerate(("in_person", "locker", "in_person")):
@@ -217,7 +201,8 @@ class ScanOut(unittest.TestCase):
             else:
                 self.db.add_scan_out_to_cart(self.admin_id, "RICE1-OUT", self.shelf_id)
             cart = self.db.get_active_cart(self.admin_id, "OUT")
-            self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a")
+            self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a",
+                                           session_weight_milli_lb=1000)
         self.assertEqual(self.db.get_client_weight_summary(self.client_id)["total_visits"], 3)
         self.assertEqual(self.db.get_client_visit_allowance(self.client_id)["remaining"], 0)
         visits = self.db.get_client_visits(self.client_id)
@@ -250,7 +235,8 @@ class ScanOut(unittest.TestCase):
             else:
                 self.db.add_scan_out_to_cart(self.admin_id, "RICE1-OUT", self.shelf_id)
             cart = self.db.get_active_cart(self.admin_id, "OUT")
-            self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a")
+            self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a",
+                                           session_weight_milli_lb=500)
         with self.assertRaises(ValueError):
             self.db.start_scan_out_cart(self.admin_id, part_time)
         self.assertEqual(self.db.get_client_visit_allowance(part_time)["limit"], 2)
@@ -259,7 +245,8 @@ class ScanOut(unittest.TestCase):
         self.db.start_scan_out_cart(self.admin_id, part_time)
         self.db.add_scan_out_to_cart(self.admin_id, "RICE1-OUT", self.shelf_id)
         cart = self.db.get_active_cart(self.admin_id, "OUT")
-        self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a")
+        self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a",
+                                       session_weight_milli_lb=750)
         self.assertEqual(self.db.get_client_weight_summary(part_time)["total_visits"], 3)
         self.assertEqual(self.db.get_client_visit_allowance(part_time)["remaining"], 1)
 
@@ -307,30 +294,36 @@ class ScanOut(unittest.TestCase):
         }).status_code, 400)
         self.assertIsNone(self.db.get_active_cart(self.admin_id, "OUT"))
 
-    def test_checkout_twice_and_lifetime_weight_across_visits(self):
+    def test_checkout_with_session_weight_records_visit_total(self):
         self.verify()
         self.login("admin_a")
-        self.assertEqual(self.web.post("/scan/out/start", data={
-            "client_id": self.client_id,
-        }).status_code, 302)
+        self.web.post("/scan/out/start", data={"client_id": self.client_id})
         for _ in range(2):
             self.web.post("/scan/out/add", data={
                 "barcode": "RICE1-OUT", "shelf_id": self.shelf_id,
             })
         self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 5)
         cart = self.db.get_active_cart(self.admin_id, "OUT")
-        response = self.web.post("/scan/out/complete", data={"cart_id": cart["id"]})
+        response = self.web.post("/scan/out/complete", data={
+            "cart_id": cart["id"], "session_weight_lb": "3.125",
+        })
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 3)
-        first = self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a")
-        self.assertEqual(first["known_weight_milli_lb"], 1250)
+        receipt = self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a")
+        self.assertEqual(receipt["known_weight_milli_lb"], 3125)
         self.assertEqual(self.db.get_client_weight_summary(self.client_id)["total_visits"], 1)
+        self.assertEqual(self.db.get_client_weight_summary(self.client_id)["known_weight_milli_lb"], 3125)
+
+    def test_checkout_without_weight_leaves_visit_pending(self):
+        self.verify()
+        self.login("admin_a")
         self.web.post("/scan/out/start", data={"client_id": self.client_id})
-        self.web.post("/scan/out/add", data={"barcode": "RICE1-OUT", "shelf_id": self.shelf_id})
-        second = self.db.get_active_cart(self.admin_id, "OUT")
-        self.web.post("/scan/out/complete", data={"cart_id": second["id"]})
-        stats = self.db.get_client_weight_summary(self.client_id)
-        self.assertEqual((stats["total_visits"], stats["known_weight_milli_lb"]), (2, 1875))
+        self.web.post("/scan/out/add", data={
+            "barcode": "RICE1-OUT", "shelf_id": self.shelf_id,
+        })
+        cart = self.db.get_active_cart(self.admin_id, "OUT")
+        self.web.post("/scan/out/complete", data={"cart_id": cart["id"]})
+        self.assertEqual(self.db.get_client_weight_summary(self.client_id)["pending_visits"], 1)
 
     def test_stock_changed_while_cart_open_cannot_partially_check_out(self):
         self.verify()
@@ -375,17 +368,17 @@ class ScanOut(unittest.TestCase):
         self.assertEqual(self.db.get_item_by_id(self.unknown_id)["current_quantity"], 2)
         self.assertEqual(self.db.get_active_cart(self.admin_id, "OUT")["id"], cart["id"])
 
-    def test_missing_weight_marks_visit_incomplete_not_zero(self):
+    def test_session_total_weight_flows_to_monthly_report(self):
         self.verify()
-        self.db.start_scan_out_cart(self.admin_id, self.client_id)
-        self.db.add_scan_out_to_cart(self.admin_id, self.db.get_item_by_id(self.unknown_id)["barcode_out"], self.shelf_id)
+        self.db.start_scan_out_cart(self.admin_id, self.client_id, mode="IMMEDIATE")
+        self.db.record_immediate_scan_out(self.admin_id, "RICE1-OUT", self.shelf_id,
+                                          "admin_a", "report-test-001")
         cart = self.db.get_active_cart(self.admin_id, "OUT")
-        receipt = self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a")
-        self.assertEqual(receipt["pending_lines"], 1)
-        visit = self.db.get_client_visits(self.client_id)[0]
-        self.assertIsNone(visit["pounds_received"])
-        self.assertEqual(visit["weight_complete"], 0)
-        self.assertEqual(self.db.get_client_weight_summary(self.client_id)["pending_visits"], 1)
+        self.db.complete_scan_out_cart(self.admin_id, cart["id"], "admin_a",
+                                       session_weight_milli_lb=4500)
+        month = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m")
+        report = self.db.get_monthly_weight_report(month)
+        self.assertEqual(report["distributed_milli_lb"], 4500)
 
 
 if __name__ == "__main__":

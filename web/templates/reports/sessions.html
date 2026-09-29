@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Session weights · Harvest Hero{% endblock %}
+{% block content %}
+<div class="mb-8">
+  <p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">Admin · weight management</p>
+  <h1 class="text-3xl font-bold mt-2">Completed sessions</h1>
+  <p class="text-slate-600 mt-2">View and correct the total weight entered for each intake or distribution session. All corrections are logged in the Activity page.</p>
+</div>
+{% if carts %}
+<div class="bg-white rounded-xl border border-emerald-100 shadow-sm overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-emerald-50 text-left"><tr>
+      <th class="px-4 py-3 font-semibold">Completed</th>
+      <th class="px-4 py-3 font-semibold">Type</th>
+      <th class="px-4 py-3 font-semibold">By</th>
+      <th class="px-4 py-3 font-semibold">Current weight</th>
+      <th class="px-4 py-3 font-semibold">Correct weight</th>
+    </tr></thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for cart in carts %}
+      <tr>
+        <td class="px-4 py-3 whitespace-nowrap">{{ cart.completed_at }}</td>
+        <td class="px-4 py-3">
+          <span class="inline-block rounded px-2 py-0.5 text-xs font-semibold
+            {% if cart.direction == 'IN' %}bg-blue-100 text-blue-900{% else %}bg-amber-100 text-amber-900{% endif %}">
+            {{ 'Intake' if cart.direction == 'IN' else 'Distribution' }}
+          </span>
+        </td>
+        <td class="px-4 py-3">{{ cart.owner_name }}</td>
+        <td class="px-4 py-3 font-semibold">
+          {% if cart.session_weight_milli_lb is not none %}
+            {{ '%.3f'|format(cart.session_weight_milli_lb / 1000) }} lb
+          {% else %}
+            <span class="text-amber-900">Not entered</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3">
+          <form method="post" action="{{ url_for('reports.correct_weight', cart_id=cart.id) }}" class="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input name="weight_lb" type="number" min="0.001" max="10000" step="0.001" required
+                   placeholder="lb" class="w-24 rounded border border-slate-300 px-2 py-1 text-sm">
+            <input name="reason" maxlength="200" required placeholder="Reason for correction"
+                   class="flex-1 min-w-32 rounded border border-slate-300 px-2 py-1 text-sm">
+            <button type="submit" class="rounded bg-emerald-800 text-white px-3 py-1 text-sm font-semibold">Save</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="mt-3 text-sm text-slate-600">{{ carts|length }} session{{ '' if carts|length == 1 else 's' }} shown (most recent 100).</p>
+{% else %}
+<p class="rounded-lg bg-stone-50 p-6 text-slate-600">No completed sessions yet.</p>
+{% endif %}
+{% endblock %}

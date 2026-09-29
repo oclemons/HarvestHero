@@ -63,7 +63,9 @@ class ScanCart(unittest.TestCase):
         self.assertIn(b"2 units", page)
         self.assertIn(f'value="{self.shelf_id}" selected'.encode(), page)
         cart = self.db.get_active_cart(self.student_id, "IN")
-        response = self.client.post("/scan/in/complete", data={"cart_id": cart["id"]})
+        response = self.client.post("/scan/in/complete", data={
+            "cart_id": cart["id"], "session_weight_lb": "1.250",
+        })
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 5)
         self.assertEqual(self.db.get_item_shelf_stock(self.item_id)[0]["quantity"], 5)
@@ -76,10 +78,11 @@ class ScanCart(unittest.TestCase):
         self.db.add_scan_to_cart(self.student_id, "BEANS1", self.shelf_id)
         cart = self.db.get_active_cart(self.student_id, "IN")
         receipt = self.db.complete_scan_in_cart(self.student_id, cart["id"], "student_a")
-        self.assertEqual(receipt["pending_lines"], 1)
+        self.assertFalse(receipt["weight_entered"])
+        self.assertEqual(receipt["known_weight_milli_lb"], 0)
         conn = self.db._connect()
         weight = conn.execute(
-            "SELECT weight_milli_lb FROM inventory_movements WHERE cart_id = ?", (cart["id"],)
+            "SELECT session_weight_milli_lb FROM pantry_carts WHERE id = ?", (cart["id"],)
         ).fetchone()[0]
         conn.close()
         self.assertIsNone(weight)
@@ -99,39 +102,18 @@ class ScanCart(unittest.TestCase):
         self.assertEqual(self.db.get_item_by_id(self.unknown_id)["current_quantity"], 1)
         self.assertEqual(self.db.get_active_cart(self.student_id, "IN")["id"], cart["id"])
 
-    def test_student_cannot_override_weight_or_view_other_cart(self):
+    def test_student_cannot_view_other_cart(self):
         self.login("student_a")
-        self.client.post("/scan/in/add", data={"barcode": "RICE1", "shelf_id": self.shelf_id,
-                                                 "weight_override_milli_lb": 9999})
+        self.client.post("/scan/in/add", data={"barcode": "RICE1", "shelf_id": self.shelf_id})
         cart = self.db.get_active_cart(self.student_id, "IN")
-        self.assertIsNone(cart["lines"][0]["weight_override_milli_lb"])
-        self.assertEqual(self.client.post(f"/scan/in/weight/{cart['lines'][0]['id']}", data={
-            "measured_lb": "9.999", "reason": "Forged",
-        }).status_code, 403)
-        self.client.post("/scan/in/complete", data={"cart_id": cart["id"]})
+        self.client.post("/scan/in/complete", data={
+            "cart_id": cart["id"], "session_weight_lb": "0.625",
+        })
         self.client.get("/logout")
         self.login("student_b")
         self.assertEqual(self.client.get(f"/scan/in/receipt/{cart['id']}").status_code, 404)
         self.client.post("/scan/in/complete", data={"cart_id": cart["id"]})
         self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 4)
-
-    def test_admin_can_measure_cart_line_with_reason(self):
-        self.login("admin_a")
-        self.client.post("/scan/in/add", data={"barcode": "RICE1", "shelf_id": self.shelf_id})
-        cart = self.db.get_active_cart(self.admin_id, "IN")
-        response = self.client.post(f"/scan/in/weight/{cart['lines'][0]['id']}", data={
-            "measured_lb": "0.750", "reason": "Scale reading",
-        })
-        self.assertEqual(response.status_code, 302)
-        receipt = self.db.complete_scan_in_cart(self.admin_id, cart["id"], "admin_a")
-        self.assertEqual(receipt["known_weight_milli_lb"], 750)
-        conn = self.db._connect()
-        reason = conn.execute(
-            "SELECT weight_override_reason FROM inventory_movements WHERE cart_id = ?",
-            (cart["id"],),
-        ).fetchone()[0]
-        conn.close()
-        self.assertEqual(reason, "Scale reading")
 
     def test_cart_post_requires_csrf(self):
         self.login("student_a")

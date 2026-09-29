@@ -30,6 +30,22 @@
     <span class="text-sm font-medium text-slate-600">Active team accounts</span><strong class="block text-3xl text-emerald-900 mt-2">{{ stats.active_users }}</strong><span class="text-sm text-emerald-800">Manage team &rarr;</span>
   </a>
 </div>
+{% if month_summary and month_summary.history_available %}
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+  <a href="{{ url_for('donations.index') }}" class="bg-white rounded-xl border border-blue-200 shadow-sm p-6 hover:shadow-md transition block">
+    <span class="text-sm font-medium text-slate-600">Donated this month</span><strong class="block text-2xl text-blue-900 mt-2">{{ '%.1f'|format(month_summary.donated_milli_lb / 1000) }} lb</strong>
+    <span class="text-xs text-slate-500">{{ '%.1f'|format(month_summary.donated_intake_milli_lb / 1000) }} intake + {{ '%.1f'|format(month_summary.donated_standalone_milli_lb / 1000) }} recorded</span>
+  </a>
+  <a href="{{ url_for('reports.sessions') }}" class="bg-white rounded-xl border border-amber-200 shadow-sm p-6 hover:shadow-md transition block">
+    <span class="text-sm font-medium text-slate-600">Distributed this month</span><strong class="block text-2xl text-amber-900 mt-2">{{ '%.1f'|format(month_summary.distributed_milli_lb / 1000) }} lb</strong>
+    <span class="text-xs text-slate-500">Client visits</span>
+  </a>
+  <a href="{{ url_for('reports.weights') }}" class="bg-white rounded-xl border border-emerald-200 shadow-sm p-6 hover:shadow-md transition block">
+    <span class="text-sm font-medium text-slate-600">Net this month</span><strong class="block text-2xl text-emerald-900 mt-2">{{ '%+.1f'|format((month_summary.donated_milli_lb - month_summary.distributed_milli_lb) / 1000) }} lb</strong>
+    <span class="text-xs text-slate-500">View full report &rarr;</span>
+  </a>
+</div>
+{% endif %}
 <div class="grid gap-6 lg:grid-cols-3">
   <section class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-emerald-100 p-6">
     <h2 class="text-xl font-bold mb-1">Recent intake &amp; movement</h2>

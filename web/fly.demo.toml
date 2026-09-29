@@ -1,0 +1,35 @@
+app = 'harvest-hero-pantry-demo'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  HARVESTHERO_COOKIE_SECURE = '1'
+  HARVESTHERO_DEV_DIR = '/data'
+  HARVESTHERO_ENVIRONMENT = 'demo'
+  HARVESTHERO_AUTH_MODE = 'local'
+  APP_VERSION = 'demo-preview'
+  PORT = '8080'
+
+[[mounts]]
+  source = 'demo_data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'suspend'
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/healthz'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'

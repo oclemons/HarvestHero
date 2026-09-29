@@ -111,7 +111,7 @@ class ClientExports(unittest.TestCase):
     def test_visit_and_month_exports_include_weight_and_pending_status(self):
         section = self.db.create_pantry_section("Pantry")
         shelf = self.db.create_pantry_shelf(section, "Shelf A")
-        self.db.create_item_on_shelf("RICE1", "Rice", "Dry", 3, 1, shelf, "admin", 500,
+        self.db.create_item_on_shelf("RICE1", "Rice", "Dry", 3, 1, shelf, "admin",
                                      barcode_out="RICE1-OUT")
         expiry = (datetime.date.today() + datetime.timedelta(days=50)).isoformat()
         self.db.verify_client_term(self.client_id, "Fall 2026", expiry, "admin")
@@ -119,13 +119,15 @@ class ClientExports(unittest.TestCase):
         self.db.start_scan_out_cart(admin_id, self.client_id)
         self.db.add_scan_out_to_cart(admin_id, "RICE1-OUT", shelf)
         cart = self.db.get_active_cart(admin_id, "OUT")
-        self.db.complete_scan_out_cart(admin_id, cart["id"], "admin")
+        self.db.complete_scan_out_cart(admin_id, cart["id"], "admin",
+                                       session_weight_milli_lb=500)
         self.db.start_scan_out_cart(admin_id, self.client_id, mode="IMMEDIATE",
                                     fulfillment_type="locker")
         self.db.record_immediate_scan_out(admin_id, "RICE1-OUT", shelf, "admin",
                                           "locker-export-1")
         locker_cart = self.db.get_active_cart(admin_id, "OUT")
-        self.db.complete_scan_out_cart(admin_id, locker_cart["id"], "admin")
+        self.db.complete_scan_out_cart(admin_id, locker_cart["id"], "admin",
+                                       session_weight_milli_lb=500)
         self.login("admin")
         response = self.web.post("/clients/exports/visits.csv", data={
             "admin_password": "PantryPass!123",

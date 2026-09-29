@@ -232,9 +232,6 @@ def new():
 
     data, err = _parse_form(request.form)
     data["shelf_id"] = request.form.get("shelf_id") or ""
-    data["unit_weight_lb"] = (request.form.get("unit_weight_lb") or "").strip()
-    unit_weight, weight_error = _parse_unit_weight(data["unit_weight_lb"])
-    err = err or weight_error
     if not err:
         try:
             shelf_id = int(data["shelf_id"])
@@ -246,7 +243,7 @@ def new():
                 barcode=data["barcode"], item_name=data["item_name"],
                 category=data["category"], quantity=data["current_quantity"],
                 minimum_stock=data["minimum_stock"], shelf_id=shelf_id,
-                username=current_user.username, unit_weight_milli_lb=unit_weight,
+                username=current_user.username,
                 barcode_out=data["barcode_out"], brand=data["brand"], notes=data["notes"],
             )
         except ValueError as error:
@@ -278,22 +275,14 @@ def edit(item_id: int):
 
     data, err = _parse_form(request.form, editing=True,
                             existing_barcode=row["barcode"])
-    # 2. Unit weights stay on the catalog row, while shelf quantities
-    #    are managed on the item detail page rather than this form.
-    data["unit_weight_lb"] = (request.form.get("unit_weight_lb") or "").strip()
-    unit_weight, weight_error = _parse_unit_weight(data["unit_weight_lb"])
-    err = err or weight_error
-    # 3. Quantity changes must name a physical shelf.
+    # Quantity changes must name a physical shelf.
     if "current_quantity" in request.form and data["current_quantity"] != row["current_quantity"]:
         err = "Use the item detail page to correct stock on a specific shelf."
-    # 1. Update item identity and metadata atomically, preserving
-    #    existing expiration and nutrition fields not shown here.
-    #    Stock transfers and corrections are separate transactions.
     if not err:
         try:
             _db.update_item_profile(
                 item_id, data["item_name"], data["category"], data["minimum_stock"],
-                data["notes"], data["barcode_out"], data["brand"], unit_weight,
+                data["notes"], data["barcode_out"], data["brand"], None,
                 current_user.username,
             )
         except ValueError as error:
@@ -402,7 +391,6 @@ def _blank_item() -> dict:
         "item_name": "", "brand": "", "category": "",
         "current_quantity": 0, "minimum_stock": 0,
         "storage_location": "", "notes": "", "shelf_id": "",
-        "unit_weight_lb": "",
     }
 
 
