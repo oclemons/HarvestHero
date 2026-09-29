@@ -2327,7 +2327,7 @@ class Database:
         finally:
             conn.close()
 
-    def add_scan_out_to_cart(self, owner_id: int, barcode: str, shelf_id: int) -> str:
+    def add_scan_out_to_cart(self, owner_id: int, barcode: str, shelf_id: int | None = None) -> str:
         barcode = barcode.strip()
         if not barcode or len(barcode) > 128:
             raise ValueError("Scan an item barcode.")
@@ -2356,18 +2356,23 @@ class Database:
             if len(matches) != 1:
                 raise ValueError("Scan-out barcode not found or ambiguous. Ask an Admin to check it.")
             item = matches[0]
-            shelf = conn.execute(
-                "SELECT stock.quantity FROM item_shelf_stock stock "
+            available_shelves = conn.execute(
+                "SELECT stock.shelf_id FROM item_shelf_stock stock "
                 "JOIN pantry_shelves shelf ON shelf.id = stock.shelf_id "
                 "JOIN pantry_sections section ON section.id = shelf.section_id "
-                "WHERE stock.item_id = ? AND stock.shelf_id = ? AND section.system = 0",
-                (item["id"], shelf_id),
-            ).fetchone()
-            prior = conn.execute(
-                "SELECT quantity FROM pantry_cart_lines WHERE cart_id = ? AND item_id = ? AND shelf_id = ?",
-                (cart["id"], item["id"], shelf_id),
-            ).fetchone()
-            if not shelf or (prior["quantity"] if prior else 0) >= shelf["quantity"]:
+                "LEFT JOIN pantry_cart_lines line ON line.cart_id = ? AND line.item_id = stock.item_id "
+                "AND line.shelf_id = stock.shelf_id "
+                "WHERE stock.item_id = ? AND section.system = 0 "
+                "AND stock.quantity > COALESCE(line.quantity, 0)",
+                (cart["id"], item["id"]),
+            ).fetchall()
+            if shelf_id is None:
+                if len(available_shelves) != 1:
+                    if not available_shelves:
+                        raise ValueError("This item has no stocked physical shelf.")
+                    raise ValueError("This item is stocked on more than one shelf. Choose the shelf it came from.")
+                shelf_id = available_shelves[0]["shelf_id"]
+            elif not any(row["shelf_id"] == shelf_id for row in available_shelves):
                 raise ValueError("The selected shelf does not have enough stock.")
             conn.execute(
                 "INSERT INTO pantry_cart_lines (cart_id, item_id, shelf_id, quantity) "
@@ -2386,7 +2391,7 @@ class Database:
         finally:
             conn.close()
 
-    def record_immediate_scan_out(self, owner_id: int, barcode: str, shelf_id: int,
+    def record_immediate_scan_out(self, owner_id: int, barcode: str, shelf_id: int | None,
                                   username: str, scan_request_id: str,
                                   measured_milli_lb: int | None = None,
                                   reason: str = "") -> int:
@@ -2428,19 +2433,26 @@ class Database:
             if len(matches) != 1:
                 raise ValueError("Scan-out barcode not found or ambiguous. Check the item label.")
             item = matches[0]
-            shelf = conn.execute(
-                "SELECT stock.quantity, section.system FROM item_shelf_stock stock "
-                "JOIN pantry_shelves s ON s.id = stock.shelf_id "
-                "JOIN pantry_sections section ON section.id = s.section_id "
-                "WHERE stock.item_id = ? AND stock.shelf_id = ?", (item["id"], shelf_id),
-            ).fetchone()
+            available_shelves = conn.execute(
+                "SELECT stock.shelf_id FROM item_shelf_stock stock "
+                "JOIN pantry_shelves shelf ON shelf.id = stock.shelf_id "
+                "JOIN pantry_sections section ON section.id = shelf.section_id "
+                "WHERE stock.item_id = ? AND stock.quantity > 0 AND section.system = 0",
+                (item["id"],),
+            ).fetchall()
             allocated = conn.execute(
                 "SELECT COALESCE(SUM(quantity), 0) FROM item_shelf_stock WHERE item_id = ?",
                 (item["id"],),
             ).fetchone()[0]
             if allocated != item["current_quantity"]:
                 raise ValueError("Stock locations need Admin reconciliation before distribution.")
-            if not shelf or shelf["system"] or shelf["quantity"] < 1 or item["current_quantity"] < 1:
+            if item["current_quantity"] < 1 or not available_shelves:
+                raise ValueError("This item has no stock on a physical shelf.")
+            if shelf_id is None:
+                if len(available_shelves) != 1:
+                    raise ValueError("This item is stocked on more than one shelf. Choose the shelf it came from.")
+                shelf_id = available_shelves[0]["shelf_id"]
+            elif not any(row["shelf_id"] == shelf_id for row in available_shelves):
                 raise ValueError("The selected shelf has no available stock for this item.")
             weight = measured_milli_lb if measured_milli_lb is not None else item["unit_weight_milli_lb"]
             visit = conn.execute(

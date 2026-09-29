@@ -160,7 +160,8 @@ def add_out():
     from database import Database
     db = Database()
     try:
-        shelf_id = int(request.form.get("shelf_id") or "")
+        shelf_raw = (request.form.get("shelf_id") or "").strip()
+        shelf_id = int(shelf_raw) if shelf_raw else None
         cart = db.get_active_cart(int(current_user.id), "OUT")
         if cart and cart["mode"] == "IMMEDIATE":
             measured_raw = (request.form.get("measured_lb") or "").strip()
@@ -178,7 +179,7 @@ def add_out():
                 int(current_user.id), request.form.get("barcode") or "", shelf_id
             )
     except ValueError as error:
-        flash(str(error) if request.form.get("shelf_id") else "Choose a source shelf.", "error")
+        flash(str(error), "error")
     return redirect(url_for("scan.scan_out"))
 
 

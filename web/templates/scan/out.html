@@ -55,14 +55,16 @@
       <label for="out-barcode" class="block font-semibold">Scan-out barcode</label>
       <input id="out-barcode" name="barcode" required autofocus autocomplete="off" maxlength="128" placeholder="Scan or type barcode" class="w-full rounded border border-slate-300 px-3 py-3">
       <label for="source-shelf" class="block font-semibold">Take from shelf</label>
-      <select id="source-shelf" name="shelf_id" required class="w-full rounded border border-slate-300 px-3 py-3">
-        <option value="">Choose a stocked shelf</option>
+      <select id="source-shelf" name="shelf_id" class="w-full rounded border border-slate-300 px-3 py-3">
+        <option value="">Auto-detect from scanned item</option>
         {% for section in sections if not section.system %}{% for shelf in section.shelves if shelf.units > 0 %}
           <option value="{{ shelf.id }}">{{ section.name }} / {{ shelf.name }}{% if shelf.is_overflow %} (overflow){% endif %}</option>
         {% endfor %}{% endfor %}
       </select>
+      <p class="text-sm text-slate-600">A single stocked shelf is selected automatically. If the item is on multiple shelves, choose the shelf it was taken from.</p>
       {% if cart.mode == 'IMMEDIATE' %}
-        <label class="block text-sm font-semibold">Measured pounds for this one scan (optional)
+        <p class="text-sm text-slate-600">The stored unit weight is applied automatically. Enter measured pounds only when replacing it with an actual scale reading.</p>
+        <label class="block text-sm font-semibold">Measured pounds for this one scan (optional override)
           <input name="measured_lb" type="number" min="0.001" max="10000" step="0.001" class="mt-1 block w-full rounded border border-slate-300 px-3 py-2">
         </label>
         <label class="block text-sm font-semibold">Reason if using measured pounds

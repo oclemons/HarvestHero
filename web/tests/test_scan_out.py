@@ -99,6 +99,45 @@ class ScanOut(unittest.TestCase):
         self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 3)
         self.assertEqual(self.db.get_client_weight_summary(self.client_id)["known_weight_milli_lb"], 1250)
 
+    def test_immediate_scan_auto_detects_only_stocked_shelf_and_uses_stored_weight(self):
+        self.verify()
+        self.login("admin_a")
+        self.web.post("/scan/out/start", data={
+            "client_id": self.client_id, "mode": "IMMEDIATE",
+        })
+        response = self.web.post("/scan/out/add", data={
+            "barcode": "RICE1-OUT", "scan_token": "auto-shelf-001",
+        }, follow_redirects=True)
+        self.assertIn(b"Item scanned out", response.data)
+        self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 4)
+        self.assertEqual(self.db.get_item_shelf_stock(self.item_id)[0]["quantity"], 4)
+        self.assertEqual(
+            self.db.get_client_weight_summary(self.client_id)["known_weight_milli_lb"], 625
+        )
+
+    def test_scan_without_shelf_refuses_to_guess_between_stocked_shelves(self):
+        self.verify()
+        section = self.db.create_pantry_section("Overflow")
+        second_shelf = self.db.create_pantry_shelf(section, "Shelf 2")
+        self.db.transfer_shelf_stock(self.item_id, self.shelf_id, second_shelf, 1, "admin_a")
+        self.login("admin_a")
+        self.web.post("/scan/out/start", data={
+            "client_id": self.client_id, "mode": "IMMEDIATE",
+        })
+        response = self.web.post("/scan/out/add", data={
+            "barcode": "RICE1-OUT", "scan_token": "auto-shelf-002",
+        }, follow_redirects=True)
+        self.assertIn(b"stocked on more than one shelf", response.data)
+        self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 5)
+        self.assertEqual(self.db.get_client_weight_summary(self.client_id)["total_visits"], 0)
+
+    def test_review_cart_auto_detects_only_stocked_shelf(self):
+        self.verify()
+        self.db.start_scan_out_cart(self.admin_id, self.client_id)
+        self.db.add_scan_out_to_cart(self.admin_id, "RICE1-OUT")
+        cart = self.db.get_active_cart(self.admin_id, "OUT")
+        self.assertEqual(cart["lines"][0]["shelf_id"], self.shelf_id)
+
     def test_immediate_scan_undo_restores_stock_and_voids_empty_visit(self):
         self.verify()
         self.db.start_scan_out_cart(self.admin_id, self.client_id, mode="IMMEDIATE",
