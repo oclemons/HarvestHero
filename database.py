@@ -1219,6 +1219,17 @@ class Database:
         finally:
             conn.close()
 
+    def _purge_shelf_references(self, conn, shelf_id: int) -> int:
+        """Remove all FK references to a shelf and return units of stock removed."""
+        removed_stock = conn.execute(
+            "SELECT COALESCE(SUM(quantity), 0) AS total FROM item_shelf_stock "
+            "WHERE shelf_id = ?", (shelf_id,),
+        ).fetchone()["total"]
+        conn.execute("DELETE FROM inventory_movements WHERE shelf_id = ?", (shelf_id,))
+        conn.execute("DELETE FROM pantry_cart_lines WHERE shelf_id = ?", (shelf_id,))
+        conn.execute("DELETE FROM item_shelf_stock WHERE shelf_id = ?", (shelf_id,))
+        return removed_stock
+
     def delete_pantry_shelf(self, shelf_id: int, username: str) -> None:
         conn = self._connect()
         try:
@@ -1233,16 +1244,7 @@ class Database:
                 raise ValueError("Shelf not found.")
             if shelf["system"]:
                 raise ValueError("The system shelf cannot be deleted.")
-            removed_stock = conn.execute(
-                "SELECT COALESCE(SUM(quantity), 0) AS total FROM item_shelf_stock "
-                "WHERE shelf_id = ?", (shelf_id,),
-            ).fetchone()["total"]
-            conn.execute(
-                "DELETE FROM pantry_cart_lines WHERE shelf_id = ? AND cart_id IN "
-                "(SELECT id FROM pantry_carts WHERE status = 'OPEN')",
-                (shelf_id,),
-            )
-            conn.execute("DELETE FROM item_shelf_stock WHERE shelf_id = ?", (shelf_id,))
+            removed_stock = self._purge_shelf_references(conn, shelf_id)
             conn.execute("DELETE FROM pantry_shelves WHERE id = ?", (shelf_id,))
             conn.execute(
                 "INSERT INTO activity_log (username, action, detail) VALUES (?, 'SHELF_DELETE', ?)",
@@ -1274,16 +1276,7 @@ class Database:
             ).fetchall()]
             removed_stock = 0
             for sid in shelf_ids:
-                removed_stock += conn.execute(
-                    "SELECT COALESCE(SUM(quantity), 0) AS total FROM item_shelf_stock "
-                    "WHERE shelf_id = ?", (sid,),
-                ).fetchone()["total"]
-                conn.execute(
-                    "DELETE FROM pantry_cart_lines WHERE shelf_id = ? AND cart_id IN "
-                    "(SELECT id FROM pantry_carts WHERE status = 'OPEN')",
-                    (sid,),
-                )
-                conn.execute("DELETE FROM item_shelf_stock WHERE shelf_id = ?", (sid,))
+                removed_stock += self._purge_shelf_references(conn, sid)
             conn.execute("DELETE FROM pantry_shelves WHERE section_id = ?", (section_id,))
             conn.execute("DELETE FROM pantry_sections WHERE id = ?", (section_id,))
             conn.execute(
