@@ -106,10 +106,102 @@ class DemoFlow(unittest.TestCase):
         response = self.client.post("/admin/users/", data={
             "username": "new_student", "full_name": "New Student",
             "role": "student", "password": "AnotherPass!123",
+            "confirm_password": "AnotherPass!123",
         }, follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(self.db.get_user("new_student"))
         self.assertNotIn(b"AnotherPass!123", response.data)
+
+    def test_new_student_can_sign_in_with_temporary_password_regardless_of_username_case(self):
+        self.login("demo_admin")
+        response = self.client.post("/admin/users/", data={
+            "username": "New_Student", "full_name": "New Student",
+            "role": "student", "password": "AnotherPass!123",
+            "confirm_password": "AnotherPass!123",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.client.get("/logout")
+        response = self.client.post("/login", data={
+            "username": "new_student", "password": "AnotherPass!123",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"How intake works", response.data)
+        self.assertNotIn(b"/admin/users/", response.data)
+
+    def test_admin_reset_student_password_kicks_old_session(self):
+        student_id = self.db.get_user("demo_student")["id"]
+        student_session = self.app.test_client()
+        student_session.post("/login", data={
+            "username": "demo_student", "password": "DemoPass!123",
+        })
+        self.assertEqual(student_session.get("/app").status_code, 200)
+        self.login("demo_admin")
+        self.assertEqual(self.client.get(f"/admin/users/{student_id}/reset").status_code, 200)
+        self.client.post(f"/admin/users/{student_id}/reset", data={
+            "admin_password": "wrong", "password": "NewStudent!456",
+            "confirm_password": "NewStudent!456",
+        })
+        from auth import verify_password
+        unchanged = self.db.get_user("demo_student")
+        self.assertTrue(verify_password("DemoPass!123", unchanged["password_hash"], unchanged["salt"]))
+        response = self.client.post(f"/admin/users/{student_id}/reset", data={
+            "admin_password": "DemoPass!123", "password": "NewStudent!456",
+            "confirm_password": "NewStudent!456",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"NewStudent!456", response.data)
+        self.assertEqual(student_session.get("/app").status_code, 302)
+        self.assertEqual(student_session.post("/login", data={
+            "username": "demo_student", "password": "DemoPass!123",
+        }).status_code, 200)
+        login = student_session.post("/login", data={
+            "username": "DEMO_STUDENT", "password": "NewStudent!456",
+        }, follow_redirects=True)
+        self.assertIn(b"How intake works", login.data)
+        self.assertNotIn(b"/admin/users/", login.data)
+
+    def test_student_cannot_reset_passwords_or_admin_account(self):
+        student_id = self.db.get_user("demo_student")["id"]
+        admin_id = self.db.get_user("demo_admin")["id"]
+        self.login("demo_student")
+        self.assertEqual(self.client.get(f"/admin/users/{student_id}/reset").status_code, 403)
+        self.assertEqual(self.client.post(f"/admin/users/{admin_id}/reset", data={
+            "password": "Wrong!123", "confirm_password": "Wrong!123",
+        }).status_code, 403)
+        self.client.get("/logout")
+        self.login("demo_admin")
+        self.assertNotEqual(self.client.get(f"/admin/users/{admin_id}/reset").status_code, 200)
+
+    def test_admin_rejects_mismatched_temporary_passwords(self):
+        self.login("demo_admin")
+        response = self.client.post("/admin/users/", data={
+            "username": "new_student", "role": "student", "password": "AnotherPass!123",
+            "confirm_password": "DifferentPass!123",
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(self.db.get_user("new_student"))
+
+    def test_case_insensitive_duplicate_username_is_rejected(self):
+        self.login("demo_admin")
+        response = self.client.post("/admin/users/", data={
+            "username": "DEMO_STUDENT", "role": "student",
+            "password": "AnotherPass!123", "confirm_password": "AnotherPass!123",
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(sum(user["role"] == "student" for user in self.db.get_all_users()), 1)
+
+    def test_reset_student_password_requires_csrf(self):
+        self.login("demo_admin")
+        student_id = self.db.get_user("demo_student")["id"]
+        self.app.config["WTF_CSRF_ENABLED"] = True
+        response = self.client.post(f"/admin/users/{student_id}/reset", data={
+            "admin_password": "DemoPass!123", "password": "NewStudent!456",
+            "confirm_password": "NewStudent!456",
+        })
+        self.assertEqual(response.status_code, 400)
+        from auth import verify_password
+        original = self.db.get_user("demo_student")
+        self.assertTrue(verify_password("DemoPass!123", original["password_hash"], original["salt"]))
 
     def test_admin_can_disable_student_but_not_self(self):
         admin_id = self.db.get_user("demo_admin")["id"]

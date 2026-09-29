@@ -74,7 +74,7 @@ def login():
             # password change invalidates this session (2A.4).
             from security import mark_login
             mark_login(row)
-            _db.update_last_login(username)
+            _db.update_last_login(row["username"])
             destination = request.args.get("next") or ""
             if (destination.startswith("/") and not destination.startswith("//") and
                     "\\" not in destination and len(destination) <= 1024 and

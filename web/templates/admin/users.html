@@ -26,6 +26,9 @@
       <label class="block text-sm font-semibold">Temporary password
         <input type="password" name="password" required autocomplete="new-password" class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
       </label>
+      <label class="block text-sm font-semibold">Confirm temporary password
+        <input type="password" name="confirm_password" required autocomplete="new-password" class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
+      </label>
       <button type="submit" class="rounded bg-emerald-800 text-white font-semibold px-5 py-3 hover:bg-emerald-900">Create account</button>
     </form>
   </section>
@@ -42,6 +45,7 @@
             <input type="hidden" name="active" value="{{ '0' if account.is_active else '1' }}">
             <button type="submit" class="text-sm text-emerald-800 underline">{{ 'Deactivate' if account.is_active else 'Reactivate' }}</button>
           </form>
+          {% if account.role == 'student' %}<a class="text-sm text-emerald-800 underline" href="{{ url_for('users.reset_password', user_id=account.id) }}">Reset password</a>{% endif %}
         {% else %}Your account{% endif %}</td>
       </tr>{% endfor %}</tbody>
     </table></div>

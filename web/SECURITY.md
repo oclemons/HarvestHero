@@ -47,7 +47,8 @@ likely threats and how we defend against each are:
   login (see `auth.py`).
 * Password strength: at least 8 characters and at least 3 of the 4
   character classes (lowercase, uppercase, digit, symbol). Enforced
-  on change-password.
+  on account creation, password change and Admin reset.
+* Admin reset is limited to Student accounts; the Admin must re-enter their own password. The POST is CSRF-protected, rate-limited and audited without recording either password. Older Student sessions become invalid. Login-screen self-service recovery is not offered without a verified identity channel.
 * **LDAP**: not yet wired into the web app. `ldap_auth.py` exists
   and is used by the frozen desktop; Phase 2C will wire it in.
 * Rate limit: 10 attempts per 5 minutes per IP on `POST /login`;

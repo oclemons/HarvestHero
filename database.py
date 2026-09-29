@@ -642,6 +642,12 @@ class Database:
     def create_user(self, username: str, password_hash: str, salt: str, role: str):
         conn = self._connect()
         try:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute(
+                "SELECT 1 FROM users WHERE username = ? COLLATE NOCASE LIMIT 1", (username,)
+            ).fetchone():
+                conn.rollback()
+                return False, "Username already exists."
             conn.execute(
                 "INSERT INTO users (username, password_hash, salt, role) VALUES (?, ?, ?, ?)",
                 (username, password_hash, salt, role),
@@ -649,17 +655,19 @@ class Database:
             conn.commit()
             return True, "User created successfully."
         except sqlite3.IntegrityError:
+            conn.rollback()
             return False, "Username already exists."
         finally:
             conn.close()
 
     def get_user(self, username: str):
         conn = self._connect()
-        row = conn.execute(
-            "SELECT * FROM users WHERE username = ? AND is_active = 1", (username,)
-        ).fetchone()
+        rows = conn.execute(
+            "SELECT * FROM users WHERE username = ? COLLATE NOCASE AND is_active = 1 LIMIT 2",
+            (username,),
+        ).fetchall()
         conn.close()
-        return dict(row) if row else None
+        return dict(rows[0]) if len(rows) == 1 else None
 
     def get_all_users(self):
         conn = self._connect()
@@ -687,6 +695,12 @@ class Database:
                          role: str, full_name: str = "", created_by: str = ""):
         conn = self._connect()
         try:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute(
+                "SELECT 1 FROM users WHERE username = ? COLLATE NOCASE LIMIT 1", (username,)
+            ).fetchone():
+                conn.rollback()
+                return False, "Username already exists."
             conn.execute(
                 "INSERT INTO users (username, password_hash, salt, role, full_name, created_by) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
@@ -695,6 +709,7 @@ class Database:
             conn.commit()
             return True, "User created successfully."
         except sqlite3.IntegrityError:
+            conn.rollback()
             return False, "Username already exists."
         finally:
             conn.close()
@@ -713,6 +728,43 @@ class Database:
         )
         conn.commit()
         conn.close()
+
+    def get_user_by_id(self, user_id: int):
+        conn = self._connect()
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def reset_student_password(self, actor_id: int, user_id: int,
+                               password_hash: str, salt: str) -> None:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            actor = conn.execute(
+                "SELECT username, role, is_active FROM users WHERE id = ?", (actor_id,)
+            ).fetchone()
+            target = conn.execute(
+                "SELECT role FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+            if not actor or actor["role"] != "admin" or not actor["is_active"] or not target:
+                raise ValueError("Only an active administrator may reset a Student account.")
+            if target["role"] != "student":
+                raise ValueError("Only Student account passwords can be reset here.")
+            conn.execute(
+                "UPDATE users SET password_hash = ?, salt = ? WHERE id = ?",
+                (password_hash, salt, user_id),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) "
+                "VALUES (?, 'STUDENT_PASSWORD_RESET', ?)",
+                (actor["username"], f"user={user_id}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def set_user_active(self, user_id: int, active: bool) -> None:
         conn = self._connect()
