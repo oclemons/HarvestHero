@@ -19,13 +19,17 @@
     /* Font stack matches the desktop app's Times-New-Roman preference
        so users switching from the .exe don't feel a jarring redesign. */
     html, body, button, input, select, textarea { font-family: "Times New Roman", Times, Georgia, serif !important; }
-    :root { --soil: #382f25; --leaf: #7c2d12; --leaf-hover: #65230e; --cream: #fff8e7; --gold: #f3b64c; --soft: #ffedd5; --accent-text: #9a3412; }
-    body[data-theme="spring"] { --soil: #243b2f; --leaf: #166534; --leaf-hover: #14532d; --cream: #f0fdf4; --gold: #f9a8d4; --soft: #dcfce7; --accent-text: #166534; }
-    body { background-color: var(--cream); }
+    :root { --soil: #34211b; --leaf: #2d4354; --leaf-hover: #20212b; --cream: #fed7a5; --surface: #fffaf0; --gold: #bb8a52; --soft: #a0beda; --accent-text: #534145; --text: #20212b; --muted: #534145; --border: #9e6752; --secondary: #73766a; --highlight: #9e6752; }
+    body[data-theme="spring"] { --soil: #34211b; --leaf: #0c3b2e; --leaf-hover: #051f20; --cream: #daf1de; --surface: #f8fff9; --gold: #ffba00; --soft: #8eb69b; --accent-text: #0b2b26; --text: #051f20; --muted: #235347; --border: #6d9773; --secondary: #6b6f2d; --highlight: #8b0047; }
+    body { background-color: var(--cream); color: var(--text) !important; }
     .theme-header, body .bg-emerald-900, body .bg-emerald-700 { background-color: var(--leaf) !important; }
     body .hover\:bg-emerald-950:hover, body .hover\:bg-emerald-800:hover, .theme-button:hover { background-color: var(--leaf-hover) !important; }
     body .text-emerald-900, body .text-emerald-800, body .text-emerald-700 { color: var(--accent-text) !important; }
+    body .text-slate-900, body .text-slate-800, body .text-slate-700 { color: var(--text) !important; }
+    body .text-slate-600, body .text-slate-500 { color: var(--muted) !important; }
+    body .bg-white { background-color: var(--surface) !important; }
     body .bg-emerald-50, body .bg-emerald-100, body .bg-emerald-200 { background-color: var(--soft) !important; }
+    body .border-slate-200, body .border-slate-300, body .border-emerald-200 { border-color: var(--border) !important; }
     body .border-amber-300 { border-color: var(--gold) !important; }
     body .text-amber-200 { color: var(--gold) !important; }
     .theme-button { background-color: var(--leaf); }

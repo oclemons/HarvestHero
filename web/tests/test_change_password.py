@@ -91,6 +91,12 @@ class ChangePasswordFlow(unittest.TestCase):
         body = self._settings_body()
         self.assertIn('data-theme="fall"', body)
         self.assertIn('value="fall" checked', body)
+        self.assertIn("#2d4354", body)
+        self.assertIn("#fed7a5", body)
+        self.assertIn("#9e6752", body)
+        self.assertIn("#0c3b2e", body)
+        self.assertIn("#daf1de", body)
+        self.assertIn("#8b0047", body)
 
         response = self.client.post(
             "/account/theme", data={"theme": "spring"}, follow_redirects=True
