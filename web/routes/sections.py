@@ -1,11 +1,16 @@
 """Administrator-managed physical pantry sections and shelves."""
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from pathlib import Path
+
+from flask import Blueprint, abort, flash, redirect, render_template, request, send_from_directory, url_for
 from flask_login import current_user, login_required
 
 from decorators import admin_required
 
 bp = Blueprint("sections", __name__, url_prefix="/pantry")
+
+_REFERENCE_DIR = Path(__file__).resolve().parents[2] / "input" / "Inventory"
+_REFERENCE_IMAGES = tuple(f"822{number}.jpg" for number in range(13, 23))
 
 
 def _visible_layout():
@@ -28,7 +33,17 @@ def _visible_layout():
 @login_required
 @admin_required
 def index():
-    return render_template("sections/index.html", sections=_visible_layout())
+    references = [name for name in _REFERENCE_IMAGES if (_REFERENCE_DIR / name).is_file()]
+    return render_template("sections/index.html", sections=_visible_layout(), references=references)
+
+
+@bp.route("/references/<filename>")
+@login_required
+@admin_required
+def reference_image(filename: str):
+    if filename not in _REFERENCE_IMAGES or not (_REFERENCE_DIR / filename).is_file():
+        abort(404)
+    return send_from_directory(_REFERENCE_DIR, filename, max_age=3600)
 
 
 @bp.route("/sections", methods=["POST"])

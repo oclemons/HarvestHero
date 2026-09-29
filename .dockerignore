@@ -10,7 +10,10 @@ venv/
 **/*.pyc
 **/.DS_Store
 data/
-input/
+input/*
+!input/Inventory/
+input/Inventory/*
+!input/Inventory/*.jpg
 output/
 build/
 dist/

@@ -279,6 +279,21 @@ class DemoFlow(unittest.TestCase):
             "name": "Forged",
         }).status_code, 403)
 
+    def test_admin_can_view_reviewed_shelf_reference_photos(self):
+        self.login("demo_admin")
+        pantry = self.client.get("/pantry/")
+        self.assertEqual(pantry.status_code, 200)
+        self.assertIn(b"Original shelf-reference photos", pantry.data)
+        self.assertIn(b"/pantry/references/82213.jpg", pantry.data)
+        image = self.client.get("/pantry/references/82213.jpg")
+        self.assertEqual(image.status_code, 200)
+        self.assertEqual(image.mimetype, "image/jpeg")
+        self.assertEqual(self.client.get("/pantry/references/not-approved.jpg").status_code, 404)
+
+        self.client.get("/logout")
+        self.login("demo_student")
+        self.assertEqual(self.client.get("/pantry/references/82213.jpg").status_code, 403)
+
     def test_layout_edits_require_csrf(self):
         section_id = self.db.create_pantry_section("Section 3")
         shelf_id = self.db.create_pantry_shelf(section_id, "Shelf 1")

@@ -64,6 +64,22 @@
     {% endfor %}
   </div>
   <aside class="space-y-5">
+    {% if references %}
+      <details class="bg-white rounded-xl shadow-sm border border-emerald-100 p-6">
+        <summary class="cursor-pointer text-lg font-bold">Original shelf-reference photos</summary>
+        <p class="mt-2 text-sm text-slate-600">These are the handwritten pantry-layout pictures supplied for reference. They do not represent individual product photos.</p>
+        <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+          {% for filename in references %}
+            <figure class="rounded-lg border border-slate-200 overflow-hidden">
+              <a href="{{ url_for('sections.reference_image', filename=filename) }}" target="_blank" rel="noopener">
+                <img src="{{ url_for('sections.reference_image', filename=filename) }}" alt="Original pantry shelf reference {{ filename[:-4] }}" loading="lazy" class="w-full h-48 object-cover object-top">
+              </a>
+              <figcaption class="px-3 py-2 text-xs text-slate-600">Reference {{ filename[:-4] }} · Select to view full size</figcaption>
+            </figure>
+          {% endfor %}
+        </div>
+      </details>
+    {% endif %}
     <form method="post" action="{{ url_for('sections.create_section') }}" class="bg-white rounded-xl shadow-sm border border-emerald-100 p-6 space-y-3">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <h2 class="text-lg font-bold">Create a section</h2>
