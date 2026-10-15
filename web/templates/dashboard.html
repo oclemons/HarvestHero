@@ -26,8 +26,8 @@
   <a href="{{ url_for('inventory.list_items') }}" class="bg-white rounded-xl border border-amber-200 shadow-sm p-6 hover:shadow-md transition block">
     <span class="text-sm font-medium text-slate-600">Below minimum</span><strong class="block text-3xl text-amber-800 mt-2">{{ stats.low_stock }}</strong><span class="text-sm text-amber-800">Review inventory &rarr;</span>
   </a>
-  <a href="{{ url_for('users.index') }}" class="bg-white rounded-xl border border-emerald-100 shadow-sm p-6 hover:shadow-md transition block">
-    <span class="text-sm font-medium text-slate-600">Active team accounts</span><strong class="block text-3xl text-emerald-900 mt-2">{{ stats.active_users }}</strong><span class="text-sm text-emerald-800">Manage team &rarr;</span>
+  <a href="{{ url_for('inventory.shopping_list') }}" class="bg-white rounded-xl border border-red-100 shadow-sm p-6 hover:shadow-md transition block">
+    <span class="text-sm font-medium text-slate-600">Shopping list</span><strong class="block text-3xl text-red-900 mt-2">{{ stats.shopping_list }}</strong><span class="text-sm text-red-800">Restock needed &rarr;</span>
   </a>
 </div>
 {% if month_summary and month_summary.history_available %}

@@ -4,7 +4,7 @@
 <div class="mb-8">
   <p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">Inventory intake</p>
   <h1 class="text-3xl font-bold mt-2">Scan food in</h1>
-  <p class="text-slate-600 mt-2">Scan each item into a destination shelf. Enter the total donation weight when completing intake.</p>
+  <p class="text-slate-600 mt-2">Scan each item into a destination shelf. Stock is added immediately; enter the total donation weight when completing intake.</p>
 </div>
 <div class="grid gap-6 lg:grid-cols-5">
   <section class="lg:col-span-2 rounded-xl bg-white shadow-sm border border-emerald-100 p-6" aria-label="Add item to intake">
@@ -68,7 +68,7 @@
           <button type="submit" class="rounded border border-slate-300 px-5 py-3 font-semibold">Cancel cart</button>
         </form>
       </div>
-    {% else %}<p class="rounded-lg bg-stone-50 p-6 text-slate-600">Your cart is empty. Scans will appear here before any stock is changed.</p>{% endif %}
+    {% else %}<p class="rounded-lg bg-stone-50 p-6 text-slate-600">Your cart is empty. Each scan immediately adds the item to the chosen shelf.</p>{% endif %}
   </section>
 </div>
 {% endblock %}

@@ -58,6 +58,7 @@
         <a href="{{ url_for('dashboard.home') }}" class="hover:underline">Dashboard</a>
         {% if current_user.is_admin %}<a href="{{ url_for('sections.index') }}" class="hover:underline">Pantry</a>{% endif %}
         <a href="{{ url_for('inventory.list_items') }}" class="hover:underline">Inventory</a>
+        {% if current_user.is_admin %}<a href="{{ url_for('inventory.shopping_list') }}" class="hover:underline">Shopping list</a>{% endif %}
         <a href="{{ url_for('scan.scan_in') }}" class="hover:underline">Scan in</a>
         {% if current_user.is_admin and config.CLIENT_RECORDS_ENABLED %}<a href="{{ url_for('scan.scan_out') }}" class="hover:underline">Scan out</a>{% endif %}
         {% if current_user.is_admin and config.CLIENT_RECORDS_ENABLED %}<a href="{{ url_for('clients.index') }}" class="hover:underline">Clients</a>{% endif %}

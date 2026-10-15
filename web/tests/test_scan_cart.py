@@ -51,13 +51,13 @@ class ScanCart(unittest.TestCase):
     def login(self, name):
         self.client.post("/login", data={"username": name, "password": "PantryPass!123"})
 
-    def test_two_scans_stay_in_cart_until_checkout_and_complete_once(self):
+    def test_two_scans_update_stock_immediately_and_complete_once(self):
         self.login("student_a")
         for _ in range(2):
             self.assertEqual(self.client.post("/scan/in/add", data={
                 "barcode": "RICE1", "shelf_id": self.shelf_id,
             }).status_code, 302)
-        self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 3)
+        self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 5)
         page = self.client.get("/scan/in").data
         self.assertIn(b"Rice", page)
         self.assertIn(b"2 units", page)
@@ -87,9 +87,8 @@ class ScanCart(unittest.TestCase):
         conn.close()
         self.assertIsNone(weight)
 
-    def test_all_or_nothing_on_checkout_failure(self):
+    def test_each_scan_is_atomic(self):
         self.db.add_scan_to_cart(self.student_id, "RICE1", self.shelf_id)
-        self.db.add_scan_to_cart(self.student_id, "BEANS1", self.shelf_id)
         cart = self.db.get_active_cart(self.student_id, "IN")
         conn = self.db._connect()
         conn.execute("CREATE TRIGGER fail_movement BEFORE INSERT ON inventory_movements "
@@ -97,8 +96,8 @@ class ScanCart(unittest.TestCase):
         conn.commit()
         conn.close()
         with self.assertRaises(Exception):
-            self.db.complete_scan_in_cart(self.student_id, cart["id"], "student_a")
-        self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 3)
+            self.db.add_scan_to_cart(self.student_id, "BEANS1", self.shelf_id)
+        self.assertEqual(self.db.get_item_by_id(self.item_id)["current_quantity"], 4)
         self.assertEqual(self.db.get_item_by_id(self.unknown_id)["current_quantity"], 1)
         self.assertEqual(self.db.get_active_cart(self.student_id, "IN")["id"], cart["id"])
 

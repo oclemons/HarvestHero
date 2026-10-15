@@ -23,6 +23,7 @@ def home():
     stats = {
         "total_items": len(items),
         "low_stock": len(low),
+        "shopping_list": len(_db.get_shopping_list()),
     }
     month_summary = None
     if current_user.is_admin:

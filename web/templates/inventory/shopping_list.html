@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Shopping list · Harvest Hero{% endblock %}
+{% block content %}
+<div class="mb-8">
+  <p class="text-sm font-semibold uppercase tracking-widest text-emerald-700">Restocking</p>
+  <h1 class="text-3xl font-bold mt-2">Shopping list</h1>
+  <p class="text-slate-600 mt-2">Items appear here when they go out of stock or fall below their minimum threshold. Scanned intake automatically removes them.</p>
+</div>
+
+{% if items %}
+  <div class="bg-white rounded-xl shadow-sm border border-emerald-100 overflow-hidden">
+    <table class="min-w-full divide-y divide-slate-200">
+      <thead class="bg-slate-50">
+        <tr class="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <th class="px-4 py-3">Item</th>
+          <th class="px-4 py-3">Barcode</th>
+          <th class="px-4 py-3">Category</th>
+          <th class="px-4 py-3">Needed</th>
+          <th class="px-4 py-3">Last updated</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 text-sm">
+        {% for it in items %}
+          <tr class="hover:bg-emerald-50">
+            <td class="px-4 py-3 font-medium text-slate-900">{{ it.item_name }}</td>
+            <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ it.barcode }}</td>
+            <td class="px-4 py-3 text-slate-700">{{ it.category or '—' }}</td>
+            <td class="px-4 py-3">
+              <form method="post" action="{{ url_for('inventory.update_shopping_list_item', item_id=it.id) }}" class="flex items-center gap-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input name="quantity" type="number" min="0" value="{{ it.quantity_needed }}" class="w-20 rounded border border-slate-300 px-2 py-1">
+                <button type="submit" class="text-emerald-800 text-xs font-semibold hover:underline">Update</button>
+              </form>
+            </td>
+            <td class="px-4 py-3 text-slate-500">{{ it.updated_at }}</td>
+            <td class="px-4 py-3">
+              <form method="post" action="{{ url_for('inventory.update_shopping_list_item', item_id=it.id) }}" class="inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="quantity" value="0">
+                <button type="submit" class="text-red-700 text-xs font-semibold hover:underline">Clear</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="rounded-lg border-2 border-dashed border-slate-300 p-10 text-center">
+    <p class="text-slate-500">The shopping list is empty. Items will appear here when distribution drives them below their minimum or out of stock.</p>
+  </div>
+{% endif %}
+{% endblock %}

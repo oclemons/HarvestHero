@@ -383,6 +383,36 @@ def transfer(item_id: int):
 
 
 # ─────────────────────────────────────────────────────────────────
+# Shopping list
+# ─────────────────────────────────────────────────────────────────
+
+@bp.route("/shopping-list")
+@login_required
+@admin_required
+def shopping_list():
+    """Admin view of items that need restocking."""
+    items = _db.get_shopping_list()
+    return render_template("inventory/shopping_list.html", items=items)
+
+
+@bp.route("/shopping-list/<int:item_id>/update", methods=["POST"])
+@login_required
+@admin_required
+def update_shopping_list_item(item_id: int):
+    """Allow Admin to manually adjust needed quantity or clear an item."""
+    try:
+        quantity = int(request.form.get("quantity") or "0")
+        _db.update_shopping_list_quantity(item_id, quantity)
+        if quantity <= 0:
+            flash("Item removed from shopping list.", "success")
+        else:
+            flash("Shopping list quantity updated.", "success")
+    except ValueError as error:
+        flash(str(error), "error")
+    return redirect(url_for("inventory.shopping_list"))
+
+
+# ─────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────
 

@@ -48,15 +48,16 @@ class DemoFlow(unittest.TestCase):
     def test_student_scan_in_is_atomic_and_visible(self):
         self.login("demo_student")
         self.client.post("/scan/in/add", data={"barcode": "IN-123", "shelf_id": self.shelf_id})
-        self.assertEqual(self.db.get_item_by_barcode("IN-123")["current_quantity"], 4)
+        self.assertEqual(self.db.get_item_by_barcode("IN-123")["current_quantity"], 5)
+        stock = {row["shelf_id"]: row["quantity"] for row in self.db.get_item_shelf_stock(
+            self.db.get_item_by_barcode("IN-123")["id"])}
+        self.assertEqual(stock[self.shelf_id], 1)
         cart = self.db.get_active_cart(self.db.get_user("demo_student")["id"], "IN")
         response = self.client.post("/scan/in/complete", data={"cart_id": cart["id"]},
                                     follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Intake recorded", response.data)
         self.assertEqual(self.db.get_item_by_barcode("IN-123")["current_quantity"], 5)
-        stock = {row["shelf_id"]: row["quantity"] for row in self.db.get_item_shelf_stock(
-            self.db.get_item_by_barcode("IN-123")["id"])}
         self.assertEqual(stock[self.shelf_id], 1)
         conn = self.db._connect()
         txn = conn.execute("SELECT * FROM transactions").fetchone()
@@ -75,20 +76,19 @@ class DemoFlow(unittest.TestCase):
         self.assertEqual(self.db.get_item_by_barcode("IN-123")["current_quantity"], 4)
         self.assertEqual(self.db.get_recent_transactions(), [])
 
-    def test_failed_transaction_rolls_back_quantity(self):
+    def test_failed_scan_rolls_back_quantity(self):
         conn = self.db._connect()
         conn.execute("CREATE TRIGGER fail_scan BEFORE INSERT ON transactions "
                      "BEGIN SELECT RAISE(ABORT, 'test failure'); END")
         conn.commit()
         conn.close()
         owner_id = self.db.get_user("demo_student")["id"]
-        self.db.add_scan_to_cart(owner_id, "IN-123", self.shelf_id)
-        cart = self.db.get_active_cart(owner_id, "IN")
         with self.assertRaises(Exception):
-            self.db.complete_scan_in_cart(owner_id, cart["id"], "demo_student")
+            self.db.add_scan_to_cart(owner_id, "IN-123", self.shelf_id)
         item = self.db.get_item_by_barcode("IN-123")
         self.assertEqual(item["current_quantity"], 4)
-        self.assertEqual(self.db.get_item_shelf_stock(item["id"])[0]["quantity"], 4)
+        stock = {row["shelf_id"]: row["quantity"] for row in self.db.get_item_shelf_stock(item["id"])}
+        self.assertNotIn(self.shelf_id, stock)
 
     def test_admin_can_scan_and_student_cannot_create_users(self):
         self.login("demo_student")

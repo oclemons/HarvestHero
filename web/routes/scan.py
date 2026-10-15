@@ -44,7 +44,7 @@ def add_in():
     try:
         shelf_id = int(request.form.get("shelf_id") or "")
         Database().add_scan_to_cart(int(current_user.id), request.form.get("barcode") or "",
-                                    shelf_id)
+                                    shelf_id, current_user.username)
         session["last_intake_shelf"] = shelf_id
     except ValueError as error:
         flash(str(error) if request.form.get("shelf_id") else "Choose a destination shelf.", "error")
@@ -57,7 +57,7 @@ def add_in():
 def remove_in(line_id: int):
     from database import Database
     try:
-        Database().remove_cart_line(int(current_user.id), line_id)
+        Database().remove_cart_line(int(current_user.id), line_id, username=current_user.username)
     except ValueError as error:
         flash(str(error), "error")
     return redirect(url_for("scan.scan_in"))
@@ -86,8 +86,9 @@ def complete_in():
 def cancel_in():
     from database import Database
     try:
-        Database().cancel_scan_cart(int(current_user.id), request.form.get("cart_id") or "")
-        flash("Cart cancelled; inventory was not changed.", "info")
+        Database().cancel_scan_cart(int(current_user.id), request.form.get("cart_id") or "",
+                                    username=current_user.username)
+        flash("Cart cancelled; scanned items were removed from inventory.", "info")
     except ValueError as error:
         flash(str(error), "error")
     return redirect(url_for("scan.scan_in"))
