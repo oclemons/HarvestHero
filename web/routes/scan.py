@@ -46,9 +46,10 @@ def add_in():
         Database().add_scan_to_cart(int(current_user.id), request.form.get("barcode") or "",
                                     shelf_id, current_user.username)
         session["last_intake_shelf"] = shelf_id
+        return redirect(url_for("scan.scan_in") + "?scanned=ok")
     except ValueError as error:
         flash(str(error) if request.form.get("shelf_id") else "Choose a destination shelf.", "error")
-    return redirect(url_for("scan.scan_in"))
+    return redirect(url_for("scan.scan_in") + "?scanned=fail")
 
 
 @bp.route("/in/remove/<int:line_id>", methods=["POST"])
@@ -159,9 +160,10 @@ def add_out():
             db.add_scan_out_to_cart(
                 int(current_user.id), request.form.get("barcode") or "", shelf_id
             )
+        return redirect(url_for("scan.scan_out") + "?scanned=ok")
     except ValueError as error:
         flash(str(error), "error")
-    return redirect(url_for("scan.scan_out"))
+    return redirect(url_for("scan.scan_out") + "?scanned=fail")
 
 
 @bp.route("/out/remove/<int:line_id>", methods=["POST"])

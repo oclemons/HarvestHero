@@ -45,6 +45,33 @@
     .login-button { background-color: #235347; color: #ffffff; }
     .login-button:hover { background-color: #163832; }
     a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+
+    /* ── Micro-animations ───────────────────────────────────────── */
+    .animate-fade-in { animation: fadeIn 0.35s ease-out both; }
+    .animate-slide-up { animation: slideUp 0.35s ease-out both; }
+    .animate-pop { animation: popIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
+    .animate-pulse-success { animation: pulseSuccess 0.6s ease-out; }
+    .animate-shake { animation: shake 0.4s ease-in-out; }
+
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes popIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+    @keyframes pulseSuccess { 0% { box-shadow: 0 0 0 0 rgba(45, 67, 84, 0.45); } 70% { box-shadow: 0 0 0 10px rgba(45, 67, 84, 0); } 100% { box-shadow: 0 0 0 0 rgba(45, 67, 84, 0); } }
+    @keyframes shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-5px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+
+    .btn-animate { transition: transform 0.08s ease, background-color 0.15s ease, box-shadow 0.15s ease; }
+    .btn-animate:active { transform: scale(0.96); }
+    .card-animate { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .card-animate:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.08); }
+
+    /* Stagger cart items on page load */
+    .cart-item { opacity: 0; animation: slideUp 0.3s ease-out forwards; }
+
+    /* Scan feedback flash overlay */
+    #scan-feedback { position: fixed; inset: 0; pointer-events: none; z-index: 50; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s ease; }
+    #scan-feedback.visible { opacity: 1; }
+    #scan-feedback .badge { padding: 1rem 2rem; border-radius: 9999px; font-weight: 700; font-size: 1.25rem; box-shadow: 0 10px 30px rgba(0,0,0,0.15); transform: scale(0.9); transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    #scan-feedback.visible .badge { transform: scale(1); }
   </style>
 </head>
 <body data-theme="{{ current_user.theme if current_user.is_authenticated else 'fall' }}" class="h-full flex flex-col min-h-screen text-slate-900 {% block body_class %}{% endblock %}">
@@ -116,5 +143,64 @@
   <footer class="text-xs text-slate-500 py-4 text-center">
     A Clemons Collective
   </footer>
+
+  {# Scan feedback overlay used by scan pages. #}
+  <div id="scan-feedback" aria-hidden="true">
+    <div class="badge bg-emerald-800 text-white" id="scan-feedback-success">Scanned ✓</div>
+    <div class="badge bg-red-800 text-white hidden" id="scan-feedback-error">Not found ✗</div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // Stagger cart items on page load
+      document.querySelectorAll('.cart-item').forEach(function (el, i) {
+        el.style.animationDelay = (i * 0.06) + 's';
+      });
+
+      // Animate flash messages
+      document.querySelectorAll('.max-w-6xl.mx-auto.px-6.pt-4.space-y-2 > div').forEach(function (msg, i) {
+        msg.classList.add('animate-slide-up');
+        msg.style.animationDelay = (i * 0.08) + 's';
+      });
+
+      // Auto-focus the first barcode input on scan pages
+      var barcodeInput = document.querySelector('input[name="barcode"], input#barcode, input#out-barcode');
+      if (barcodeInput && document.activeElement !== barcodeInput) {
+        setTimeout(function () { barcodeInput.focus(); barcodeInput.select(); }, 80);
+      }
+
+      // Button click ripple / active state is handled by CSS .btn-animate
+      document.querySelectorAll('button, [type="submit"]').forEach(function (btn) {
+        btn.classList.add('btn-animate');
+      });
+
+      // Pulse the totals box if it exists
+      var totalsBox = document.querySelector('.bg-emerald-50.p-4.font-semibold');
+      if (totalsBox) { totalsBox.classList.add('animate-pop'); }
+
+      // Show scan feedback overlay if the URL says we just added an item
+      var params = new URLSearchParams(window.location.search);
+      if (params.get('scanned') === 'ok') {
+        showScanFeedback('success');
+      } else if (params.get('scanned') === 'fail') {
+        showScanFeedback('error');
+      }
+
+      function showScanFeedback(kind) {
+        var overlay = document.getElementById('scan-feedback');
+        var ok = document.getElementById('scan-feedback-success');
+        var fail = document.getElementById('scan-feedback-error');
+        if (!overlay) return;
+        ok.classList.toggle('hidden', kind !== 'success');
+        fail.classList.toggle('hidden', kind !== 'error');
+        overlay.classList.add('visible');
+        setTimeout(function () { overlay.classList.remove('visible'); }, 900);
+      }
+
+      window.showScanFeedback = showScanFeedback;
+    })();
+  </script>
 </body>
 </html>

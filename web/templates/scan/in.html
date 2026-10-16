@@ -7,7 +7,7 @@
   <p class="text-slate-600 mt-2">Scan each item into a destination shelf. Stock is added immediately; enter the total donation weight when completing intake.</p>
 </div>
 <div class="grid gap-6 lg:grid-cols-5">
-  <section class="lg:col-span-2 rounded-xl bg-white shadow-sm border border-emerald-100 p-6" aria-label="Add item to intake">
+  <section class="lg:col-span-2 rounded-xl bg-white shadow-sm border border-emerald-100 p-6 card-animate animate-fade-in" aria-label="Add item to intake">
     <h2 class="text-xl font-bold mb-4">Add to cart</h2>
     <form method="post" action="{{ url_for('scan.add_in') }}" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -25,7 +25,7 @@
     </form>
     <p class="mt-4 text-sm text-slate-600">No barcode or shelf? Ask an administrator to set up the item first.</p>
   </section>
-  <section class="lg:col-span-3 rounded-xl bg-white shadow-sm border border-emerald-100 p-6" aria-label="Intake cart">
+  <section class="lg:col-span-3 rounded-xl bg-white shadow-sm border border-emerald-100 p-6 card-animate animate-fade-in" aria-label="Intake cart">
     <div class="flex items-center justify-between gap-3 mb-4">
       <h2 class="text-xl font-bold">Intake cart</h2>
       {% if cart %}<span class="text-sm text-slate-600">{{ cart.lines|length }} item type{{ '' if cart.lines|length == 1 else 's' }}</span>{% endif %}
@@ -33,7 +33,7 @@
     {% if cart and cart.lines %}
       <ul class="divide-y divide-slate-200">
         {% for line in cart.lines %}
-          <li class="py-4">
+          <li class="py-4 cart-item">
             <div class="flex justify-between items-start gap-3">
               <div><strong>{{ line.item_name }}</strong><span class="block text-sm text-slate-600">{{ line.section_name }} / {{ line.shelf_name }} · {{ line.barcode }}</span></div>
               <span class="font-semibold whitespace-nowrap">{{ line.quantity }} unit{{ '' if line.quantity == 1 else 's' }}</span>
@@ -51,7 +51,7 @@
       {% for line in cart.lines %}
         {% set totals.units = totals.units + line.quantity %}
       {% endfor %}
-      <div class="mt-4 rounded-lg bg-emerald-50 p-4 font-semibold">{{ totals.units }} units in cart</div>
+      <div class="mt-4 rounded-lg bg-emerald-50 p-4 font-semibold animate-pop">{{ totals.units }} units in cart</div>
       <div class="mt-5 space-y-3">
         <form method="post" action="{{ url_for('scan.complete_in') }}" class="space-y-3">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
