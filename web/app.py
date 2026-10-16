@@ -18,7 +18,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from flask import Flask, redirect, url_for
+from flask import Flask, redirect, request, url_for
 from flask_login import current_user
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -139,6 +139,20 @@ def create_app(config: type = Config) -> Flask:
     app.register_blueprint(clients_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(donations_bp)
+
+    # ── Canonical host redirect ─────────────────────────────────
+    # If HARVESTHERO_CANONICAL_HOST is set, send the Fly.io dev domain
+    # and any other aliases to the canonical production domain.
+    @app.before_request
+    def _canonical_host_redirect():
+        canonical = app.config.get("CANONICAL_HOST", "")
+        if not canonical or request.path == "/healthz":
+            return None
+        host = request.host.split(":")[0].lower()
+        if host and host.endswith(".fly.dev") and host != canonical.lower():
+            target = request.url.replace(f"//{request.host}", f"//{canonical}", 1)
+            return redirect(target, code=308)
+        return None
 
     # ── Root redirect ───────────────────────────────────────────
     @app.route("/")

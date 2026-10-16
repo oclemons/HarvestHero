@@ -1337,7 +1337,16 @@ class Database:
             "JOIN pantry_shelves shelf ON shelf.id = stock.shelf_id "
             "JOIN pantry_sections section ON section.id = shelf.section_id "
             f"WHERE stock.item_id IN ({placeholders}) "
-            "ORDER BY section.system, section.name, shelf.name", item_ids,
+            "ORDER BY section.system, "
+            "CAST(CASE WHEN section.name GLOB '*[0-9]*' "
+            "THEN SUBSTR(section.name, LENGTH(RTRIM(section.name, '0123456789')) + 1) "
+            "ELSE '999999' END AS INTEGER), "
+            "section.name COLLATE NOCASE, "
+            "shelf.is_overflow, "
+            "CAST(CASE WHEN shelf.name GLOB '*[0-9]*' "
+            "THEN SUBSTR(shelf.name, LENGTH(RTRIM(shelf.name, '0123456789')) + 1) "
+            "ELSE '999999' END AS INTEGER), "
+            "shelf.name COLLATE NOCASE", item_ids,
         ).fetchall()
         conn.close()
         locations = {}
@@ -1354,7 +1363,16 @@ class Database:
             "section.name AS section_name, shelf.is_overflow "
             "FROM item_shelf_stock stock JOIN pantry_shelves shelf ON shelf.id = stock.shelf_id "
             "JOIN pantry_sections section ON section.id = shelf.section_id "
-            "WHERE stock.item_id = ? ORDER BY section.system, section.name, shelf.name",
+            "WHERE stock.item_id = ? ORDER BY section.system, "
+            "CAST(CASE WHEN section.name GLOB '*[0-9]*' "
+            "THEN SUBSTR(section.name, LENGTH(RTRIM(section.name, '0123456789')) + 1) "
+            "ELSE '999999' END AS INTEGER), "
+            "section.name COLLATE NOCASE, "
+            "shelf.is_overflow, "
+            "CAST(CASE WHEN shelf.name GLOB '*[0-9]*' "
+            "THEN SUBSTR(shelf.name, LENGTH(RTRIM(shelf.name, '0123456789')) + 1) "
+            "ELSE '999999' END AS INTEGER), "
+            "shelf.name COLLATE NOCASE",
             (item_id,),
         ).fetchall()
         conn.close()

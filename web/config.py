@@ -32,6 +32,7 @@ class Config:
     # ── App ─────────────────────────────────────────────────────
     APP_NAME    = "Harvest Hero"
     APP_VERSION = os.environ.get("APP_VERSION", "dev")
+    CANONICAL_HOST = os.environ.get("HARVESTHERO_CANONICAL_HOST", "")
     CLIENT_RECORDS_ENABLED = _bool("HARVESTHERO_CLIENT_RECORDS_ENABLED", default=False)
     MAX_CONTENT_LENGTH = 64 * 1024
 
