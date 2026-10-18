@@ -2146,9 +2146,23 @@ class Database:
                         "This item is on multiple shelves. Select which shelf to add stock to."
                     )
                 else:
-                    raise ValueError(
-                        "This item has no shelf assignment yet. Select a destination shelf."
-                    )
+                    # No current shelf -- check if the item was ever on a shelf
+                    # (historical movement) and use the most recent one.
+                    last_shelf = conn.execute(
+                        "SELECT m.shelf_id FROM inventory_movements m "
+                        "JOIN pantry_shelves shelf ON shelf.id = m.shelf_id "
+                        "JOIN pantry_sections section ON section.id = shelf.section_id "
+                        "WHERE m.item_id = ? AND section.system = 0 "
+                        "ORDER BY m.id DESC LIMIT 1",
+                        (item["id"],),
+                    ).fetchone()
+                    if last_shelf:
+                        shelf_id = last_shelf["shelf_id"]
+                    else:
+                        raise ValueError(
+                            f"{item['item_name']} has no shelf assignment. "
+                            "Select a destination shelf."
+                        )
             shelf = conn.execute(
                 "SELECT shelf.id FROM pantry_shelves shelf JOIN pantry_sections section "
                 "ON section.id = shelf.section_id WHERE shelf.id = ? AND section.system = 0",
