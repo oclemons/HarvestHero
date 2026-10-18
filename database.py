@@ -2111,7 +2111,7 @@ class Database:
         result["lines"] = [dict(row) for row in lines]
         return result
 
-    def add_scan_to_cart(self, owner_id: int, barcode: str, shelf_id: int,
+    def add_scan_to_cart(self, owner_id: int, barcode: str, shelf_id: int | None = None,
                          username: str = "") -> str:
         barcode = barcode.strip()
         if not barcode or len(barcode) > 128:
@@ -2129,6 +2129,26 @@ class Database:
                 ).fetchone():
                     raise ValueError("This barcode is for scan-out. Use the scan-in barcode.")
                 raise ValueError("Item not found. Ask an administrator to add it first.")
+            # Auto-detect shelf: if no shelf_id given, look up the item's
+            # existing shelf assignments in non-system sections.
+            if not shelf_id:
+                stocked = conn.execute(
+                    "SELECT stock.shelf_id FROM item_shelf_stock stock "
+                    "JOIN pantry_shelves shelf ON shelf.id = stock.shelf_id "
+                    "JOIN pantry_sections section ON section.id = shelf.section_id "
+                    "WHERE stock.item_id = ? AND section.system = 0",
+                    (item["id"],),
+                ).fetchall()
+                if len(stocked) == 1:
+                    shelf_id = stocked[0]["shelf_id"]
+                elif len(stocked) > 1:
+                    raise ValueError(
+                        "This item is on multiple shelves. Select which shelf to add stock to."
+                    )
+                else:
+                    raise ValueError(
+                        "This item has no shelf assignment yet. Select a destination shelf."
+                    )
             shelf = conn.execute(
                 "SELECT shelf.id FROM pantry_shelves shelf JOIN pantry_sections section "
                 "ON section.id = shelf.section_id WHERE shelf.id = ? AND section.system = 0",

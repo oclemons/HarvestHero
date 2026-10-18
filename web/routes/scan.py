@@ -42,13 +42,15 @@ def scan_in():
 def add_in():
     from database import Database
     try:
-        shelf_id = int(request.form.get("shelf_id") or "")
+        shelf_raw = (request.form.get("shelf_id") or "").strip()
+        shelf_id = int(shelf_raw) if shelf_raw else None
         Database().add_scan_to_cart(int(current_user.id), request.form.get("barcode") or "",
                                     shelf_id, current_user.username)
-        session["last_intake_shelf"] = shelf_id
+        if shelf_id:
+            session["last_intake_shelf"] = shelf_id
         return redirect(url_for("scan.scan_in") + "?scanned=ok")
     except ValueError as error:
-        flash(str(error) if request.form.get("shelf_id") else "Choose a destination shelf.", "error")
+        flash(str(error), "error")
     return redirect(url_for("scan.scan_in") + "?scanned=fail")
 
 
