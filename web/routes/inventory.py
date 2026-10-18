@@ -13,6 +13,7 @@ adding SQL-level LIMIT/OFFSET would mean touching database.py.
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal, InvalidOperation
 from math import ceil
 
@@ -27,6 +28,17 @@ from decorators import admin_required
 
 
 bp = Blueprint("inventory", __name__, url_prefix="/inventory")
+
+
+def _natural_sort_key(text: str) -> list:
+    """Split text into string/int chunks so 'Section 2' sorts before 'Section 10'."""
+    parts: list = []
+    for chunk in re.split(r'(\d+)', text.casefold()):
+        if chunk.isdigit():
+            parts.append((0, int(chunk)))
+        else:
+            parts.append((1, chunk))
+    return parts
 
 _db = Database()
 
@@ -52,7 +64,7 @@ def list_items():
     all_items = _db.get_all_items(search, sort=sort, direction=direction) or []
     if sort == "location":
         all_locations = _db.get_item_locations([item["id"] for item in all_items])
-        all_items.sort(key=lambda item: (all_locations.get(item["id"], "").casefold(),
+        all_items.sort(key=lambda item: (_natural_sort_key(all_locations.get(item["id"], "")),
                                          item["item_name"].casefold(), item["id"]),
                        reverse=direction == "desc")
 
