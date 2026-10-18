@@ -54,12 +54,14 @@ class ClientAccess(unittest.TestCase):
         self.app.config["CLIENT_RECORDS_ENABLED"] = False
         self.login("admin_a")
         for path in ("/clients/", "/clients/new", "/clients/retention",
-                     f"/clients/{client_id}", f"/clients/{client_id}/edit", "/scan/out"):
+                     f"/clients/{client_id}", f"/clients/{client_id}/edit"):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 503, path)
             self.assertNotIn(b"0001234567", response.data)
+        # /scan/out itself works without client records (simple scan-out mode)
+        self.assertEqual(self.client.get("/scan/out").status_code, 200)
         for path in ("/clients/new", f"/clients/{client_id}/verify", "/scan/out/start",
-                     "/scan/out/add", "/scan/out/complete", "/scan/out/undo/1",
+                     "/scan/out/undo/1",
                      "/clients/exports/customers.csv", f"/clients/{client_id}/retention/remove"):
             self.assertEqual(self.client.post(path, data={"client_id": client_id}).status_code, 503)
         self.assertNotIn(b"/clients/", self.client.get("/app").data)

@@ -2,36 +2,13 @@
 {% block title %}Scan out · Harvest Hero{% endblock %}
 {% block content %}
 <div class="mb-8">
-  <p class="text-sm uppercase tracking-widest font-semibold text-emerald-700">Admin · food distribution</p>
+  <p class="text-sm uppercase tracking-widest font-semibold text-emerald-700">Inventory distribution</p>
   <h1 class="text-3xl font-bold mt-2">Scan food out</h1>
-  <p class="text-slate-600 mt-2">Choose a verified student client, scan food into the cart, and enter the total pounds before completing a visit.</p>
+  <p class="text-slate-600 mt-2">Scan an item's out-barcode to deduct one unit from its shelf. The shelf is detected automatically.</p>
 </div>
-{% if not cart %}
-<section class="max-w-xl bg-white rounded-xl border border-emerald-100 shadow-sm p-6 card-animate animate-fade-in">
-  <h2 class="text-xl font-bold mb-4">Start a client visit</h2>
-  <form method="post" action="{{ url_for('scan.start_out') }}" class="space-y-4">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="mode" value="IMMEDIATE">
-    <label for="client-id" class="block font-semibold">Student client</label>
-    <select id="client-id" name="client_id" required class="w-full rounded border border-slate-300 px-3 py-3">
-      <option value="">Choose a verified client</option>
-      {% for person in clients %}
-        <option value="{{ person.id }}" {% if not person.eligible %}disabled{% endif %}>
-          {{ person.first_name }} {{ person.last_name }} · ID ending {{ person.student_id_last4 }}{% if not person.eligible %} ({{ 'semester visit limit reached' if person.allowance.verified else 'verification needed' }}){% endif %}
-        </option>
-      {% endfor %}
-    </select>
-    <label for="fulfillment-type" class="block font-semibold">How will this student receive the food?</label>
-    <select id="fulfillment-type" name="fulfillment_type" required class="w-full rounded border border-slate-300 px-3 py-3">
-      <option value="in_person">In person</option>
-      <option value="locker">Locker order</option>
-    </select>
-    <button type="submit" class="rounded bg-emerald-800 px-5 py-3 text-white font-semibold hover:bg-emerald-900">Begin visitor session</button>
-  </form>
-  <p class="mt-4 text-sm text-slate-600">Each valid out-scan immediately updates stock. Enter the total weight when finishing the session. In-person handoff and placing a locker order each use one semester visit.</p>
-  <p class="mt-4 text-sm text-slate-600">Not listed or not verified? <a class="underline text-emerald-800" href="{{ url_for('clients.index') }}">Review the private client record</a>.</p>
-</section>
-{% else %}
+
+{% if cart and cart.client_id %}
+{# ── Client visit mode ── #}
 <div class="grid gap-6 lg:grid-cols-5">
   <div class="lg:col-span-2 space-y-5">
     <section class="bg-white rounded-xl border border-emerald-100 shadow-sm p-6 card-animate animate-fade-in">
@@ -56,13 +33,12 @@
       <input id="out-barcode" name="barcode" required autofocus autocomplete="off" maxlength="128" placeholder="Scan or type barcode" class="w-full rounded border border-slate-300 px-3 py-3">
       <label for="source-shelf" class="block font-semibold">Take from shelf</label>
       <select id="source-shelf" name="shelf_id" class="w-full rounded border border-slate-300 px-3 py-3">
-        <option value="">Auto-detect from scanned item</option>
+        <option value="">Auto-detect from item</option>
         {% for section in sections if not section.system %}{% for shelf in section.shelves if shelf.units > 0 %}
           <option value="{{ shelf.id }}">{{ section.name }} / {{ shelf.name }}{% if shelf.is_overflow %} (overflow){% endif %}</option>
         {% endfor %}{% endfor %}
       </select>
-      <p class="text-sm text-slate-600">A single stocked shelf is selected automatically. If the item is on multiple shelves, choose the shelf it was taken from.</p>
-      <button type="submit" class="rounded bg-emerald-800 text-white font-semibold px-5 py-3 hover:bg-emerald-900">{{ 'Scan out one unit now' if cart.mode == 'IMMEDIATE' else 'Add scanned item' }}</button>
+      <button type="submit" class="rounded bg-emerald-800 text-white font-semibold px-5 py-3 hover:bg-emerald-900 btn-animate">{{ 'Scan out one unit now' if cart.mode == 'IMMEDIATE' else 'Add scanned item' }}</button>
     </form>
   </div>
   <section class="lg:col-span-3 bg-white rounded-xl border border-emerald-100 shadow-sm p-6 card-animate animate-fade-in" aria-label="Distribution cart">
@@ -100,8 +76,8 @@
           <label class="block font-semibold">Total pounds for this visit (weigh all food together)
             <input name="session_weight_lb" type="number" min="0.001" max="10000" step="0.001" class="mt-1 block w-full rounded border border-slate-300 px-3 py-2">
           </label>
-          <p class="text-sm text-slate-600">Enter the total weight of all food given to this client. Leave blank if a scale is not available; the weight can be entered later.</p>
-          <button type="submit" class="rounded bg-emerald-800 text-white px-5 py-3 font-bold hover:bg-emerald-900">{{ 'Finish visitor session' if cart.mode == 'IMMEDIATE' else 'Complete visit and scan out' }}</button>
+          <p class="text-sm text-slate-600">Enter the total weight of all food given to this client. Leave blank if a scale is not available.</p>
+          <button type="submit" class="rounded bg-emerald-800 text-white px-5 py-3 font-bold hover:bg-emerald-900 btn-animate">{{ 'Finish visitor session' if cart.mode == 'IMMEDIATE' else 'Complete visit and scan out' }}</button>
         </form>
         {% if cart.mode != 'IMMEDIATE' %}
           <form method="post" action="{{ url_for('scan.cancel_out') }}">
@@ -117,5 +93,93 @@
       </form>{% endif %}
   </section>
 </div>
+
+{% else %}
+{# ── Simple scan-out mode (no client required) ── #}
+<div class="grid gap-6 lg:grid-cols-5">
+  <section class="lg:col-span-2 rounded-xl bg-white shadow-sm border border-emerald-100 p-6 card-animate animate-fade-in" aria-label="Scan item out">
+    <h2 class="text-xl font-bold mb-4">Scan out</h2>
+    <form method="post" action="{{ url_for('scan.add_out') }}" class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="out-barcode" class="block font-semibold">Scan-out barcode</label>
+      <input id="out-barcode" name="barcode" required autofocus autocomplete="off" maxlength="128"
+             class="w-full rounded-lg border border-slate-300 px-4 py-3 text-lg" placeholder="Scan or type barcode">
+      <label for="source-shelf" class="block font-semibold">Source shelf</label>
+      <select id="source-shelf" name="shelf_id" class="w-full rounded-lg border border-slate-300 px-4 py-3">
+        <option value="">Auto-detect from item</option>
+        {% for section in sections if not section.system %}{% for shelf in section.shelves if shelf.units > 0 %}
+          <option value="{{ shelf.id }}">{{ section.name }} / {{ shelf.name }}{% if shelf.is_overflow %} (overflow){% endif %}</option>
+        {% endfor %}{% endfor %}
+      </select>
+      <p class="text-sm text-slate-600">If the item is on one shelf, it is detected automatically. Select a shelf manually if the item is on multiple shelves.</p>
+      <button type="submit" class="w-full rounded-lg bg-emerald-800 text-white font-semibold py-3 hover:bg-emerald-900 btn-animate">Scan out one unit</button>
+    </form>
+  </section>
+  <section class="lg:col-span-3 rounded-xl bg-white shadow-sm border border-emerald-100 p-6 card-animate animate-fade-in" aria-label="Scan-out cart">
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <h2 class="text-xl font-bold">Scan-out cart</h2>
+      {% if cart %}<span class="text-sm text-slate-600">{{ cart.lines|length }} item type{{ '' if cart.lines|length == 1 else 's' }}</span>{% endif %}
+    </div>
+    {% if cart and cart.lines %}
+      <ul class="divide-y divide-slate-200">
+        {% for line in cart.lines %}
+          <li class="py-4 cart-item">
+            <div class="flex justify-between items-start gap-3">
+              <div><strong>{{ line.item_name }}</strong><span class="block text-sm text-slate-600">{{ line.section_name }} / {{ line.shelf_name }}</span></div>
+              <span class="font-semibold whitespace-nowrap">{{ line.quantity }} unit{{ '' if line.quantity == 1 else 's' }}</span>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+      {% set totals = namespace(units=0) %}
+      {% for line in cart.lines %}
+        {% set totals.units = totals.units + line.quantity %}
+      {% endfor %}
+      <div class="mt-4 rounded-lg bg-emerald-50 p-4 font-semibold animate-pop">{{ totals.units }} unit{{ '' if totals.units == 1 else 's' }} scanned out</div>
+      <div class="mt-5 space-y-3">
+        <form method="post" action="{{ url_for('scan.complete_out') }}" class="space-y-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="cart_id" value="{{ cart.id }}">
+          <label class="block font-semibold">Total distributed weight (lb)
+            <input name="session_weight_lb" type="number" min="0.001" max="10000" step="0.001" class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2">
+          </label>
+          <p class="text-sm text-slate-600">Enter the total weight of distributed food. Leave blank if a scale is not available.</p>
+          <button type="submit" class="rounded bg-emerald-800 text-white px-5 py-3 font-bold hover:bg-emerald-900 btn-animate">Complete session</button>
+        </form>
+        <form method="post" action="{{ url_for('scan.cancel_out') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="cart_id" value="{{ cart.id }}">
+          <button type="submit" class="rounded border border-slate-300 px-5 py-3 font-semibold">Cancel session</button>
+        </form>
+      </div>
+    {% else %}<p class="rounded-lg bg-stone-50 p-6 text-slate-600">No items scanned out yet. Each scan immediately deducts stock from the shelf.</p>{% endif %}
+  </section>
+</div>
+{% if client_records %}
+<div class="mt-8 max-w-xl">
+  <details class="bg-white rounded-xl border border-emerald-100 shadow-sm p-6">
+    <summary class="font-semibold cursor-pointer">Start a client visit instead</summary>
+    <form method="post" action="{{ url_for('scan.start_out') }}" class="space-y-4 mt-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="mode" value="IMMEDIATE">
+      <label for="client-id" class="block font-semibold">Student client</label>
+      <select id="client-id" name="client_id" required class="w-full rounded border border-slate-300 px-3 py-3">
+        <option value="">Choose a verified client</option>
+        {% for person in clients %}
+          <option value="{{ person.id }}" {% if not person.eligible %}disabled{% endif %}>
+            {{ person.first_name }} {{ person.last_name }} · ID ending {{ person.student_id_last4 }}{% if not person.eligible %} ({{ 'semester visit limit reached' if person.allowance.verified else 'verification needed' }}){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+      <label for="fulfillment-type" class="block font-semibold">How will this student receive the food?</label>
+      <select id="fulfillment-type" name="fulfillment_type" required class="w-full rounded border border-slate-300 px-3 py-3">
+        <option value="in_person">In person</option>
+        <option value="locker">Locker order</option>
+      </select>
+      <button type="submit" class="rounded bg-emerald-800 px-5 py-3 text-white font-semibold hover:bg-emerald-900 btn-animate">Begin visitor session</button>
+    </form>
+  </details>
+</div>
+{% endif %}
 {% endif %}
 {% endblock %}

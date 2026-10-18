@@ -2080,7 +2080,10 @@ class Database:
         if not cart:
             conn.close()
             return None
-        immediate = direction == "OUT" and cart["mode"] == "IMMEDIATE"
+        # Client-visit IMMEDIATE carts track lines via inventory_movements;
+        # simple scan-out carts (no client) use pantry_cart_lines.
+        immediate = (direction == "OUT" and cart["mode"] == "IMMEDIATE"
+                     and cart["client_id"] is not None)
         if immediate:
             lines = conn.execute(
                 "SELECT movement.id, movement.item_id, movement.shelf_id, "
@@ -2238,6 +2241,115 @@ class Database:
         finally:
             conn.close()
 
+    def scan_out_from_cart(self, owner_id: int, barcode: str,
+                           shelf_id: int | None = None,
+                           username: str = "") -> str:
+        """Scan-out counterpart to add_scan_to_cart.
+
+        Looks up the item by its scan-out barcode (barcode_out), auto-detects
+        the shelf, deducts one unit from shelf stock and current_quantity, and
+        records the movement in an OUT cart. No client visit required.
+        """
+        barcode = barcode.strip()
+        if not barcode or len(barcode) > 128:
+            raise ValueError("Scan a valid out-barcode.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            item = conn.execute(
+                "SELECT id, barcode, item_name, category, current_quantity, minimum_stock "
+                "FROM inventory_items WHERE barcode_out = ? OR "
+                "(barcode = ? AND (barcode_out IS NULL OR barcode_out = ''))",
+                (barcode, barcode),
+            ).fetchone()
+            if not item:
+                if conn.execute(
+                    "SELECT 1 FROM inventory_items WHERE barcode = ?", (barcode,)
+                ).fetchone():
+                    raise ValueError("This is a scan-in barcode. Use the scan-out barcode.")
+                raise ValueError("Item not found. Check the barcode label.")
+            if item["current_quantity"] < 1:
+                raise ValueError(f"{item['item_name']} has no stock to scan out.")
+            # Auto-detect shelf
+            if not shelf_id:
+                stocked = conn.execute(
+                    "SELECT stock.shelf_id FROM item_shelf_stock stock "
+                    "JOIN pantry_shelves shelf ON shelf.id = stock.shelf_id "
+                    "JOIN pantry_sections section ON section.id = shelf.section_id "
+                    "WHERE stock.item_id = ? AND stock.quantity > 0 AND section.system = 0",
+                    (item["id"],),
+                ).fetchall()
+                if len(stocked) == 1:
+                    shelf_id = stocked[0]["shelf_id"]
+                elif len(stocked) > 1:
+                    raise ValueError(
+                        "This item is on multiple shelves. Select which shelf to take from."
+                    )
+                else:
+                    raise ValueError(f"{item['item_name']} has no stock on any shelf.")
+            shelf_stock = conn.execute(
+                "SELECT quantity FROM item_shelf_stock WHERE item_id = ? AND shelf_id = ?",
+                (item["id"], shelf_id),
+            ).fetchone()
+            if not shelf_stock or shelf_stock["quantity"] < 1:
+                raise ValueError("This shelf has no stock for this item.")
+            # Get or create OUT cart
+            cart = conn.execute(
+                "SELECT id FROM pantry_carts WHERE owner_id = ? AND direction = 'OUT' "
+                "AND status = 'DRAFT' AND client_id IS NULL", (owner_id,),
+            ).fetchone()
+            cart_id = cart["id"] if cart else uuid4().hex
+            if not cart:
+                conn.execute(
+                    "INSERT INTO pantry_carts (id, owner_id, direction, mode) "
+                    "VALUES (?, ?, 'OUT', 'IMMEDIATE')",
+                    (cart_id, owner_id),
+                )
+            # Record cart line
+            conn.execute(
+                "INSERT INTO pantry_cart_lines (cart_id, item_id, shelf_id, quantity) "
+                "VALUES (?, ?, ?, 1) ON CONFLICT(cart_id, item_id, shelf_id) "
+                "DO UPDATE SET quantity = quantity + 1",
+                (cart_id, item["id"], shelf_id),
+            )
+            # Deduct stock immediately
+            conn.execute(
+                "UPDATE item_shelf_stock SET quantity = quantity - 1 "
+                "WHERE item_id = ? AND shelf_id = ?", (item["id"], shelf_id),
+            )
+            conn.execute(
+                "UPDATE inventory_items SET current_quantity = current_quantity - 1, "
+                "updated_at = datetime('now', 'localtime') WHERE id = ?",
+                (item["id"],),
+            )
+            conn.execute(
+                "INSERT INTO inventory_movements (cart_id, item_id, item_name, shelf_id, "
+                "direction, quantity_delta, recorded_by) VALUES (?, ?, ?, ?, 'OUT', -1, ?)",
+                (cart_id, item["id"], item["item_name"], shelf_id,
+                 username or "scan"),
+            )
+            conn.execute(
+                "INSERT INTO transactions (transaction_type, barcode, item_name, category, "
+                "quantity, recipient, username) VALUES ('SCAN_OUT', ?, ?, ?, -1, '', ?)",
+                (barcode, item["item_name"], item["category"],
+                 username or "scan"),
+            )
+            # Update shopping list if stock fell to/below minimum
+            self._sync_shopping_list_on_connection(
+                conn, item["id"], item["barcode"],
+                item["item_name"], item["category"],
+            )
+            conn.execute(
+                "UPDATE pantry_carts SET updated_at = datetime('now') WHERE id = ?", (cart_id,)
+            )
+            conn.commit()
+            return cart_id
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def remove_cart_line(self, owner_id: int, line_id: int, direction: str = "IN",
                          username: str = "") -> None:
         conn = self._connect()
@@ -2325,6 +2437,49 @@ class Database:
         finally:
             conn.close()
 
+    def complete_simple_scan_out(self, owner_id: int, cart_id: str,
+                                 username: str = "",
+                                 session_weight_milli_lb: int | None = None) -> None:
+        """Complete a simple (non-client) scan-out cart.
+
+        Stock has already been deducted by scan_out_from_cart; this just
+        closes the cart and records the optional session weight.
+        """
+        if session_weight_milli_lb is not None and (
+                not isinstance(session_weight_milli_lb, int) or
+                not 0 < session_weight_milli_lb <= 10_000_000):
+            raise ValueError("Enter a valid total weight.")
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cart = conn.execute(
+                "SELECT status, client_id FROM pantry_carts "
+                "WHERE id = ? AND owner_id = ? AND direction = 'OUT' AND status = 'DRAFT'",
+                (cart_id, owner_id),
+            ).fetchone()
+            if not cart:
+                raise ValueError("Cart not found.")
+            lines = conn.execute(
+                "SELECT 1 FROM pantry_cart_lines WHERE cart_id = ? LIMIT 1", (cart_id,),
+            ).fetchone()
+            if not lines:
+                raise ValueError("Scan at least one item before completing.")
+            conn.execute(
+                "UPDATE pantry_carts SET status = 'COMPLETED', completed_at = datetime('now'), "
+                "updated_at = datetime('now'), session_weight_milli_lb = ? WHERE id = ?",
+                (session_weight_milli_lb, cart_id),
+            )
+            conn.execute(
+                "INSERT INTO activity_log (username, action, detail) VALUES (?, 'SCAN_OUT_COMPLETE', ?)",
+                (username, f"cart={cart_id}"),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def cancel_scan_cart(self, owner_id: int, cart_id: str, direction: str = "IN",
                          username: str = "") -> None:
         conn = self._connect()
@@ -2334,14 +2489,49 @@ class Database:
                 "SELECT mode FROM pantry_carts WHERE id = ? AND owner_id = ? AND direction = ? "
                 "AND status = 'DRAFT'", (cart_id, owner_id, direction),
             ).fetchone()
-            if cart and direction == "OUT" and cart["mode"] == "IMMEDIATE" and conn.execute(
-                "SELECT 1 FROM inventory_movements movement WHERE movement.cart_id = ? "
-                "AND movement.direction = 'OUT' AND NOT EXISTS "
-                "(SELECT 1 FROM inventory_movements undo WHERE undo.reverses_movement_id = movement.id) "
-                "LIMIT 1", (cart_id,),
-            ).fetchone():
+            is_simple_out = (cart and direction == "OUT" and
+                             conn.execute(
+                                 "SELECT client_id FROM pantry_carts WHERE id = ?", (cart_id,)
+                             ).fetchone()["client_id"] is None)
+            if (cart and direction == "OUT" and not is_simple_out and
+                    cart["mode"] == "IMMEDIATE" and conn.execute(
+                        "SELECT 1 FROM inventory_movements movement WHERE movement.cart_id = ? "
+                        "AND movement.direction = 'OUT' AND NOT EXISTS "
+                        "(SELECT 1 FROM inventory_movements undo WHERE undo.reverses_movement_id = movement.id) "
+                        "LIMIT 1", (cart_id,),
+                    ).fetchone()):
                 raise ValueError("Food was already scanned out. Finish the visit or undo each scan.")
-            if direction == "IN":
+            if is_simple_out:
+                # Simple scan-out: return stock for each cart line
+                lines = conn.execute(
+                    "SELECT line.item_id, line.shelf_id, line.quantity, "
+                    "item.barcode, item.item_name, item.category "
+                    "FROM pantry_cart_lines line JOIN inventory_items item ON item.id = line.item_id "
+                    "WHERE line.cart_id = ?", (cart_id,),
+                ).fetchall()
+                for line in lines:
+                    conn.execute(
+                        "INSERT INTO item_shelf_stock (item_id, shelf_id, quantity) VALUES (?, ?, ?) "
+                        "ON CONFLICT(item_id, shelf_id) DO UPDATE SET quantity = quantity + excluded.quantity",
+                        (line["item_id"], line["shelf_id"], line["quantity"]),
+                    )
+                    conn.execute(
+                        "UPDATE inventory_items SET current_quantity = current_quantity + ?, "
+                        "updated_at = datetime('now', 'localtime') WHERE id = ?",
+                        (line["quantity"], line["item_id"]),
+                    )
+                    conn.execute(
+                        "INSERT INTO inventory_movements (cart_id, item_id, item_name, shelf_id, "
+                        "direction, quantity_delta, movement_reason, recorded_by) "
+                        "VALUES (?, ?, ?, ?, 'ADJUST', ?, 'Scan-out session cancelled', ?)",
+                        (cart_id, line["item_id"], line["item_name"], line["shelf_id"],
+                         line["quantity"], username or "scan"),
+                    )
+                    self._sync_shopping_list_on_connection(
+                        conn, line["item_id"], line["barcode"],
+                        line["item_name"], line["category"],
+                    )
+            elif direction == "IN":
                 lines = conn.execute(
                     "SELECT line.item_id, line.shelf_id, line.quantity, "
                     "item.barcode, item.item_name, item.category "

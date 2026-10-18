@@ -20,8 +20,12 @@ def _no_store_distribution(response):
 
 @bp.before_request
 def _require_policy_for_distribution():
-    if (request.path.startswith("/scan/out") and current_user.is_authenticated and
-            current_user.is_admin and not current_app.config.get("CLIENT_RECORDS_ENABLED", False)):
+    # Client-visit routes still need CLIENT_RECORDS_ENABLED; but the basic
+    # scan-out page and add/remove/complete/cancel work without it.
+    if (current_user.is_authenticated and current_user.is_admin and
+            not current_app.config.get("CLIENT_RECORDS_ENABLED", False) and
+            (request.path == "/scan/out/start" or
+             request.path.startswith("/scan/out/undo"))):
         abort(503)
 
 
@@ -114,16 +118,24 @@ def intake_receipt(cart_id: str):
 def scan_out():
     from database import Database
     db = Database()
+    # Check for a client-visit cart first
     cart = db.get_active_cart(int(current_user.id), "OUT")
-    client = db.get_pantry_client(cart["client_id"]) if cart else None
-    people = db.list_private_clients() if not cart else []
-    if not cart:
+    client_records = current_app.config.get("CLIENT_RECORDS_ENABLED", False)
+    # If there's a non-client cart (simple scan-out), use it
+    client = None
+    people = []
+    stats = None
+    if cart and cart.get("client_id"):
+        client = db.get_pantry_client(cart["client_id"])
+        stats = db.get_client_weight_summary(cart["client_id"])
+    elif not cart and client_records:
+        people = db.list_private_clients()
         for person in people:
             person["allowance"] = db.get_client_visit_allowance(person["id"])
             person["eligible"] = person["allowance"]["remaining"] > 0
     return render_template("scan/out.html", cart=cart, client=client, clients=people,
-                           scan_token=uuid4().hex,
-                           stats=db.get_client_weight_summary(cart["client_id"]) if cart else None,
+                           scan_token=uuid4().hex, stats=stats,
+                           client_records=client_records,
                            sections=db.get_pantry_layout())
 
 
@@ -152,16 +164,25 @@ def add_out():
         shelf_raw = (request.form.get("shelf_id") or "").strip()
         shelf_id = int(shelf_raw) if shelf_raw else None
         cart = db.get_active_cart(int(current_user.id), "OUT")
-        if cart and cart["mode"] == "IMMEDIATE":
-            db.record_immediate_scan_out(
-                int(current_user.id), request.form.get("barcode") or "", shelf_id,
-                current_user.username, request.form.get("scan_token") or "",
-            )
-            flash("Item scanned out and recorded in this customer's visit.", "success")
+        if cart and cart.get("client_id"):
+            # Client-visit mode
+            if cart["mode"] == "IMMEDIATE":
+                db.record_immediate_scan_out(
+                    int(current_user.id), request.form.get("barcode") or "", shelf_id,
+                    current_user.username, request.form.get("scan_token") or "",
+                )
+                flash("Item scanned out and recorded in this customer's visit.", "success")
+            else:
+                db.add_scan_out_to_cart(
+                    int(current_user.id), request.form.get("barcode") or "", shelf_id
+                )
         else:
-            db.add_scan_out_to_cart(
-                int(current_user.id), request.form.get("barcode") or "", shelf_id
+            # Simple scan-out: no client visit, just deduct stock
+            db.scan_out_from_cart(
+                int(current_user.id), request.form.get("barcode") or "",
+                shelf_id, current_user.username,
             )
+            flash("Item scanned out. Stock deducted from shelf.", "success")
         return redirect(url_for("scan.scan_out") + "?scanned=ok")
     except ValueError as error:
         flash(str(error), "error")
@@ -210,11 +231,19 @@ def undo_out(movement_id: int):
 @admin_required
 def complete_out():
     from database import Database
+    db = Database()
     session_weight = _parse_session_weight(request.form.get("session_weight_lb"))
+    cart_id = request.form.get("cart_id") or ""
     try:
-        receipt = Database().complete_scan_out_cart(
-            int(current_user.id), request.form.get("cart_id") or "",
-            current_user.username, session_weight,
+        cart = db.get_active_cart(int(current_user.id), "OUT")
+        if cart and not cart.get("client_id"):
+            # Simple scan-out (no client visit) — just close the cart
+            db.complete_simple_scan_out(int(current_user.id), cart_id,
+                                        current_user.username, session_weight)
+            flash("Scan-out session completed.", "success")
+            return redirect(url_for("scan.scan_out"))
+        receipt = db.complete_scan_out_cart(
+            int(current_user.id), cart_id, current_user.username, session_weight,
         )
     except ValueError as error:
         flash(str(error), "error")
@@ -241,10 +270,11 @@ def cancel_out():
 def distribution_receipt(cart_id: str):
     from database import Database
     receipt = Database().get_cart_receipt(int(current_user.id), cart_id)
-    if not receipt or receipt["direction"] != "OUT" or receipt["client_id"] is None:
+    if not receipt or receipt["direction"] != "OUT":
         abort(404)
-    return render_template("scan/out_receipt.html", receipt=receipt,
-                           stats=Database().get_client_weight_summary(receipt["client_id"]))
+    stats = (Database().get_client_weight_summary(receipt["client_id"])
+             if receipt.get("client_id") else None)
+    return render_template("scan/out_receipt.html", receipt=receipt, stats=stats)
 
 
 def _parse_session_weight(raw: str | None) -> int | None:
