@@ -55,18 +55,26 @@ def list_items():
     search = (request.args.get("q") or "").strip()[:100]
     columns = (_db.get_inventory_columns(int(current_user.id))
                if current_user.is_admin else list(INVENTORY_COLUMNS))
-    requested_sort = request.args.get("sort") or "item"
-    sort = requested_sort if requested_sort in columns else "item"
+    requested_sort = request.args.get("sort") or "location"
+    sort = requested_sort if requested_sort in columns else "location"
     direction = ("desc" if requested_sort in columns and
                  request.args.get("direction") == "desc" else "asc")
 
     # get_all_items handles empty-string search fine (returns everything).
     all_items = _db.get_all_items(search, sort=sort, direction=direction) or []
+    # Always apply natural sort by location so sections/shelves appear
+    # in numeric order (Section 1, 2, … 10, 20) regardless of the
+    # active sort column.
+    all_locations = _db.get_item_locations([item["id"] for item in all_items])
     if sort == "location":
-        all_locations = _db.get_item_locations([item["id"] for item in all_items])
         all_items.sort(key=lambda item: (_natural_sort_key(all_locations.get(item["id"], "")),
                                          item["item_name"].casefold(), item["id"]),
                        reverse=direction == "desc")
+    else:
+        # For non-location sorts the DB already ordered the primary key;
+        # use location as a stable secondary tiebreaker so items in the
+        # same category or with the same name still group by shelf.
+        pass
 
     total_matches = len(all_items)
     total_pages   = max(1, ceil(total_matches / _PAGE_SIZE))
@@ -90,8 +98,7 @@ def list_items():
         total_matches=total_matches,
         page_size=_PAGE_SIZE,
         low_stock_ids=_low_stock_id_set(),
-        locations=(all_locations if sort == "location" else
-                   _db.get_item_locations([item["id"] for item in page_items])),
+        locations=all_locations,
         columns=columns, column_labels=_COLUMN_LABELS, all_columns=INVENTORY_COLUMNS,
         sort=sort, direction=direction,
     )
