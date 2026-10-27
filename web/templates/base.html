@@ -83,11 +83,11 @@
       </a>
       <nav aria-label="Main navigation" class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
         <a href="{{ url_for('dashboard.home') }}" class="hover:underline">Dashboard</a>
-        {% if current_user.is_admin %}<a href="{{ url_for('sections.index') }}" class="hover:underline">Pantry</a>{% endif %}
+        {% if current_user.is_admin or current_user.is_staff %}<a href="{{ url_for('sections.index') }}" class="hover:underline">Pantry</a>{% endif %}
         <a href="{{ url_for('inventory.list_items') }}" class="hover:underline">Inventory</a>
-        {% if current_user.is_admin %}<a href="{{ url_for('inventory.shopping_list') }}" class="hover:underline">Shopping list</a>{% endif %}
+        {% if current_user.is_admin or current_user.is_staff %}<a href="{{ url_for('inventory.shopping_list') }}" class="hover:underline">Shopping list</a>{% endif %}
         <a href="{{ url_for('scan.scan_in') }}" class="hover:underline">Scan in</a>
-        {% if current_user.is_admin and config.CLIENT_RECORDS_ENABLED %}<a href="{{ url_for('scan.scan_out') }}" class="hover:underline">Scan out</a>{% endif %}
+        {% if current_user.is_admin or current_user.is_staff %}<a href="{{ url_for('scan.scan_out') }}" class="hover:underline">Scan out</a>{% endif %}
         {% if current_user.is_admin and config.CLIENT_RECORDS_ENABLED %}<a href="{{ url_for('clients.index') }}" class="hover:underline">Clients</a>{% endif %}
         {% if current_user.is_admin %}<a href="{{ url_for('donations.index') }}" class="hover:underline">Donations</a>{% endif %}
         {% if current_user.is_admin %}<a href="{{ url_for('reports.weights') }}" class="hover:underline">Pounds</a>{% endif %}
@@ -101,6 +101,8 @@
                        px-1.5 py-0.5 uppercase tracking-wide
                        {% if current_user.is_admin %}
                          bg-emerald-200 text-emerald-900
+                       {% elif current_user.is_staff %}
+                         bg-amber-200 text-amber-900
                        {% else %}
                          bg-slate-300 text-slate-800
                        {% endif %}">

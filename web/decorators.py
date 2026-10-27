@@ -11,8 +11,10 @@ Server-side enforcement of the RBAC rules from the Phase 2 spec:
 Locked scan-in rule (from planning Q1):
   Students can scan IN. Only admins can scan OUT.
   ``@student_or_admin_required`` covers scan-in;
-  ``@admin_required``            covers scan-out and every other
-                                 write route.
+  ``@staff_or_admin_required``   covers scan-out, pantry, shopping list;
+  ``@admin_required``            covers donations, activity, reports,
+                                 user management, and other admin-only
+                                 write routes.
 
 Rules of use:
 
@@ -45,20 +47,32 @@ def admin_required(fn):
     return wrapper
 
 
-def student_or_admin_required(fn):
-    """Reject anyone who isn't admin or student with a 403.
+def staff_or_admin_required(fn):
+    """Reject anyone who isn't admin or staff with a 403.
 
-    Today the only two roles are admin and student, so this is
-    effectively @login_required. It exists so scan-in stays
-    correctly gated the day a third role (auditor, viewer, ...)
-    gets added and shouldn't be able to write inventory.
+    Staff can access scan-out, pantry layout, shopping list, and other
+    operational pages that require more than read-only access but are
+    not admin-only features like donations, reports, or user management.
     """
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not current_user.is_authenticated:
             abort(403)
         role = getattr(current_user, "role", None)
-        if role not in ("admin", "student"):
+        if role not in ("admin", "staff"):
+            abort(403)
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def student_or_admin_required(fn):
+    """Reject anyone who isn't admin, staff, or student with a 403."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated:
+            abort(403)
+        role = getattr(current_user, "role", None)
+        if role not in ("admin", "staff", "student"):
             abort(403)
         return fn(*args, **kwargs)
     return wrapper

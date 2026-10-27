@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS roles (
 
 INSERT OR IGNORE INTO roles(name, description) VALUES
     ('admin',   'Full inventory + user administration'),
+    ('staff',   'Scan in/out, pantry, inventory, shopping list'),
     ('student', 'Scan-in only; read-only inventory access');
 
 CREATE TABLE IF NOT EXISTS users (
@@ -874,9 +875,9 @@ class Database:
                 "SELECT role FROM users WHERE id = ?", (user_id,)
             ).fetchone()
             if not actor or actor["role"] != "admin" or not actor["is_active"] or not target:
-                raise ValueError("Only an active administrator may reset a Student account.")
-            if target["role"] != "student":
-                raise ValueError("Only Student account passwords can be reset here.")
+                raise ValueError("Only an active administrator may reset accounts.")
+            if target["role"] not in ("student", "staff"):
+                raise ValueError("Only Student or Staff account passwords can be reset here.")
             conn.execute(
                 "UPDATE users SET password_hash = ?, salt = ? WHERE id = ?",
                 (password_hash, salt, user_id),

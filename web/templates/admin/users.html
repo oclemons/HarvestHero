@@ -20,6 +20,7 @@
       <label class="block text-sm font-semibold">Role
         <select name="role" required class="mt-1 w-full rounded border border-slate-300 px-3 py-2">
           <option value="student">Student (intake and viewing)</option>
+          <option value="staff">Staff (scan in/out, pantry, inventory)</option>
           <option value="admin">Admin (pantry management)</option>
         </select>
       </label>
@@ -45,7 +46,7 @@
             <input type="hidden" name="active" value="{{ '0' if account.is_active else '1' }}">
             <button type="submit" class="text-sm text-emerald-800 underline">{{ 'Deactivate' if account.is_active else 'Reactivate' }}</button>
           </form>
-          {% if account.role == 'student' %}<a class="text-sm text-emerald-800 underline" href="{{ url_for('users.reset_password', user_id=account.id) }}">Reset password</a>{% endif %}
+          {% if account.role in ('student', 'staff') %}<a class="text-sm text-emerald-800 underline" href="{{ url_for('users.reset_password', user_id=account.id) }}">Reset password</a>{% endif %}
         {% else %}Your account{% endif %}</td>
       </tr>{% endfor %}</tbody>
     </table></div>

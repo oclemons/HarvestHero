@@ -24,7 +24,7 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 from flask_login import current_user, login_required
 
 from database import Database, INVENTORY_COLUMNS
-from decorators import admin_required
+from decorators import admin_required, staff_or_admin_required
 
 
 bp = Blueprint("inventory", __name__, url_prefix="/inventory")
@@ -407,7 +407,7 @@ def transfer(item_id: int):
 
 @bp.route("/shopping-list")
 @login_required
-@admin_required
+@staff_or_admin_required
 def shopping_list():
     """Admin view of items that need restocking."""
     items = _db.get_shopping_list()
@@ -416,7 +416,7 @@ def shopping_list():
 
 @bp.route("/shopping-list/<int:item_id>/update", methods=["POST"])
 @login_required
-@admin_required
+@staff_or_admin_required
 def update_shopping_list_item(item_id: int):
     """Allow Admin to manually adjust needed quantity or clear an item."""
     try:

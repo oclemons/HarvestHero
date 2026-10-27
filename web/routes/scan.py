@@ -6,7 +6,7 @@ from uuid import uuid4
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required
 
-from decorators import admin_required, student_or_admin_required
+from decorators import admin_required, staff_or_admin_required, student_or_admin_required
 
 bp = Blueprint("scan", __name__, url_prefix="/scan")
 
@@ -114,7 +114,7 @@ def intake_receipt(cart_id: str):
 
 @bp.route("/out")
 @login_required
-@admin_required
+@staff_or_admin_required
 def scan_out():
     from database import Database
     db = Database()
@@ -156,7 +156,7 @@ def start_out():
 
 @bp.route("/out/add", methods=["POST"])
 @login_required
-@admin_required
+@staff_or_admin_required
 def add_out():
     from database import Database
     db = Database()
@@ -191,7 +191,7 @@ def add_out():
 
 @bp.route("/out/remove/<int:line_id>", methods=["POST"])
 @login_required
-@admin_required
+@staff_or_admin_required
 def remove_out(line_id: int):
     from database import Database
     db = Database()
@@ -228,7 +228,7 @@ def undo_out(movement_id: int):
 
 @bp.route("/out/complete", methods=["POST"])
 @login_required
-@admin_required
+@staff_or_admin_required
 def complete_out():
     from database import Database
     db = Database()
@@ -253,7 +253,7 @@ def complete_out():
 
 @bp.route("/out/cancel", methods=["POST"])
 @login_required
-@admin_required
+@staff_or_admin_required
 def cancel_out():
     from database import Database
     try:
@@ -266,7 +266,7 @@ def cancel_out():
 
 @bp.route("/out/receipt/<cart_id>")
 @login_required
-@admin_required
+@staff_or_admin_required
 def distribution_receipt(cart_id: str):
     from database import Database
     receipt = Database().get_cart_receipt(int(current_user.id), cart_id)

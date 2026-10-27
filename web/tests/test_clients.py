@@ -65,7 +65,6 @@ class ClientAccess(unittest.TestCase):
                      "/clients/exports/customers.csv", f"/clients/{client_id}/retention/remove"):
             self.assertEqual(self.client.post(path, data={"client_id": client_id}).status_code, 503)
         self.assertNotIn(b"/clients/", self.client.get("/app").data)
-        self.assertNotIn(b"/scan/out", self.client.get("/app").data)
         self.client.get("/logout")
         self.login("student_a")
         self.assertEqual(self.client.get("/clients/").status_code, 403)

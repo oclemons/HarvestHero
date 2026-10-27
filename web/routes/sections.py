@@ -5,7 +5,7 @@ from pathlib import Path
 from flask import Blueprint, abort, flash, redirect, render_template, request, send_from_directory, url_for
 from flask_login import current_user, login_required
 
-from decorators import admin_required
+from decorators import admin_required, staff_or_admin_required
 
 bp = Blueprint("sections", __name__, url_prefix="/pantry")
 
@@ -31,7 +31,7 @@ def _visible_layout():
 
 @bp.route("/")
 @login_required
-@admin_required
+@staff_or_admin_required
 def index():
     references = [name for name in _REFERENCE_IMAGES if (_REFERENCE_DIR / name).is_file()]
     return render_template("sections/index.html", sections=_visible_layout(), references=references)

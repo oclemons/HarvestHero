@@ -36,7 +36,9 @@ class User(UserMixin):
         self.username   = row["username"]
         self.role       = row["role"]
         self.is_admin   = (self.role == "admin")
+        self.is_staff   = (self.role == "staff")
         self.is_student = (self.role == "student")
+        self.is_staff_or_admin = (self.role in ("admin", "staff"))
         self.theme      = _db.get_user_theme(row["id"])
         self._row       = row
 

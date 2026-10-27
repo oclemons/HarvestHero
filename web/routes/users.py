@@ -28,7 +28,7 @@ def index():
             flash("Username must be 3–64 letters, numbers, dots, dashes or underscores.", "error")
         elif len(full_name) > 120:
             flash("Name must be 120 characters or fewer.", "error")
-        elif role not in ("admin", "student"):
+        elif role not in ("admin", "staff", "student"):
             flash("Select an available role.", "error")
         elif password != confirm_password:
             flash("Temporary passwords do not match.", "error")
@@ -58,7 +58,7 @@ def reset_password(user_id: int):
     target = db.get_user_by_id(user_id)
     if not target:
         abort(404)
-    if target["role"] != "student":
+    if target["role"] not in ("student", "staff"):
         abort(403)
     if request.method == "GET":
         return render_template("admin/reset_password.html", target=target)

@@ -21,6 +21,7 @@
             {% else %}<li class="text-amber-900 py-2">Stock needs review; no item assignment was found.</li>{% endfor %}
           </ul>
         {% else %}
+          {% if current_user.is_admin %}
           <details class="mt-3 text-sm">
             <summary class="cursor-pointer font-semibold text-emerald-800">Edit section name</summary>
             <form method="post" action="{{ url_for('sections.edit_section', section_id=section.id) }}" class="mt-3 flex flex-wrap items-end gap-2">
@@ -35,6 +36,7 @@
               <button type="submit" class="rounded border border-red-300 text-red-900 bg-red-50 px-3 py-2 text-sm font-semibold hover:bg-red-100">Delete entire section</button>
             </form>
           </details>
+          {% endif %}
         {% if section.shelves %}
           <ul class="mt-5 grid gap-3 sm:grid-cols-2">
           {% for shelf in section.shelves %}
@@ -49,6 +51,7 @@
                     <a href="{{ url_for('inventory.detail', item_id=food.item_id) }}" class="text-emerald-800 underline">{{ food.item_name }}</a>
                     <span class="flex items-center gap-2">
                       <span>{{ food.quantity }} unit{{ '' if food.quantity == 1 else 's' }}</span>
+                      {% if current_user.is_admin %}
                       <form method="post" action="{{ url_for('inventory.delete', item_id=food.item_id) }}" class="inline"
                             onsubmit="return confirm('Delete {{ food.item_name | e }}?')">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -56,10 +59,12 @@
                         <input type="hidden" name="redirect_to" value="pantry">
                         <button type="submit" class="text-red-700 text-xs font-semibold hover:underline">Delete</button>
                       </form>
+                      {% endif %}
                     </span>
                   </li>
                 {% else %}<li class="text-slate-500">No items assigned yet.</li>{% endfor %}
               </ul>
+              {% if current_user.is_admin %}
               <details class="w-full text-sm">
                 <summary class="cursor-pointer font-semibold text-emerald-800">Edit shelf</summary>
                 <form method="post" action="{{ url_for('sections.edit_shelf', shelf_id=shelf.id) }}" class="mt-3 flex flex-wrap items-end gap-2">
@@ -75,6 +80,7 @@
                   <button type="submit" class="rounded border border-red-300 text-red-900 bg-red-50 px-3 py-2 text-sm font-semibold hover:bg-red-100">Delete shelf</button>
                 </form>
               </details>
+              {% endif %}
             </li>
           {% endfor %}
           </ul>
@@ -100,6 +106,7 @@
         </div>
       </details>
     {% endif %}
+    {% if current_user.is_admin %}
     <form method="post" action="{{ url_for('sections.create_section') }}" class="bg-white rounded-xl shadow-sm border border-emerald-100 p-6 space-y-3">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <h2 class="text-lg font-bold">Create a section</h2>
@@ -120,6 +127,7 @@
       <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="is_overflow"> Overflow storage</label>
       <button class="rounded bg-emerald-800 text-white px-4 py-2 font-semibold hover:bg-emerald-900" type="submit">Add shelf</button>
     </form>
+    {% endif %}
   </aside>
 </div>
 {% endblock %}
